@@ -1,0 +1,100 @@
+# ======================================
+# PYTHON
+# ======================================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Bytecode compilado
+*.pyo
+*.pyd
+
+# Caches
+*.cache
+*.log
+*.pot
+*.pyc
+*.pkl
+.cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ======================================
+# AMBIENTE VIRTUAL
+# ======================================
+.venv/
+venv/
+env/
+ENV/
+.venv*/
+pip-wheel-metadata/
+site/
+
+# ======================================
+# DEPENDÊNCIAS E BUILD
+# ======================================
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+*.manifest
+*.spec
+
+# ======================================
+# CONFIGURAÇÕES DO EDITOR
+# ======================================
+.vscode/
+.idea/
+*.code-workspace
+
+# ======================================
+# SISTEMA OPERACIONAL
+# ======================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ======================================
+# BANCO DE DADOS E DUMPS
+# ======================================
+*.db
+*.sqlite3
+*.sql
+*.bak
+
+# ======================================
+# ARQUIVOS SENSÍVEIS
+# ======================================
+.env
+.env.*
+*.key
+*.pem
+*.cert
+*.crt
+*.token
+secrets.json
+
+# ======================================
+# TESTES / RELATÓRIOS
+# ======================================
+junit.xml
+coverage.xml
+nosetests.xml
+test-results/
+.tox/
+.pyre/
+.mypy_cache/
+hypothesis/
+prof/
+
+# ======================================
+# MIGRAÇÕES (opcional: manter apenas alembic.ini)
+# ======================================
+alembic/versions/*.pyc
+alembic/versions/__pycache__/
+
+# Docker
+docker-compose.override.yml
+*.pid
