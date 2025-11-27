@@ -1,9 +1,8 @@
 from fastapi import FastAPI
-from app.routes.report_routes import router as report_router
-from app.routes.insight_routes import router as insight_router
+from app.routes import report_routes, insight_routes
 
-app = FastAPI(title="Healthy Agent API")
+app = FastAPI(title="Symptom Tracker API")
 
-# Registrar rotas
-app.include_router(report_router, prefix="/reports", tags=["Relatórios"])
-app.include_router(insight_router, prefix="/insights", tags=["Insights"])
+# Incluir as rotas principais
+app.include_router(report_routes.router, prefix="/report", tags=["report"])
+app.include_router(insight_routes.router, prefix="/insight", tags=["insight"])

@@ -1,10 +1,9 @@
 from fastapi import APIRouter, Depends
 from app.services.report_service import ReportService
-from app.database.db import SessionLocal
+from app.db.session import SessionLocal
 
 router = APIRouter()
 
-# Dependência para banco de dados
 def get_db():
     db = SessionLocal()
     try:
