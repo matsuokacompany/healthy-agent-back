@@ -1,7 +1,9 @@
 from fastapi import FastAPI
-from app.bot.whatsapp_bot import app as whatsapp_app
+from app.routes.report_routes import router as report_router
+from app.routes.insight_routes import router as insight_router
 
-app = FastAPI()
+app = FastAPI(title="Healthy Agent API")
 
-# Incluir as rotas do bot dentro da API principal
-app.mount("/", whatsapp_app)
+# Registrar rotas
+app.include_router(report_router, prefix="/reports", tags=["Relatórios"])
+app.include_router(insight_router, prefix="/insights", tags=["Insights"])
