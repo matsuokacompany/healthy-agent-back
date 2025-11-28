@@ -3,7 +3,7 @@ name: Deploy to EC2
 on:
   push:
     branches:
-      - main   # altere se sua branch principal for outra
+      - main
 
 jobs:
   deploy:
@@ -21,17 +21,9 @@ jobs:
     - name: Deploy to EC2
       run: |
         ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-          
           cd ~/healthy-agent-back
-
-          echo "→ Pulling latest changes"
           git pull
-
-          echo "→ Rebuilding Docker containers"
           docker compose down
           docker compose build --no-cache
           docker compose up -d
-
-          echo "✓ Deploy complete!"
-
         EOF
