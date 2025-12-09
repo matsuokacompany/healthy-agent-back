@@ -1,51 +1,35 @@
 from logging.config import fileConfig
 import os
-
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 from dotenv import load_dotenv
 
-# Carrega variáveis do .env
 load_dotenv()
 
-# Alembic config
 config = context.config
 
-# Logging
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Importa Base do seu projeto
 from app.db.base import Base
 target_metadata = Base.metadata
 
-# Lê DATABASE_URL do ambiente
 DATABASE_URL = os.getenv("DATABASE_URL")
-
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL não está definida no .env ou no ambiente.")
-
-# Configura a URL para o Alembic (precisa ser psycopg2!)
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
-
-def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode."""
+def run_migrations_offline():
     url = config.get_main_option("sqlalchemy.url")
-
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
-
     with context.begin_transaction():
         context.run_migrations()
 
 
-def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
+def run_migrations_online():
     connectable = engine_from_config(
         config.get_section(config.config_ini_section),
         prefix="sqlalchemy.",
@@ -54,15 +38,14 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, 
+            connection=connection,
             target_metadata=target_metadata,
-            compare_type=True,            # ← detecta mudanças de tipo
-            compare_server_default=True   # ← detecta defaults
+            compare_type=True,
+            compare_server_default=True
         )
 
         with context.begin_transaction():
             context.run_migrations()
-
 
 if context.is_offline_mode():
     run_migrations_offline()

@@ -1,9 +1,7 @@
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import create_engine
-from app.core.config import settings
 
+# Base usada pelo Alembic e SQLAlchemy
 Base = declarative_base()
-engine = create_engine(settings.DATABASE_URL, echo=True)
 
-# IMPORTANTE: importar todos os models aqui
+# Importar modelos para registrar no metadata
 from app.models.models import User, Anamnese, Symptom, DailyLog
