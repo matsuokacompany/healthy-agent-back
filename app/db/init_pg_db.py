@@ -1,11 +1,8 @@
-from app.db.base import Base, engine
-# IMPORTAR TODOS OS MODELOS para garantir que eles sejam registrados
-from app.models import models
+# app/db/init_db.py
+from app.db.session import engine
+from app.db.base import Base
 
 def init_db():
-    print("Criando tabelas no PostgreSQL...")
+    print("Criando tabelas no PostgreSQL via Base.metadata.create_all()...")
     Base.metadata.create_all(bind=engine)
-    print("✅ Tabelas criadas com sucesso!")
-
-if __name__ == "__main__":
-    init_db()
+    print("Tabelas criadas!")

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.models.models import DailyLog
 from app.models.schemas import DailyLogCreate, DailyLogRead
-from app.routes.dependencies import get_db
+from app.core.dependencies import get_db
 
 router = APIRouter(prefix="/logs", tags=["Daily Logs"])
 

@@ -1,7 +1,10 @@
-from sqlalchemy.orm import declarative_base
+# app/db/base.py
+from sqlalchemy.orm import DeclarativeBase
 
-# Base usada pelo Alembic e SQLAlchemy
-Base = declarative_base()
 
-# Importar modelos para registrar no metadata
+class Base(DeclarativeBase):
+    pass
+
+
+# IMPORTANTE: importar modelos aqui para registrar no metadata
 from app.models.models import User, Anamnese, Symptom, DailyLog
