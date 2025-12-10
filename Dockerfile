@@ -1,12 +1,14 @@
 FROM python:3.11-slim AS builder
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb && \
+    apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     libcairo2-dev \
     libffi-dev \
     pkg-config \
     build-essential \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
