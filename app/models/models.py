@@ -11,14 +11,11 @@ class User(Base):
     name = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
     telegram_id = Column(String, unique=True, index=True, nullable=True)
-
-    # 🆕 Novos campos
     phone = Column(String, nullable=True)
     city = Column(String, nullable=True)
     state = Column(String, nullable=True)
     gender = Column(String, nullable=True)
     birth_date = Column(Date, nullable=True)
-
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     anamneses = relationship("Anamnese", back_populates="user")
