@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from app.services.insight_service import InsightService
 import os
 
-router = APIRouter()
+router = APIRouter(tags=["Insights"])
 
 class InsightRequest(BaseModel):
     relatorio_texto: str

@@ -4,7 +4,7 @@ from app.models.models import Anamnese
 from app.models.schemas import AnamneseCreate, AnamneseRead
 from app.core.dependencies import get_db
 
-router = APIRouter(prefix="/anamneses", tags=["Anamnese"])
+router = APIRouter(tags=["Anamneses"])
 
 @router.post("/", response_model=AnamneseRead)
 def create_anamnese(anamnese: AnamneseCreate, db: Session = Depends(get_db)):

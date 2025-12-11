@@ -4,7 +4,7 @@ from app.models.models import Symptom
 from app.models.schemas import SymptomCreate, SymptomRead
 from app.core.dependencies import get_db
 
-router = APIRouter(prefix="/symptoms", tags=["Symptoms"])
+router = APIRouter(tags=["Symptoms"])
 
 @router.post("/", response_model=SymptomRead)
 def create_symptom(data: SymptomCreate, db: Session = Depends(get_db)):

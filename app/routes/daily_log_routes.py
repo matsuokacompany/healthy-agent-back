@@ -4,7 +4,7 @@ from app.models.models import DailyLog
 from app.models.schemas import DailyLogCreate, DailyLogRead
 from app.core.dependencies import get_db
 
-router = APIRouter(prefix="/logs", tags=["Daily Logs"])
+router = APIRouter(tags=["Daily Logs"])
 
 @router.post("/", response_model=DailyLogRead)
 def create_log(data: DailyLogCreate, db: Session = Depends(get_db)):

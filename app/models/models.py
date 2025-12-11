@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.db.base_class import Base
@@ -16,6 +16,9 @@ class User(Base):
     gender = Column(String, nullable=True)
     birth_date = Column(Date, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    cpf= Column(String, unique=True, nullable=True)
+    hashed_password = Column(String, nullable=True)
+    is_admin = Column(Boolean, default=False)
 
     anamneses = relationship("Anamnese", back_populates="user")
     symptoms = relationship("Symptom", back_populates="user")

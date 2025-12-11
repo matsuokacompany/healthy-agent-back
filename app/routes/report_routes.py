@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from app.services.report_service import ReportService
 from app.db.session import SessionLocal
 
-router = APIRouter()
+router = APIRouter(tags=["Reports"])
 
 def get_db():
     db = SessionLocal()
