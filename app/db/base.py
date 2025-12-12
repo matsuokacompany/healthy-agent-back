@@ -1,10 +1,6 @@
-# app/db/base.py
-from sqlalchemy.orm import DeclarativeBase
+from app.db.base_class import Base
 
-
-class Base(DeclarativeBase):
-    pass
-
-
-# IMPORTANTE: importar modelos aqui para registrar no metadata
+# importa APENAS para registrar no metadata
 from app.models.models import User, Anamnese, Symptom, DailyLog
+
+__all__ = ["Base", "User", "Anamnese", "Symptom", "DailyLog"]
