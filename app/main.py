@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 
 from app.routes import (
@@ -10,10 +11,13 @@ from app.routes import (
     user_routes
 )
 
+ENV = os.getenv("ENV", "dev").lower()
+DEBUG = ENV == "dev"
+
 app = FastAPI(
     title="Symptom Tracker API",
-    docs_url=None,
-    redoc_url=None
+    docs_url="/docs" if DEBUG else None,
+    redoc_url="/redoc" if DEBUG else None
 )
 
 API = "/api"
