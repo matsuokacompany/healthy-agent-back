@@ -29,7 +29,6 @@ def create_user(
     service = UserService(db)
     return service.create_user(user)
 
-
 # ============================================================
 #                  GET USER (SELF OR ADMIN)
 # ============================================================
