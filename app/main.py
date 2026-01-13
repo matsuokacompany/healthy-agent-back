@@ -11,6 +11,8 @@ from app.routes import (
     user_routes
 )
 
+from app.bot.scheduler import start_scheduler
+
 ENV = os.getenv("ENV", "dev").lower()
 DEBUG = ENV == "dev"
 
@@ -20,8 +22,14 @@ app = FastAPI(
     redoc_url="/redoc" if DEBUG else None
 )
 
+
+@app.on_event("startup")
+def startup_event():
+    start_scheduler()
+
+
 API = "/api"
-app.include_router(auth_routes.router, prefix="/api")
+app.include_router(auth_routes.router, prefix=f"{API}/auth")
 app.include_router(anamnese_routes.router, prefix=f"{API}/anamneses")
 app.include_router(daily_log_routes.router, prefix=f"{API}/logs")
 app.include_router(insight_routes.router, prefix=f"{API}/insights")
