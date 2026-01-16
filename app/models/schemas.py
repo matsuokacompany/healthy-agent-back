@@ -30,7 +30,7 @@ class UserRead(UserBase):
     is_admin: bool
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ============================================================
@@ -51,7 +51,7 @@ class AnamneseRead(AnamneseBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ============================================================
@@ -72,7 +72,7 @@ class SymptomRead(SymptomBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ============================================================
@@ -93,4 +93,4 @@ class DailyLogRead(DailyLogBase):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
