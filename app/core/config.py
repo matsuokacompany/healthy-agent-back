@@ -9,7 +9,8 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     USER_ID: int = 1
     ENV: str = "dev"
-
+    SECRET_KEY: str
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
