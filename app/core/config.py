@@ -12,8 +12,6 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore",        # ignora variáveis extras
-        case_sensitive=True    # 🔑 MUITO IMPORTANTE
     )
 
 settings = Settings()
