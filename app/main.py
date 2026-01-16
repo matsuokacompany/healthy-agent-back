@@ -11,7 +11,7 @@ from app.routes import (
     user_routes
 )
 
-from app.bot.scheduler import start_scheduler
+# from app.bot.scheduler import start_scheduler
 
 ENV = os.getenv("ENV", "dev").lower()
 DEBUG = ENV == "dev"
@@ -23,9 +23,9 @@ app = FastAPI(
 )
 
 
-@app.on_event("startup")
-def startup_event():
-    start_scheduler()
+# @app.on_event("startup")
+# def startup_event():
+    # start_scheduler()
 
 
 API = "/api"
