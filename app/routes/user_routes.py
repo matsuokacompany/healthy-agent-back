@@ -9,7 +9,6 @@ from app.models.models import User
 
 router = APIRouter(tags=["Users"])
 
-
 # ============================================================
 #                     CREATE USER (ADMIN)
 # ============================================================
