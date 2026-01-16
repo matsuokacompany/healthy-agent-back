@@ -1,4 +1,3 @@
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -10,14 +9,9 @@ from passlib.context import CryptContext
 
 from app.core.dependencies import get_db
 from app.models.models import User
+from app.core.config import settings
 
-# ==========================================================
-#                    CONFIGURAÇÕES JWT
-# ==========================================================
-
-SECRET_KEY = os.getenv("SECRET_KEY")
-if not SECRET_KEY:
-    raise RuntimeError("SECRET_KEY not set in environment variables")
+SECRET_KEY = settings.SECRET_KEY
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 horas
