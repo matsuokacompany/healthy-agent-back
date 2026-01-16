@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 class Settings(BaseSettings):
@@ -9,10 +9,11 @@ class Settings(BaseSettings):
     ENV: str = "dev"
     SECRET_KEY: str
 
-    model_config = {
-        "env_file": ".env",
-        "env_file_encoding": "utf-8",
-        "extra": "ignore",   # <<< AGORA FUNCIONA
-    }
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",        # ignora variáveis extras
+        case_sensitive=True    # 🔑 MUITO IMPORTANTE
+    )
 
 settings = Settings()
