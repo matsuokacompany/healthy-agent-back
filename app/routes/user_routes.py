@@ -7,7 +7,10 @@ from app.core.dependencies import get_db
 from app.core.auth import get_current_user, get_current_admin
 from app.models.models import User
 
-router = APIRouter(tags=["Users"])
+router = APIRouter(
+    prefix="/users",
+    tags=["Users"]
+)
 
 # ============================================================
 #                     CREATE USER (ADMIN)
