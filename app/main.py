@@ -18,6 +18,7 @@ DEBUG = ENV == "dev"
 
 app = FastAPI(
     title="Symptom Tracker API",
+    redirect_slashes=False,
     docs_url="/docs" if DEBUG else None,
     redoc_url="/redoc" if DEBUG else None
 )
