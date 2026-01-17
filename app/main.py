@@ -23,7 +23,6 @@ app = FastAPI(
     redoc_url="/redoc" if DEBUG else None
 )
 
-
 # @app.on_event("startup")
 # def startup_event():
     # start_scheduler()
