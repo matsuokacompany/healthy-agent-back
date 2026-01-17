@@ -21,7 +21,7 @@ router = APIRouter(tags=["Users"])
 def create_user(
     user: UserCreate,
     db: Session = Depends(get_db),
-    # _: User = Depends(get_current_admin)  # apenas admin
+    _: User = Depends(get_current_admin),  # OBRIGATÓRIO
 ):
     service = UserService(db)
     return service.create_user(user)

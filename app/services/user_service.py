@@ -42,7 +42,7 @@ class UserService:
             birth_date=data.birth_date,
             cpf=data.cpf,
             hashed_password=hashed_pw,
-            is_admin=data.is_admin if data.is_admin is not None else False
+            is_admin=False
         )
 
         self.db.add(new_user)
