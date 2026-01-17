@@ -23,7 +23,7 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
     if not verify_password(form.password, user.hashed_password):
         raise HTTPException(401, "Invalid email or password")
 
-    token = create_access_token({"sub": str(user.id)})
+    token = create_access_token(user.id, expires_delta=60)
 
     return {
         "access_token": token,
