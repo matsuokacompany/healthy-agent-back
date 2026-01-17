@@ -6,7 +6,7 @@ from app.core.dependencies import get_db
 from app.core.auth import verify_password, create_access_token
 from app.models.models import User
 
-router = APIRouter(prefix="/auth", tags=["Auth"])
+router = APIRouter(tags=["Auth"])
 
 
 @router.post("/login")
