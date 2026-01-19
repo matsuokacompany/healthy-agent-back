@@ -12,12 +12,11 @@ from app.models.models import User
 from app.core.config import settings
 
 SECRET_KEY = settings.SECRET_KEY
-
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 horas
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 # ==========================================================
 #                        UTILIDADES
@@ -26,15 +25,16 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
-
 def create_access_token(user_id: int, expires_delta: Optional[int] = None) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=expires_delta or ACCESS_TOKEN_EXPIRE_MINUTES
     )
+
     payload = {
-        "sub": str(user_id),  # JWT spec: subject must be string
-        "exp": expire
+        "sub": str(user_id),
+        "exp": int(expire.timestamp())  # 🔴 OBRIGATÓRIO NO python-jose
     }
+
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 # ==========================================================
