@@ -11,7 +11,7 @@ class UserService:
         self.db = db
 
     def _hash_password(self, password: str) -> str:
-        return pwd_context.hash(password)
+        return pwd_context.hash(password[:72])
 
     def create_user(self, data: UserCreate) -> User:
 
