@@ -59,6 +59,8 @@ class AnamneseBase(BaseModel):
 class AnamneseCreate(AnamneseBase):
     user_id: int
 
+class AnamneseUpdate(BaseModel):
+    info: Optional[str] = None
 
 class AnamneseRead(AnamneseBase):
     id: int

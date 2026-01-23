@@ -26,7 +26,9 @@ class User(Base):
     hashed_password = Column(String, nullable=True)
     is_admin = Column(Boolean, default=False)
 
-    anamneses = relationship("Anamnese", back_populates="user")
+    # ✅ 1:1 (um usuário tem uma anamnese)
+    anamnese = relationship("Anamnese", back_populates="user", uselist=False)
+
     symptoms = relationship("Symptom", back_populates="user")
     daily_logs = relationship("DailyLog", back_populates="user")
 
@@ -35,11 +37,17 @@ class Anamnese(Base):
     __tablename__ = "anamneses"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True)  # ✅ 1:1 no banco
     info = Column(Text)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc)
+    )
 
-    user = relationship("User", back_populates="anamneses")
+    # ✅ agora bate com User.anamnese
+    user = relationship("User", back_populates="anamnese")
 
 
 class Symptom(Base):
