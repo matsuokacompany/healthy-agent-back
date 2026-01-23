@@ -101,3 +101,10 @@ class UserService:
         self.db.commit()
         self.db.refresh(user)
         return user
+
+    def delete_user(self, user_id: int):
+        user = self.db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(404, "User not found")
+        self.db.delete(user)
+        self.db.commit()
