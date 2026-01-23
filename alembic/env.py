@@ -4,7 +4,12 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from dotenv import load_dotenv
 
-load_dotenv()
+ENV = os.getenv("ENV", "dev").lower()
+
+if ENV == "dev":
+    load_dotenv(".env.dev")
+else:
+    load_dotenv(".env")
 
 config = context.config
 

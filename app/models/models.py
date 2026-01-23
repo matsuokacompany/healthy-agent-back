@@ -16,6 +16,12 @@ class User(Base):
     gender = Column(String, nullable=True)
     birth_date = Column(Date, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
     cpf = Column(String, unique=True, nullable=True)
     hashed_password = Column(String, nullable=True)
     is_admin = Column(Boolean, default=False)

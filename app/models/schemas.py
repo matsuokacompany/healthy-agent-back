@@ -27,10 +27,25 @@ class UserCreate(UserBase):
 class UserRead(UserBase):
     id: int
     created_at: datetime
+    updated_at: datetime
     is_admin: bool
 
     class Config:
         from_attributes = True
+        
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    telegram_id: Optional[str] = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    gender: Optional[str] = None
+    birth_date: Optional[date] = None
+    cpf: Optional[str] = None
+
+    password: Optional[str] = None
+    is_admin: Optional[bool] = None
 
 
 # ============================================================

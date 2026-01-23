@@ -22,5 +22,6 @@ apscheduler==3.10.4
 psycopg2-binary==2.9.10
 openai>=1.40.0,<2.0.0
 python-jose[cryptography]
-passlib[bcrypt]
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 email-validator==2.1.0.post1
