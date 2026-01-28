@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
+import secrets
 
 from app.core.dependencies import get_db
 from app.models.models import User
@@ -13,9 +14,12 @@ from app.core.config import settings
 
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 horas
+
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+REFRESH_TOKEN_EXPIRE_DAYS = 30
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/auth/login"
 )
@@ -25,29 +29,36 @@ oauth2_scheme_optional = OAuth2PasswordBearer(
     auto_error=False
 )
 
+# ==================================================
+#                   TOKENS
+# ==================================================
 
-# ==========================================================
-#                        UTILIDADES
-# ==========================================================
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password[:72], hashed_password)
-
-def create_access_token(user_id: int, expires_delta: Optional[int] = None) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=expires_delta or ACCESS_TOKEN_EXPIRE_MINUTES
-    )
+def create_access_token(user_id: int) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
     payload = {
         "sub": str(user_id),
-        "exp": int(expire.timestamp())  # 🔴 OBRIGATÓRIO NO python-jose
+        "exp": int(expire.timestamp()),
     }
 
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
-# ==========================================================
-#                    DEPENDÊNCIAS DE LOGIN
-# ==========================================================
+
+def create_refresh_token() -> tuple[str, datetime]:
+    token = secrets.token_urlsafe(64)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    return token, expires_at
+
+# ==================================================
+#                PASSWORD
+# ==================================================
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password[:72], hashed_password)
+
+# ==================================================
+#                DEPENDENCIES
+# ==================================================
 
 def get_current_user(
     token: str = Depends(oauth2_scheme),
@@ -62,7 +73,7 @@ def get_current_user(
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         sub = payload.get("sub")
-        if sub is None:
+        if not sub:
             raise credentials_exception
         user_id = int(sub)
     except (JWTError, ValueError):
@@ -70,20 +81,10 @@ def get_current_user(
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(404, "User not found")
 
     return user
 
-
-def get_current_admin(
-    current_user: User = Depends(get_current_user),
-) -> User:
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
-    return current_user
 
 def get_current_user_optional(
     token: str | None = Depends(oauth2_scheme_optional),
@@ -102,3 +103,13 @@ def get_current_user_optional(
         return None
 
     return db.query(User).filter(User.id == user_id).first()
+
+def get_current_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
+        )
+    return current_user

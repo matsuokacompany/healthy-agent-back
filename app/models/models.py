@@ -31,7 +31,7 @@ class User(Base):
 
     symptoms = relationship("Symptom", back_populates="user")
     daily_logs = relationship("DailyLog", back_populates="user")
-
+    refresh_tokens = relationship("RefreshToken", back_populates="user")
 
 class Anamnese(Base):
     __tablename__ = "anamneses"
@@ -70,3 +70,18 @@ class DailyLog(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="daily_logs")
+    
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    token = Column(String, unique=True, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
+
+    revoked = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User")
+

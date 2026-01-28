@@ -1,6 +1,10 @@
 from pydantic import BaseModel, EmailStr
 from datetime import date, datetime
 from typing import Optional
+from pydantic import BaseModel
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
 
 # ============================================================
 #                       USER SCHEMAS
