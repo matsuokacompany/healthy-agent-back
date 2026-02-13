@@ -7,6 +7,7 @@ from app.services.symptom_service import SymptomService
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("🚀 Message received:", update.message.text if update.message else "No message")
     if not update.message:
         return
 
