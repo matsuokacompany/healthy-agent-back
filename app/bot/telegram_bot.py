@@ -1,42 +1,45 @@
-import logging
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler,
-    filters, ConversationHandler
-)
-from app.bot.handlers import (
-    start_handler, symptom_handler, action_handler, report_handler
-)
-from app.bot.scheduler import schedule_daily_messages
-from app.core.config import settings
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from telegram import Update
 
-logging.basicConfig(level=logging.INFO)
-TOKEN = settings.TELEGRAM_BOT_TOKEN
+from app.db.session import SessionLocal
+from app.models.models import User
+from app.services.symptom_service import SymptomService
 
-ASK_SYMPTOM, ASK_ACTION = range(2)
 
-def main():
-    app = ApplicationBuilder().token(TOKEN).build()
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
 
-    # Conversa principal
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start_handler.start)],
-        states={
-            ASK_SYMPTOM: [MessageHandler(filters.TEXT & ~filters.COMMAND, symptom_handler.ask_symptom)],
-            ASK_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, action_handler.ask_action)],
-        },
-        fallbacks=[CommandHandler("cancel", start_handler.cancel)],
+    db = SessionLocal()
+
+    telegram_id = str(update.message.from_user.id)
+
+    user = db.query(User).filter(
+        User.telegram_id == telegram_id
+    ).first()
+
+    if not user:
+        user = User(
+            name=update.message.from_user.full_name,
+            telegram_id=telegram_id
+        )
+        db.add(user)
+        db.commit()
+
+    SymptomService.process_daily_response(
+        db=db,
+        user=user,
+        message=update.message.text
     )
 
-    # Comandos adicionais
-    app.add_handler(conv_handler)
-    app.add_handler(CommandHandler("relatorio_semanal", report_handler.relatorio_semanal))
-    app.add_handler(CommandHandler("relatorio_mensal", report_handler.relatorio_mensal))
+    db.close()
 
-    # Agendador
-    schedule_daily_messages(app)
 
-    print("🤖 Bot Telegram rodando e pronto para uso...")
-    app.run_polling()
+def start_bot(token: str):
+    app = ApplicationBuilder().token(token).build()
 
-if __name__ == "__main__":
-    main()
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
+    )
+
+    return app

@@ -11,7 +11,8 @@ from app.routes import (
     user_routes
 )
 
-# from app.bot.scheduler import start_scheduler
+from app.bot.telegram_bot import start_bot
+from app.bot.scheduler import schedule_daily_messages
 
 ENV = os.getenv("ENV", "dev").lower()
 DEBUG = ENV == "dev"
@@ -23,12 +24,8 @@ app = FastAPI(
     redoc_url="/redoc" if DEBUG else None
 )
 
-# @app.on_event("startup")
-# def startup_event():
-    # start_scheduler()
-
-
 API = "/api"
+
 app.include_router(auth_routes.router, prefix=f"{API}/auth")
 app.include_router(anamnese_routes.router, prefix=f"{API}/anamneses")
 app.include_router(daily_log_routes.router, prefix=f"{API}/logs")
@@ -36,3 +33,15 @@ app.include_router(insight_routes.router, prefix=f"{API}/insights")
 app.include_router(report_routes.router, prefix=f"{API}/reports")
 app.include_router(symptom_routes.router, prefix=f"{API}/symptoms")
 app.include_router(user_routes.router, prefix=f"{API}/users")
+
+
+@app.on_event("startup")
+async def startup_event():
+    telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    
+    telegram_app = start_bot(telegram_token)
+
+    schedule_daily_messages(telegram_app)
+
+    await telegram_app.initialize()
+    await telegram_app.start()

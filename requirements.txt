@@ -12,7 +12,6 @@ matplotlib==3.7.2
 pytest==7.4.0
 pytest-asyncio==0.21.0
 pytest-mock==3.11.1
-httpx==0.28.1
 python-dotenv==1.0.0
 python-multipart>=0.0.12
 pydantic==2.10.6
@@ -26,3 +25,4 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 email-validator==2.1.0.post1
 langchain-openai==0.1.16
+python-telegram-bot==20.7

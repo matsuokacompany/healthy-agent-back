@@ -15,7 +15,7 @@ class User(Base):
     state = Column(String, nullable=True)
     gender = Column(String, nullable=True)
     birth_date = Column(Date, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
         DateTime,
         default=lambda: datetime.now(timezone.utc),
@@ -25,6 +25,8 @@ class User(Base):
     cpf = Column(String, unique=True, nullable=True)
     hashed_password = Column(String, nullable=True)
     is_admin = Column(Boolean, default=False)
+    awaiting_daily_response = Column(Boolean, default=False)
+    last_daily_prompt_at = Column(DateTime, nullable=True)
 
     # ✅ 1:1 (um usuário tem uma anamnese)
     anamnese = relationship("Anamnese", back_populates="user", uselist=False)
