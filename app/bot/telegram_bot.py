@@ -26,11 +26,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.add(user)
         db.commit()
 
-    SymptomService.process_daily_response(
+    result = SymptomService.process_daily_response(
         db=db,
         user=user,
         message=update.message.text
     )
+
+    print("RESULTADO PROCESSAMENTO:", result)
 
     db.close()
 
