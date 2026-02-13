@@ -14,6 +14,15 @@ from app.routes import (
 from app.bot.telegram_bot import start_bot
 from app.bot.scheduler import schedule_daily_messages
 
+import logging
+import sys
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    stream=sys.stdout  # importante para aparecer no docker logs
+)
+
 ENV = os.getenv("ENV", "dev").lower()
 DEBUG = ENV == "dev"
 
