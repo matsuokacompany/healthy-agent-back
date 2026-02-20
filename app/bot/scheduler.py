@@ -1,13 +1,11 @@
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
-import asyncio
-
 from app.models.models import User
 from app.db.session import SessionLocal
 
-scheduler = BackgroundScheduler(timezone="America/Sao_Paulo")
+# Use AsyncIOScheduler, não BackgroundScheduler
+scheduler = AsyncIOScheduler(timezone="America/Sao_Paulo")
 
 
 async def send_daily_prompt(app):
@@ -27,22 +25,26 @@ async def send_daily_prompt(app):
             user.last_daily_prompt_at = datetime.now(timezone.utc)
 
         db.commit()
-        db.close()
-
     except Exception as e:
         print("❌ Erro no send_daily_prompt:", e)
+    finally:
+        db.close()
 
 
 def schedule_daily_messages(app):
-    if scheduler.running:
+    # Verifica se o job já existe
+    if scheduler.get_job("night_prompt"):
         return
 
+    # Cria job
     scheduler.add_job(
         send_daily_prompt,
-        CronTrigger(hour=22, timezone=ZoneInfo("UTC")),
+        CronTrigger(hour=22),  # envia às 22h horário do scheduler
         args=[app],
         id="night_prompt",
         replace_existing=True,
     )
 
-    scheduler.start()
+    # Inicia scheduler
+    if not scheduler.running:
+        scheduler.start()
