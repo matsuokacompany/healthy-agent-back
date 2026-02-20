@@ -1,6 +1,7 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import asyncio
 
 from app.models.models import User
@@ -36,12 +37,10 @@ def schedule_daily_messages(app):
     if scheduler.running:
         return
 
-    def job_wrapper():
-        asyncio.run(send_daily_prompt(app))
-
     scheduler.add_job(
-        job_wrapper,
-        CronTrigger(minute="*/1"),  # teste a cada 1 minuto
+        send_daily_prompt,
+        CronTrigger(hour=22, timezone=ZoneInfo("UTC")),
+        args=[app],
         id="night_prompt",
         replace_existing=True,
     )
