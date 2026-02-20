@@ -35,6 +35,7 @@ app = FastAPI(
 
 API = "/api"
 
+# Rotas da API
 app.include_router(auth_routes.router, prefix=f"{API}/auth")
 app.include_router(anamnese_routes.router, prefix=f"{API}/anamneses")
 app.include_router(daily_log_routes.router, prefix=f"{API}/logs")
@@ -47,11 +48,16 @@ app.include_router(user_routes.router, prefix=f"{API}/users")
 @app.on_event("startup")
 async def startup_event():
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
-
     telegram_app = start_bot(telegram_token)
 
+    # Agenda a mensagem diária das 22h
     schedule_daily_messages(telegram_app)
 
+    # Inicializa o bot
     await telegram_app.initialize()
     await telegram_app.start()
+
+    # Inicia polling (ver logs de getUpdates, mas não envia mensagens extras)
     await telegram_app.updater.start_polling()
+
+    logging.info("Bot e Scheduler inicializados ✅")
