@@ -87,3 +87,13 @@ class RefreshToken(Base):
 
     user = relationship("User")
 
+class TelegramLinkCode(Base):
+    __tablename__ = "telegram_link_codes"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    code = Column(String, unique=True, index=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False)
+
+    user = relationship("User")

@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from datetime import datetime, timedelta, timezone
+import secrets
 
 from app.models.schemas import UserCreate, UserRead, UserUpdate
 from app.services.user_service import UserService
 from app.core.dependencies import get_db
 from app.core.auth import get_current_user, get_current_admin, get_current_user_optional
-from app.models.models import User
+from app.models.models import User, TelegramLinkCode
 
 router = APIRouter(tags=["Users"])
 
@@ -100,3 +102,30 @@ def update_user(
     require_access_user(current_user, user_id)
 
     return UserService(db).update_user(user_id, payload, current_user)
+
+# ============================================================
+#                  GENERATE TELEGRAM LINK CODE
+# ============================================================
+
+@router.post("/me/generate-telegram-code")
+def generate_telegram_code(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    code = secrets.token_hex(3).upper()
+
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+
+    link = TelegramLinkCode(
+        user_id=current_user.id,
+        code=code,
+        expires_at=expires_at,
+    )
+
+    db.add(link)
+    db.commit()
+
+    return {
+        "telegram_code": code,
+        "expires_at": expires_at
+    }

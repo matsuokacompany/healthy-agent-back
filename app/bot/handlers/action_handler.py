@@ -1,3 +1,5 @@
+from sqlalchemy import func
+from app.models.models import User, TelegramLinkCode
 from telegram import Update
 from telegram.ext import (
     ContextTypes,
@@ -27,11 +29,46 @@ def get_repos():
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Olá! Vou te ajudar a registrar seus sintomas diariamente.\n\n"
-        "Teve algum sintoma hoje?"
-    )
-    return ASK_SYMPTOM
+    args = context.args
+
+    if not args:
+        await update.message.reply_text(
+            "Envie /start SEU_CODIGO para vincular sua conta."
+        )
+        return ConversationHandler.END
+
+    code = args[0]
+    telegram_id = str(update.message.from_user.id)
+
+    db = SessionLocal()
+
+    try:
+        link = db.query(TelegramLinkCode).filter(
+            TelegramLinkCode.code == code,
+            TelegramLinkCode.used == False,
+            TelegramLinkCode.expires_at > func.now()
+        ).first()
+
+        if not link:
+            await update.message.reply_text("Código inválido ou expirado.")
+            return ConversationHandler.END
+
+        user = db.query(User).filter(User.id == link.user_id).first()
+
+        if not user:
+            await update.message.reply_text("Usuário não encontrado.")
+            return ConversationHandler.END
+
+        user.telegram_id = telegram_id
+        link.used = True
+
+        db.commit()
+
+        await update.message.reply_text("Conta vinculada com sucesso ✅")
+        return ConversationHandler.END
+
+    finally:
+        db.close()
 
 
 async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -42,7 +79,13 @@ async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db, user_repo, symptom_repo, log_repo = get_repos()
 
     try:
-        user = user_repo.get_or_create_by_telegram_id(telegram_id, nome)
+        user = user_repo.get_user_by_telegram_id(telegram_id)
+
+        if not user:
+            await update.message.reply_text(
+                "Sua conta não está vinculada. Use /start SEU_CODIGO."
+            )
+            return ConversationHandler.END
 
         if text in NEGATIVE_ANSWERS:
             log_repo.create_log(

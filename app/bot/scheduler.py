@@ -10,21 +10,26 @@ scheduler = BackgroundScheduler(timezone="America/Sao_Paulo")
 
 
 async def send_daily_prompt(app):
-    db = SessionLocal()
+    print("🚀 Executando send_daily_prompt")
 
-    users = db.query(User).filter(User.telegram_id.isnot(None)).all()
+    try:
+        db = SessionLocal()
+        users = db.query(User).filter(User.telegram_id.isnot(None)).all()
 
-    for user in users:
-        await app.bot.send_message(
-            chat_id=user.telegram_id,
-            text="🌙 Boa noite! Teve algum sintoma hoje?"
-        )
+        for user in users:
+            await app.bot.send_message(
+                chat_id=user.telegram_id,
+                text="🌙 Boa noite! Teve algum sintoma hoje?"
+            )
 
-        user.awaiting_daily_response = True
-        user.last_daily_prompt_at = datetime.now(timezone.utc)
+            user.awaiting_daily_response = True
+            user.last_daily_prompt_at = datetime.now(timezone.utc)
 
-    db.commit()
-    db.close()
+        db.commit()
+        db.close()
+
+    except Exception as e:
+        print("❌ Erro no send_daily_prompt:", e)
 
 
 def schedule_daily_messages(app):
@@ -32,12 +37,11 @@ def schedule_daily_messages(app):
         return
 
     def job_wrapper():
-        loop = asyncio.get_event_loop()
-        loop.create_task(send_daily_prompt(app))
+        asyncio.run(send_daily_prompt(app))
 
     scheduler.add_job(
         job_wrapper,
-        CronTrigger(hour=22),
+        CronTrigger(minute="*/1"),  # teste a cada 1 minuto
         id="night_prompt",
         replace_existing=True,
     )

@@ -47,10 +47,11 @@ app.include_router(user_routes.router, prefix=f"{API}/users")
 @app.on_event("startup")
 async def startup_event():
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    
+
     telegram_app = start_bot(telegram_token)
 
     schedule_daily_messages(telegram_app)
 
     await telegram_app.initialize()
     await telegram_app.start()
+    await telegram_app.updater.start_polling()
