@@ -57,7 +57,6 @@ def schedule_daily_messages(app):
         job_wrapper,
         trigger=CronTrigger(hour=22, minute=0),  # Sempre 22:00 horário de São Paulo
         id="night_prompt",
-        args=[app],
         replace_existing=True,
     )
 
