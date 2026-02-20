@@ -49,13 +49,9 @@ def schedule_daily_messages(app):
         print("Scheduler já ativo, job existente encontrado ✅")
         return
 
-    # Wrapper síncrono para executar função async
-    def job_wrapper():
-        asyncio.run(send_daily_prompt(app))
-
     scheduler.add_job(
-        job_wrapper,
-        trigger=CronTrigger(hour=22, minute=0),  # Sempre 22:00 horário de São Paulo
+        lambda: asyncio.run(send_daily_prompt(app)),
+        trigger=CronTrigger(hour=22, minute=0),
         id="night_prompt",
         replace_existing=True,
     )
