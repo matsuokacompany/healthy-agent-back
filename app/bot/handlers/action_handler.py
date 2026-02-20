@@ -16,27 +16,17 @@ from app.db.repositories.daily_log_repository import DailyLogRepository
 ASK_SYMPTOM, ASK_ACTION = range(2)
 NEGATIVE_ANSWERS = {"não", "nao", "n", "nenhum", "não tive", "nao tive"}
 
-
 def get_repos():
     db = SessionLocal()
-    return (
-        db,
-        UserRepository(db),
-        SymptomRepository(db),
-        DailyLogRepository(db),
-    )
-
+    return db, UserRepository(db), SymptomRepository(db), DailyLogRepository(db)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Ignora mensagens do próprio bot
     if update.message.from_user.id == context.bot.id:
         return ConversationHandler.END
 
     args = context.args
     if not args:
-        await update.message.reply_text(
-            "Envie /start SEU_CODIGO para vincular sua conta."
-        )
+        await update.message.reply_text("Envie /start SEU_CODIGO para vincular sua conta.")
         return ConversationHandler.END
 
     code = args[0]
@@ -69,7 +59,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         db.close()
 
-
 async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id == context.bot.id:
         return ConversationHandler.END
@@ -81,9 +70,7 @@ async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = user_repo.get_user_by_telegram_id(telegram_id)
         if not user:
-            await update.message.reply_text(
-                "Sua conta não está vinculada. Use /start SEU_CODIGO."
-            )
+            await update.message.reply_text("Sua conta não está vinculada. Use /start SEU_CODIGO.")
             return ConversationHandler.END
 
         if text in NEGATIVE_ANSWERS:
@@ -91,17 +78,13 @@ async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Perfeito 👍 Nenhum sintoma registrado hoje.")
             return ConversationHandler.END
 
-        # Houve sintoma
         symptom_repo.create(user.id, text)
         log_repo.create_log(user_id=user.id, action="symptom_reported")
-        await update.message.reply_text(
-            "Entendi. Agora me diga: o que você fez de diferente ontem?"
-        )
+        await update.message.reply_text("Entendi. Agora me diga: o que você fez de diferente ontem?")
         return ASK_ACTION
 
     finally:
         db.close()
-
 
 async def ask_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id == context.bot.id:
@@ -114,9 +97,7 @@ async def ask_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = user_repo.get_user_by_telegram_id(telegram_id)
         if not user:
-            await update.message.reply_text(
-                "Não encontrei seu usuário. Use /start para iniciar novamente."
-            )
+            await update.message.reply_text("Não encontrei seu usuário. Use /start para iniciar novamente.")
             return ConversationHandler.END
 
         log_repo.create_log(user_id=user.id, action=f"action_reported: {action_text}")
@@ -126,26 +107,17 @@ async def ask_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         db.close()
 
-
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Registro cancelado 👍")
     return ConversationHandler.END
 
-
 def register_action_handler(app):
     conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler("start", start),  # Apenas /start inicia a conversa
-        ],
+        entry_points=[CommandHandler("start", start)],
         states={
-            ASK_SYMPTOM: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, ask_symptom)
-            ],
-            ASK_ACTION: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, ask_action)
-            ],
+            ASK_SYMPTOM: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_symptom)],
+            ASK_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_action)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
-
     app.add_handler(conv_handler)
