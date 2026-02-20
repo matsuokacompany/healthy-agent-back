@@ -44,18 +44,26 @@ async def send_daily_prompt(app):
 
 
 def schedule_daily_messages(app):
-    # Evita criar múltiplos jobs
-    if scheduler.get_job("night_prompt"):
-        print("Scheduler já ativo, job existente encontrado ✅")
-        return
+    # Remove jobs antigos para evitar duplicação ao reiniciar o container
+    scheduler.remove_all_jobs()
+
+    async def job():
+        await send_daily_prompt(app)
+
+    def wrapper():
+        # Cria uma task assíncrona no loop existente do FastAPI/Uvicorn
+        asyncio.create_task(job())
 
     scheduler.add_job(
-        lambda: asyncio.run(send_daily_prompt(app)),
+        wrapper,
         trigger=CronTrigger(hour=22, minute=0),
         id="night_prompt",
         replace_existing=True,
     )
 
-    scheduler.start()
+    # Apenas inicia o scheduler se ainda não estiver rodando
+    if not scheduler.running:
+        scheduler.start()
+
     print("Scheduler iniciado ✅")
     print("Jobs agendados:", scheduler.get_jobs())
