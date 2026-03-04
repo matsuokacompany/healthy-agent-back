@@ -2,56 +2,57 @@ from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 from app.db.session import SessionLocal
 from app.db.repositories.user_repository import UserRepository
-from app.db.repositories.symptom_repository import SymptomRepository
-from app.db.repositories.daily_log_repository import DailyLogRepository
+from app.services.symptom_service import SymptomService
 
 ASK_ACTION = 1
-
-NEGATIVE_ANSWERS = {"não", "nao", "n", "não tive", "nao tive", "nenhum"}
-
-def get_repos():
-    db = SessionLocal()
-    return db, UserRepository(db), SymptomRepository(db), DailyLogRepository(db)
 
 
 async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = str(update.message.from_user.id)
     nome = update.message.from_user.full_name
-    text = update.message.text.strip().lower()
+    text = update.message.text.strip()
 
-    db, user_repo, symptom_repo, daily_log_repo = get_repos()
+    db = SessionLocal()
 
     try:
+        user_repo = UserRepository(db)
         user = user_repo.get_or_create_by_telegram_id(telegram_id, nome)
 
-        if text in NEGATIVE_ANSWERS:
-            daily_log_repo.create_log(
-                user_id=user.id,
-                action="no_symptoms_reported"
-            )
+        result = SymptomService.process_daily_response(
+            db=db,
+            user=user,
+            message=text
+        )
 
+        if result == "NOT_AWAITING":
+            await update.message.reply_text(
+                "Você não possui um registro pendente hoje."
+            )
+            return ConversationHandler.END
+
+        if result == "EXPIRED":
+            await update.message.reply_text(
+                "O tempo para responder expirou."
+            )
+            return ConversationHandler.END
+
+        if result == "NEGATIVE":
             await update.message.reply_text(
                 "Perfeito 👍 Nenhum sintoma registrado hoje."
             )
-
             return ConversationHandler.END
 
-        # Caso tenha sintomas
-        symptom_repo.create(
-            user_id=user.id,
-            description=text
-        )
+        if result == "SAVED":
+            await update.message.reply_text(
+                "Entendi. Agora me diga: o que você fez de diferente ontem?"
+            )
+            return ASK_ACTION
 
-        daily_log_repo.create_log(
-            user_id=user.id,
-            action="symptom_reported"
-        )
-
+        # fallback defensivo
         await update.message.reply_text(
-            "Entendi. Agora me diga: o que você fez de diferente ontem?"
+            "Ocorreu um erro inesperado."
         )
-
-        return ASK_ACTION
+        return ConversationHandler.END
 
     finally:
         db.close()
