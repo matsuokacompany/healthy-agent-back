@@ -1,12 +1,11 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone, timedelta
 from collections import Counter
-from app.models.models import Symptom
-from sqlalchemy.orm import Session
+from app.models.models import DailyReport
 
 class ReportService:
-    """Gera relatórios clínicos a partir dos sintomas registrados"""
+    """Gera relatórios a partir da tabela DailyReport"""
 
-    def __init__(self, db: Session):
+    def __init__(self, db):
         self.db = db
 
     def gerar_relatorio(self, user_id: int, periodo: str = "semanal"):
@@ -22,45 +21,53 @@ class ReportService:
         inicio_atual = agora - timedelta(days=dias)
         inicio_anterior = inicio_atual - timedelta(days=dias)
 
-        sintomas_atuais = (
-            self.db.query(Symptom)
-            .filter(Symptom.user_id == user_id)
-            .filter(Symptom.created_at >= inicio_atual)
+        # Busca registros do período atual
+        relatorios_atuais = (
+            self.db.query(DailyReport)
+            .filter(DailyReport.user_id == user_id)
+            .filter(DailyReport.completed == True)
+            .filter(DailyReport.created_at >= inicio_atual)
             .all()
         )
 
-        sintomas_anteriores = (
-            self.db.query(Symptom)
-            .filter(Symptom.user_id == user_id)
-            .filter(Symptom.created_at >= inicio_anterior)
-            .filter(Symptom.created_at < inicio_atual)
+        # Busca registros do período anterior
+        relatorios_anteriores = (
+            self.db.query(DailyReport)
+            .filter(DailyReport.user_id == user_id)
+            .filter(DailyReport.completed == True)
+            .filter(DailyReport.created_at >= inicio_anterior)
+            .filter(DailyReport.created_at < inicio_atual)
             .all()
         )
 
-        if not sintomas_atuais and not sintomas_anteriores:
+        if not relatorios_atuais and not relatorios_anteriores:
             return "Nenhum dado registrado no período analisado."
 
-        relatorio = []
-        relatorio.append("RELATÓRIO CLÍNICO OBJETIVO\n")
-        relatorio.append(f"Período analisado: {inicio_atual.date()} até {agora.date()}\n")
+        def contar(relatorios):
+            counter = Counter()
+            for r in relatorios:
+                if r.symptom_description:
+                    counter[r.symptom_description.lower().strip()] += 1
+            return counter
 
-        def contar(lista):
-            return Counter(s.description.lower().strip() for s in lista)
-
-        atual = contar(sintomas_atuais)
-        anterior = contar(sintomas_anteriores)
-
-        relatorio.append("SINTOMAS — PERÍODO ATUAL:")
-        for sintoma, qtd in atual.items():
-            relatorio.append(f"- {sintoma}: {qtd} ocorrências")
-
-        relatorio.append("\nSINTOMAS — PERÍODO ANTERIOR:")
-        for sintoma, qtd in anterior.items():
-            relatorio.append(f"- {sintoma}: {qtd} ocorrências")
+        atual = contar(relatorios_atuais)
+        anterior = contar(relatorios_anteriores)
 
         total_atual = sum(atual.values())
         total_anterior = sum(anterior.values()) or 1
         variacao = ((total_atual - total_anterior) / total_anterior) * 100
+
+        relatorio = [
+            "RELATÓRIO CLÍNICO OBJETIVO\n",
+            f"Período analisado: {inicio_atual.date()} até {agora.date()}\n",
+            "SINTOMAS — PERÍODO ATUAL:"
+        ]
+        for sintoma, qtd in atual.items():
+            relatorio.append(f"- {sintoma}: {qtd} ocorrência(s)")
+
+        relatorio.append("\nSINTOMAS — PERÍODO ANTERIOR:")
+        for sintoma, qtd in anterior.items():
+            relatorio.append(f"- {sintoma}: {qtd} ocorrência(s)")
 
         relatorio.append("\nVARIAÇÃO DE SINTOMAS:")
         relatorio.append(f"- Total atual: {total_atual}")
