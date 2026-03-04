@@ -1,32 +1,35 @@
 import os
+import sys
+import logging
+import asyncio
 from fastapi import FastAPI
 
 from app.routes import (
     auth_routes,
     anamnese_routes,
-    daily_log_routes,
     insight_routes,
     report_routes,
-    symptom_routes,
-    user_routes
+    user_routes,
+    daily_reports_routes
 )
-
 from app.bot.telegram_bot import start_bot
-from app.bot.scheduler import schedule_daily_messages
+from app.bot.scheduler import schedule_prompts
 
-import logging
-import sys
-import asyncio
-
+# ===============================
+# Configurações de logging
+# ===============================
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    stream=sys.stdout  # importante para aparecer no docker logs
+    stream=sys.stdout
 )
 
 ENV = os.getenv("ENV", "dev").lower()
 DEBUG = ENV == "dev"
 
+# ===============================
+# Inicializa FastAPI
+# ===============================
 app = FastAPI(
     title="Symptom Tracker API",
     redirect_slashes=False,
@@ -34,40 +37,50 @@ app = FastAPI(
     redoc_url="/redoc" if DEBUG else None
 )
 
-API = "/api"
+API_PREFIX = "/api"
 
-# Rotas da API
-app.include_router(auth_routes.router, prefix=f"{API}/auth")
-app.include_router(anamnese_routes.router, prefix=f"{API}/anamneses")
-app.include_router(daily_log_routes.router, prefix=f"{API}/logs")
-app.include_router(insight_routes.router, prefix=f"{API}/insights")
-app.include_router(report_routes.router, prefix=f"{API}/reports")
-app.include_router(symptom_routes.router, prefix=f"{API}/symptoms")
-app.include_router(user_routes.router, prefix=f"{API}/users")
+# ===============================
+# Inclui rotas
+# ===============================
+app.include_router(auth_routes.router, prefix=f"{API_PREFIX}/auth")
+app.include_router(anamnese_routes.router, prefix=f"{API_PREFIX}/anamneses")
+app.include_router(daily_reports_routes.router, prefix=f"{API_PREFIX}/daily-reports")
+app.include_router(insight_routes.router, prefix=f"{API_PREFIX}/insights")
+app.include_router(report_routes.router, prefix=f"{API_PREFIX}/reports")
+app.include_router(user_routes.router, prefix=f"{API_PREFIX}/users")
 
+# ===============================
+# Bot Telegram
+# ===============================
 telegram_app = None
 
 @app.on_event("startup")
 async def startup_event():
     global telegram_app
-
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
+
+    if not telegram_token:
+        logging.warning("TELEGRAM_BOT_TOKEN não definido. Bot não será iniciado.")
+        return
+
+    # Inicializa o bot
     telegram_app = start_bot(telegram_token)
 
-    schedule_daily_messages(telegram_app)
+    # Inicia scheduler de prompts em background
+    asyncio.create_task(schedule_prompts(telegram_app))
 
+    # Inicializa bot Telegram
     await telegram_app.initialize()
     await telegram_app.start()
-    await telegram_app.updater.start_polling()
-
-    logging.info("Bot e Scheduler inicializados ✅")
+    logging.info("Bot Telegram inicializado ✅")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     global telegram_app
-
     if telegram_app:
+        # Para polling e shutdown seguro
         await telegram_app.updater.stop()
         await telegram_app.stop()
         await telegram_app.shutdown()
+        logging.info("Bot Telegram finalizado ✅")

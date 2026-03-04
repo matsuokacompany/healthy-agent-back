@@ -1,7 +1,36 @@
-from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, Text, Boolean
+from sqlalchemy import (
+    Column, Integer, String, Date, DateTime, ForeignKey, Text, Boolean, Enum, UniqueConstraint
+)
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.db.base_class import Base
+import enum
+
+
+# ============================================================
+# ENUMS
+# ============================================================
+
+class CheckTypeEnum(str, enum.Enum):
+    MORNING = "MORNING"
+    NIGHT = "NIGHT"
+
+
+class NivelSuspeicaoEnum(str, enum.Enum):
+    BAIXO = "baixo"
+    MODERADO = "moderado"
+    ALTO = "alto"
+
+
+class UrgenciaEnum(str, enum.Enum):
+    BAIXA = "baixa"
+    MEDIA = "media"
+    ALTA = "alta"
+
+
+# ============================================================
+# USER MODEL
+# ============================================================
 
 class User(Base):
     __tablename__ = "users"
@@ -15,77 +44,80 @@ class User(Base):
     state = Column(String, nullable=True)
     gender = Column(String, nullable=True)
     birth_date = Column(Date, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-        nullable=False
-    )
     cpf = Column(String, unique=True, nullable=True)
     hashed_password = Column(String, nullable=True)
     is_admin = Column(Boolean, default=False)
-    awaiting_daily_response = Column(Boolean, default=False)
-    last_daily_prompt_at = Column(DateTime, nullable=True)
 
-    # ✅ 1:1 (um usuário tem uma anamnese)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    current_report_id = Column(Integer, ForeignKey("daily_reports.id"), nullable=True)
+
+    # 🔹 Relacionamentos
     anamnese = relationship("Anamnese", back_populates="user", uselist=False)
+    daily_reports = relationship("DailyReport", back_populates="user", cascade="all, delete-orphan")
+    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
 
-    symptoms = relationship("Symptom", back_populates="user")
-    daily_logs = relationship("DailyLog", back_populates="user")
-    refresh_tokens = relationship("RefreshToken", back_populates="user")
+
+# ============================================================
+# ANAMNESE MODEL
+# ============================================================
 
 class Anamnese(Base):
     __tablename__ = "anamneses"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), unique=True)  # ✅ 1:1 no banco
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     info = Column(Text)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc)
-    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
 
-    # ✅ agora bate com User.anamnese
     user = relationship("User", back_populates="anamnese")
 
 
-class Symptom(Base):
-    __tablename__ = "symptoms"
+# ============================================================
+# DAILY REPORT MODEL
+# ============================================================
+
+class DailyReport(Base):
+    __tablename__ = "daily_reports"
+    __table_args__ = (
+        UniqueConstraint('user_id', 'check_type', 'created_at', name='uq_user_check_day'),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    description = Column(Text)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    check_type = Column(Enum(CheckTypeEnum), nullable=False, index=True)
+    symptom_description = Column(Text, nullable=True)
+    suspected_cause = Column(Text, nullable=True)
+    completed = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
-    user = relationship("User", back_populates="symptoms")
+    user = relationship("User", back_populates="daily_reports")
 
 
-class DailyLog(Base):
-    __tablename__ = "daily_logs"
+# ============================================================
+# REFRESH TOKEN MODEL
+# ============================================================
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    action = Column(Text)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
-    user = relationship("User", back_populates="daily_logs")
-    
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-
     token = Column(String, unique=True, nullable=False, index=True)
-    expires_at = Column(DateTime, nullable=False)
-
+    expires_at = Column(DateTime(timezone=True), nullable=False)
     revoked = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-    user = relationship("User")
+    user = relationship("User", back_populates="refresh_tokens")
+
+
+# ============================================================
+# TELEGRAM LINK CODE MODEL
+# ============================================================
 
 class TelegramLinkCode(Base):
     __tablename__ = "telegram_link_codes"
@@ -93,7 +125,7 @@ class TelegramLinkCode(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     code = Column(String, unique=True, index=True, nullable=False)
-    expires_at = Column(DateTime, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
     used = Column(Boolean, default=False)
 
     user = relationship("User")

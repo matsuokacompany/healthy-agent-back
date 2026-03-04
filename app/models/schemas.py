@@ -1,14 +1,31 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from datetime import date, datetime
-from typing import Optional
-from pydantic import BaseModel
-from typing import List, Literal
-
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str
+from typing import Optional, List, Literal
+from enum import Enum
 
 # ============================================================
-#                       USER SCHEMAS
+# ENUMS
+# ============================================================
+
+class CheckTypeEnum(str, Enum):
+    MORNING = "MORNING"
+    NIGHT = "NIGHT"
+
+
+class NivelSuspeicaoEnum(str, Enum):
+    BAIXO = "baixo"
+    MODERADO = "moderado"
+    ALTO = "alto"
+
+
+class UrgenciaEnum(str, Enum):
+    BAIXA = "baixa"
+    MEDIA = "media"
+    ALTA = "alta"
+
+
+# ============================================================
+# USER SCHEMAS
 # ============================================================
 
 class UserBase(BaseModel):
@@ -24,9 +41,22 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    # Aceita senha simples, será convertida para hashed_password no service
     password: Optional[str] = None
     is_admin: Optional[bool] = False
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    telegram_id: Optional[str] = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    gender: Optional[str] = None
+    birth_date: Optional[date] = None
+    cpf: Optional[str] = None
+    password: Optional[str] = None
+    is_admin: Optional[bool] = None
 
 
 class UserRead(UserBase):
@@ -37,14 +67,10 @@ class UserRead(UserBase):
 
     class Config:
         from_attributes = True
-        
-class UserUpdate(UserBase):
-    password: Optional[str] = None
-    is_admin: Optional[bool] = None
 
 
 # ============================================================
-#                     ANAMNESE SCHEMAS
+# ANAMNESE SCHEMAS
 # ============================================================
 
 class AnamneseBase(BaseModel):
@@ -54,8 +80,10 @@ class AnamneseBase(BaseModel):
 class AnamneseCreate(AnamneseBase):
     user_id: int
 
+
 class AnamneseUpdate(BaseModel):
     info: Optional[str] = None
+
 
 class AnamneseRead(AnamneseBase):
     id: int
@@ -68,20 +96,29 @@ class AnamneseRead(AnamneseBase):
 
 
 # ============================================================
-#                     SYMPTOM SCHEMAS
+# DAILY REPORT SCHEMAS
 # ============================================================
 
-class SymptomBase(BaseModel):
-    description: str
+class DailyReportBase(BaseModel):
+    check_type: CheckTypeEnum
+    symptom_description: Optional[str] = Field(None, max_length=280)
+    suspected_cause: Optional[str] = Field(None, max_length=280)
 
 
-class SymptomCreate(SymptomBase):
-    pass
+class DailyReportCreate(BaseModel):
+    check_type: CheckTypeEnum
 
 
-class SymptomRead(SymptomBase):
+class DailyReportUpdate(BaseModel):
+    symptom_description: Optional[str] = Field(None, max_length=280)
+    suspected_cause: Optional[str] = Field(None, max_length=280)
+    completed: Optional[bool] = None
+
+
+class DailyReportRead(DailyReportBase):
     id: int
     user_id: int
+    completed: bool
     created_at: datetime
 
     class Config:
@@ -89,27 +126,7 @@ class SymptomRead(SymptomBase):
 
 
 # ============================================================
-#                    DAILY LOG SCHEMAS
-# ============================================================
-
-class DailyLogBase(BaseModel):
-    action: str
-
-
-class DailyLogCreate(DailyLogBase):
-    pass
-
-
-class DailyLogRead(DailyLogBase):
-    id: int
-    user_id: int
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-# ============================================================
-#                    INSIGHT SCHEMAS
+# INSIGHT SCHEMAS
 # ============================================================
 
 class InsightScenario(BaseModel):
@@ -126,23 +143,12 @@ class InsightScenarios(BaseModel):
 
 class AvaliacaoClinica(BaseModel):
     hipotese_principal: str
-    nivel_de_suspeicao: Literal["baixo", "moderado", "alto"]
+    nivel_de_suspeicao: NivelSuspeicaoEnum
     justificativa: List[str]
+
 
 class InsightRequest(BaseModel):
     relatorio_texto: str
-
-
-class InsightScenario(BaseModel):
-    descricao: str
-    condicoes_para_ocorrer: str
-    probabilidade: Literal["baixa", "media", "alta"]
-
-
-class InsightScenarios(BaseModel):
-    otimista: InsightScenario
-    intermediario: InsightScenario
-    grave: InsightScenario
 
 
 class InsightPreventiveResponse(BaseModel):
@@ -152,15 +158,18 @@ class InsightPreventiveResponse(BaseModel):
     exames_sugeridos: List[str]
     alerta_importante: str
 
-class AvaliacaoClinica(BaseModel):
-    hipotese_principal: str
-    nivel_de_suspeicao: Literal["baixo", "moderado", "alto"]
-    justificativa: List[str]
-
 
 class InsightClinicalResponse(BaseModel):
     avaliacao_clinica: AvaliacaoClinica
     especialista_recomendado: str
     exames_prioritarios: List[str]
-    urgencia: Literal["baixa", "media", "alta"]
+    urgencia: UrgenciaEnum
     alerta_legal: str
+
+
+# ============================================================
+# REFRESH TOKEN
+# ============================================================
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
