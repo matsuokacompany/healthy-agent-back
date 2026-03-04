@@ -70,7 +70,10 @@ async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db, user_repo, daily_service = get_repos()  # Removido SymptomRepository
 
     try:
+        print(f"[DEBUG] Telegram_id: {telegram_id}, texto: {text}")
+
         user = user_repo.get_user_by_telegram_id(telegram_id)
+        print(f"[DEBUG] User encontrado: {user}, current_report_id: {user.current_report_id if user else None}")
         if not user:
             await update.message.reply_text(
                 "Sua conta não está vinculada. Use /start SEU_CODIGO."
