@@ -10,7 +10,6 @@ from telegram.ext import (
 from app.db.session import SessionLocal
 from app.models.models import User, TelegramLinkCode
 from app.db.repositories.user_repository import UserRepository
-from app.db.repositories.symptom_repository import SymptomRepository
 from app.services.daily_report_service import DailyReportService
 from sqlalchemy import func
 
@@ -22,7 +21,7 @@ NEGATIVE_ANSWERS = {"não", "nao", "n", "nenhum", "não tive", "nao tive"}
 def get_repos():
     """Retorna instâncias de repositórios e serviço com sessão do DB"""
     db = SessionLocal()
-    return db, UserRepository(db), SymptomRepository(db), DailyReportService()
+    return db, UserRepository(db), DailyReportService()
 
 
 # ========================= /start =========================
@@ -68,7 +67,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = str(update.message.from_user.id)
     text = update.message.text.strip()
-    db, user_repo, symptom_repo, daily_service = get_repos()
+    db, user_repo, daily_service = get_repos()  # Removido SymptomRepository
 
     try:
         user = user_repo.get_user_by_telegram_id(telegram_id)
@@ -118,7 +117,7 @@ async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ask_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = str(update.message.from_user.id)
     action_text = update.message.text.strip()
-    db, user_repo, symptom_repo, daily_service = get_repos()
+    db, user_repo, daily_service = get_repos()  # Removido SymptomRepository
 
     try:
         user = user_repo.get_user_by_telegram_id(telegram_id)
