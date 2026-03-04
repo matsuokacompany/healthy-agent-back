@@ -112,12 +112,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 def register_action_handler(app):
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            ASK_SYMPTOM: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_symptom)],
-            ASK_ACTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_action)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, ask_symptom)
     )
-    app.add_handler(conv_handler)
