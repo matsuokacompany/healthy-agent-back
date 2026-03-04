@@ -14,19 +14,21 @@ from app.db.repositories.symptom_repository import SymptomRepository
 from app.db.repositories.daily_log_repository import DailyLogRepository
 
 ASK_SYMPTOM, ASK_ACTION = range(2)
+
 NEGATIVE_ANSWERS = {"não", "nao", "n", "nenhum", "não tive", "nao tive"}
+
 
 def get_repos():
     db = SessionLocal()
     return db, UserRepository(db), SymptomRepository(db), DailyLogRepository(db)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.id == context.bot.id:
-        return ConversationHandler.END
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args:
-        await update.message.reply_text("Envie /start SEU_CODIGO para vincular sua conta.")
+        await update.message.reply_text(
+            "Envie /start SEU_CODIGO para vincular sua conta."
+        )
         return ConversationHandler.END
 
     code = args[0]
@@ -59,59 +61,102 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         db.close()
 
-async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.id == context.bot.id:
-        return ConversationHandler.END
 
+async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = str(update.message.from_user.id)
     text = update.message.text.strip().lower()
     db, user_repo, symptom_repo, log_repo = get_repos()
 
     try:
         user = user_repo.get_user_by_telegram_id(telegram_id)
+
         if not user:
-            await update.message.reply_text("Sua conta não está vinculada. Use /start SEU_CODIGO.")
+            await update.message.reply_text(
+                "Sua conta não está vinculada. Use /start SEU_CODIGO."
+            )
+            return ConversationHandler.END
+
+        if not user.awaiting_daily_response:
+            await update.message.reply_text(
+                "Você não possui um registro pendente hoje."
+            )
             return ConversationHandler.END
 
         if text in NEGATIVE_ANSWERS:
             log_repo.create_log(user_id=user.id, action="no_symptoms_reported")
-            await update.message.reply_text("Perfeito 👍 Nenhum sintoma registrado hoje.")
+            user.awaiting_daily_response = False
+            db.commit()
+
+            await update.message.reply_text(
+                "Perfeito 👍 Nenhum sintoma registrado hoje."
+            )
             return ConversationHandler.END
 
         symptom_repo.create(user.id, text)
         log_repo.create_log(user_id=user.id, action="symptom_reported")
-        await update.message.reply_text("Entendi. Agora me diga: o que você fez de diferente ontem?")
+
+        await update.message.reply_text(
+            "Entendi. Agora me diga: o que você fez de diferente ontem?"
+        )
+
         return ASK_ACTION
 
     finally:
         db.close()
 
-async def ask_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.id == context.bot.id:
-        return ConversationHandler.END
 
+async def ask_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = str(update.message.from_user.id)
     action_text = update.message.text.strip()
     db, user_repo, _, log_repo = get_repos()
 
     try:
         user = user_repo.get_user_by_telegram_id(telegram_id)
+
         if not user:
-            await update.message.reply_text("Não encontrei seu usuário. Use /start para iniciar novamente.")
+            await update.message.reply_text(
+                "Não encontrei seu usuário. Use /start para iniciar novamente."
+            )
             return ConversationHandler.END
 
-        log_repo.create_log(user_id=user.id, action=f"action_reported: {action_text}")
-        await update.message.reply_text("Perfeito! Suas informações foram registradas ✅")
+        log_repo.create_log(
+            user_id=user.id,
+            action=f"action_reported: {action_text}"
+        )
+
+        user.awaiting_daily_response = False
+        db.commit()
+
+        await update.message.reply_text(
+            "Perfeito! Suas informações foram registradas ✅"
+        )
+
         return ConversationHandler.END
 
     finally:
         db.close()
 
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Registro cancelado 👍")
     return ConversationHandler.END
 
+
 def register_action_handler(app):
-    app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, ask_symptom)
+
+    conv_handler = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.TEXT & ~filters.COMMAND, ask_symptom)
+        ],
+        states={
+            ASK_ACTION: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, ask_action)
+            ],
+        },
+        fallbacks=[
+            CommandHandler("cancel", cancel)
+        ],
     )
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(conv_handler)

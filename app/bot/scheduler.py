@@ -1,5 +1,4 @@
-import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -7,6 +6,7 @@ from app.models.models import User
 from app.db.session import SessionLocal
 
 scheduler = AsyncIOScheduler(timezone=ZoneInfo("America/Sao_Paulo"))
+
 
 async def send_daily_prompt(app):
     db = SessionLocal()
@@ -18,10 +18,9 @@ async def send_daily_prompt(app):
         users = db.query(User).filter(User.telegram_id.isnot(None)).all()
 
         for user in users:
-            # Se já enviou hoje (no fuso do Brasil), pula
             if user.last_daily_prompt_at:
-                last_prompt_date = user.last_daily_prompt_at.astimezone(tz).date()
-                if last_prompt_date == today:
+                last_date = user.last_daily_prompt_at.astimezone(tz).date()
+                if last_date == today:
                     continue
 
             try:
@@ -30,7 +29,7 @@ async def send_daily_prompt(app):
                     text="🌙 Boa noite! Teve algum sintoma hoje?"
                 )
             except Exception as e:
-                print(f"❌ Erro ao enviar mensagem para {user.id}: {e}")
+                print(f"Erro ao enviar mensagem para {user.id}: {e}")
 
             user.awaiting_daily_response = True
             user.last_daily_prompt_at = now
@@ -39,6 +38,7 @@ async def send_daily_prompt(app):
 
     finally:
         db.close()
+
 
 def schedule_daily_messages(app):
 
@@ -55,8 +55,6 @@ def schedule_daily_messages(app):
             id="night_prompt",
             replace_existing=True,
         )
-        print("Job 'night_prompt' agendado ✅")
 
     if not scheduler.running:
         scheduler.start()
-        print("Scheduler iniciado ✅")
