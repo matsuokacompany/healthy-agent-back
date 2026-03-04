@@ -8,10 +8,12 @@ ASK_ACTION = 1
 
 
 async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("ASK_SYMPTOM FOI CHAMADO")
     telegram_id = str(update.message.from_user.id)
     nome = update.message.from_user.full_name
     text = update.message.text.strip()
-
+    print("Mensagem recebida:", text)
+    
     db = SessionLocal()
 
     try:
