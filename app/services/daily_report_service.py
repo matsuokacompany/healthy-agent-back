@@ -1,25 +1,34 @@
 import logging
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
+
 from app.models.models import DailyReport, User
 
 logger = logging.getLogger(__name__)
 
 MAX_INPUT_CHARS = 280
 
-NEGATIVE_KEYWORDS = [
-    "não", "nao", "nenhum", "nenhuma", "não tive", "nao tive", "sem sintomas"
-]
 
 def is_negative(message: str) -> bool:
+    negatives = [
+        "não",
+        "nao",
+        "nenhum",
+        "nenhuma",
+        "não tive",
+        "nao tive",
+        "sem sintomas"
+    ]
+
     message = message.lower().strip()
-    return any(n in message for n in NEGATIVE_KEYWORDS)
+    return any(n in message for n in negatives)
 
 
 class DailyReportService:
 
     @staticmethod
     def process_response(db: Session, user: User, message: str):
+
         message = message.strip()
 
         if len(message) > MAX_INPUT_CHARS:
@@ -37,7 +46,7 @@ class DailyReportService:
             db.commit()
             return "INVALID_STATE"
 
-        # Timeout 24h
+        # ⏳ Timeout 24h
         delta = datetime.now(timezone.utc) - report.created_at
         if delta > timedelta(hours=24):
             user.current_report_id = None
@@ -46,6 +55,7 @@ class DailyReportService:
 
         # 🟢 PRIMEIRA RESPOSTA (Sintoma)
         if not report.symptom_description:
+
             if is_negative(message):
                 report.completed = True
                 user.current_report_id = None

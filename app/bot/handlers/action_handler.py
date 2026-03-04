@@ -1,5 +1,4 @@
-from sqlalchemy import func
-from app.models.models import User, TelegramLinkCode
+from sqlalchemy.orm import Session
 from telegram import Update
 from telegram.ext import (
     ContextTypes,
@@ -9,24 +8,24 @@ from telegram.ext import (
     filters,
 )
 from app.db.session import SessionLocal
+from app.models.models import User, TelegramLinkCode
 from app.db.repositories.user_repository import UserRepository
 from app.db.repositories.symptom_repository import SymptomRepository
-from app.db.repositories.daily_repository import DailyRepository  # ✅ novo
+from app.services.daily_report_service import DailyReportService
+from sqlalchemy import func
 
-ASK_SYMPTOM, ASK_ACTION = range(2)
+ASK_CAUSE = range(1)
 
 NEGATIVE_ANSWERS = {"não", "nao", "n", "nenhum", "não tive", "nao tive"}
 
 
 def get_repos():
-    """Retorna instâncias de repositórios com sessão do DB"""
+    """Retorna instâncias de repositórios e serviço com sessão do DB"""
     db = SessionLocal()
-    return db, UserRepository(db), SymptomRepository(db), DailyRepository(db)
+    return db, UserRepository(db), SymptomRepository(db), DailyReportService()
 
 
-# ============================================================
-#                       /start
-# ============================================================
+# ========================= /start =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args:
@@ -37,7 +36,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     code = args[0]
     telegram_id = str(update.message.from_user.id)
-
     db = SessionLocal()
     try:
         link = db.query(TelegramLinkCode).filter(
@@ -66,13 +64,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.close()
 
 
-# ============================================================
-#                  Pergunta sobre sintomas
-# ============================================================
+# ====================== Pergunta sobre sintomas ======================
 async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = str(update.message.from_user.id)
-    text = update.message.text.strip().lower()
-    db, user_repo, symptom_repo, daily_repo = get_repos()
+    text = update.message.text.strip()
+    db, user_repo, symptom_repo, daily_service = get_repos()
 
     try:
         user = user_repo.get_user_by_telegram_id(telegram_id)
@@ -82,38 +78,47 @@ async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
-        if not daily_repo.is_awaiting(user):
-            await update.message.reply_text(
-                "Você não possui um registro pendente hoje."
-            )
+        # Processa resposta do usuário usando o serviço
+        status = daily_service.process_response(db, user, text)
+
+        if status == "NOT_AWAITING":
+            await update.message.reply_text("Você não possui um registro pendente hoje.")
             return ConversationHandler.END
 
-        if text in NEGATIVE_ANSWERS:
-            daily_repo.mark_response_received(user)
+        if status == "TOO_LONG":
+            await update.message.reply_text("Mensagem muito longa. Tente reduzir para 280 caracteres.")
+            return ConversationHandler.END
+
+        if status == "EXPIRED":
+            await update.message.reply_text("Seu registro expirou. Espere o próximo prompt.")
+            return ConversationHandler.END
+
+        if status == "NEGATIVE":
             await update.message.reply_text("Perfeito 👍 Nenhum sintoma registrado hoje.")
             return ConversationHandler.END
 
-        # Salva sintoma
-        symptom_repo.create(user.id, text)
+        if status == "ASK_CAUSE":
+            await update.message.reply_text(
+                "Entendi. Agora me diga: o que você fez de diferente ontem?"
+                " (algo que possa ter causado o sintoma)"
+            )
+            return ASK_CAUSE
 
-        await update.message.reply_text(
-            "Entendi. Agora me diga: o que você fez de diferente ontem? "
-            "(tente descrever algo que possa ter causado o sintoma)"
-        )
+        if status == "COMPLETED":
+            await update.message.reply_text("Perfeito! Suas informações foram registradas ✅")
+            return ConversationHandler.END
 
-        return ASK_ACTION
+        return ConversationHandler.END
 
     finally:
         db.close()
 
 
-# ============================================================
-#                  Pergunta sobre ação
-# ============================================================
+# ====================== Pergunta sobre ação ======================
 async def ask_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = str(update.message.from_user.id)
     action_text = update.message.text.strip()
-    db, user_repo, symptom_repo, daily_repo = get_repos()
+    db, user_repo, symptom_repo, daily_service = get_repos()
 
     try:
         user = user_repo.get_user_by_telegram_id(telegram_id)
@@ -123,15 +128,12 @@ async def ask_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
-        # Opcional: salvar ação como sintoma contextual
-        # symptom_repo.create(user.id, f"AÇÃO: {action_text}")
+        # Salva ação como causa suspeita
+        status = daily_service.process_response(db, user, action_text)
 
-        # Marca que o usuário respondeu
-        daily_repo.mark_response_received(user)
-
-        await update.message.reply_text(
-            "Perfeito! Suas informações foram registradas ✅"
-        )
+        if status in ["COMPLETED", "NEGATIVE"]:
+            await update.message.reply_text("Perfeito! Suas informações foram registradas ✅")
+            return ConversationHandler.END
 
         return ConversationHandler.END
 
@@ -139,30 +141,22 @@ async def ask_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.close()
 
 
-# ============================================================
-#                       /cancel
-# ============================================================
+# ====================== /cancel ======================
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Registro cancelado 👍")
     return ConversationHandler.END
 
 
-# ============================================================
-#               Registro do ConversationHandler
-# ============================================================
+# ====================== Registro do ConversationHandler ======================
 def register_action_handler(app):
     conv_handler = ConversationHandler(
         entry_points=[
             MessageHandler(filters.TEXT & ~filters.COMMAND, ask_symptom)
         ],
         states={
-            ASK_ACTION: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, ask_action)
-            ],
+            ASK_CAUSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_action)],
         },
-        fallbacks=[
-            CommandHandler("cancel", cancel)
-        ],
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
 
     app.add_handler(CommandHandler("start", start))

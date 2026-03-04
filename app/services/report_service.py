@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta, timezone
 from collections import Counter
-
 from app.models.models import Symptom
-
+from sqlalchemy.orm import Session
 
 class ReportService:
-    def __init__(self, db):
+    """Gera relatórios clínicos a partir dos sintomas registrados"""
+
+    def __init__(self, db: Session):
         self.db = db
 
     def gerar_relatorio(self, user_id: int, periodo: str = "semanal"):
@@ -41,15 +42,10 @@ class ReportService:
 
         relatorio = []
         relatorio.append("RELATÓRIO CLÍNICO OBJETIVO\n")
-        relatorio.append(
-            f"Período analisado: {inicio_atual.date()} até {agora.date()}\n"
-        )
+        relatorio.append(f"Período analisado: {inicio_atual.date()} até {agora.date()}\n")
 
         def contar(lista):
-            return Counter(
-                s.description.lower().strip()
-                for s in lista
-            )
+            return Counter(s.description.lower().strip() for s in lista)
 
         atual = contar(sintomas_atuais)
         anterior = contar(sintomas_anteriores)
