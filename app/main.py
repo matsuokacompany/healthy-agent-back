@@ -45,14 +45,29 @@ app.include_router(report_routes.router, prefix=f"{API}/reports")
 app.include_router(symptom_routes.router, prefix=f"{API}/symptoms")
 app.include_router(user_routes.router, prefix=f"{API}/users")
 
+telegram_app = None
 
 @app.on_event("startup")
 async def startup_event():
+    global telegram_app
+
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
     telegram_app = start_bot(telegram_token)
 
     schedule_daily_messages(telegram_app)
 
-    asyncio.create_task(telegram_app.run_polling())
+    await telegram_app.initialize()
+    await telegram_app.start()
+    await telegram_app.updater.start_polling()
 
     logging.info("Bot e Scheduler inicializados ✅")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    global telegram_app
+
+    if telegram_app:
+        await telegram_app.updater.stop()
+        await telegram_app.stop()
+        await telegram_app.shutdown()
