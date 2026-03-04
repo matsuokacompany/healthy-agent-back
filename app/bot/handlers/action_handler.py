@@ -112,6 +112,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 def register_action_handler(app):
+    print("ASK_SYMPTOM FOI CHAMADO")
+    print("Mensagem recebida:", text)
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, ask_symptom)
     )
