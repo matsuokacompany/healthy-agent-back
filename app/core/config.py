@@ -1,5 +1,6 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     DATABASE_URL: str
@@ -8,6 +9,11 @@ class Settings(BaseSettings):
     USER_ID: int = 1
     ENV: str = "dev"
     SECRET_KEY: str
+    SCHEDULER_TIMEZONE: str = "UTC"
+    SCHEDULER_MORNING_HOUR: int = 8
+    SCHEDULER_MORNING_MINUTE: int = 0
+    SCHEDULER_NIGHT_HOUR: int = 20
+    SCHEDULER_NIGHT_MINUTE: int = 0
 
     model_config = SettingsConfigDict(
         env_file=".env",
