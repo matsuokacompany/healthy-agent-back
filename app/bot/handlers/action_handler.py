@@ -12,8 +12,12 @@ from app.models.models import User, TelegramLinkCode
 from app.db.repositories.user_repository import UserRepository
 from app.services.daily_report_service import DailyReportService
 from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
+import logging
 
-ASK_CAUSE = range(1)
+logger = logging.getLogger(__name__)
+
+ASK_CAUSE, = range(1)
 
 NEGATIVE_ANSWERS = {"não", "nao", "n", "nenhum", "não tive", "nao tive"}
 
@@ -70,10 +74,7 @@ async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db, user_repo, daily_service = get_repos()  # Removido SymptomRepository
 
     try:
-        print(f"[DEBUG] Telegram_id: {telegram_id}, texto: {text}")
-
         user = user_repo.get_user_by_telegram_id(telegram_id)
-        print(f"[DEBUG] User encontrado: {user}, current_report_id: {user.current_report_id if user else None}")
         if not user:
             await update.message.reply_text(
                 "Sua conta não está vinculada. Use /start SEU_CODIGO."
@@ -111,6 +112,16 @@ async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
 
         return ConversationHandler.END
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Erro de banco ao processar resposta de sintoma. telegram_id=%s", telegram_id)
+        await update.message.reply_text("Não consegui salvar sua resposta agora. Tente novamente em instantes.")
+        return ConversationHandler.END
+    except Exception:
+        db.rollback()
+        logger.exception("Erro inesperado ao processar resposta de sintoma. telegram_id=%s", telegram_id)
+        await update.message.reply_text("Ocorreu um erro ao processar sua resposta. Tente novamente.")
+        return ConversationHandler.END
 
     finally:
         db.close()
@@ -137,6 +148,16 @@ async def ask_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Perfeito! Suas informações foram registradas ✅")
             return ConversationHandler.END
 
+        return ConversationHandler.END
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Erro de banco ao processar ação/causa. telegram_id=%s", telegram_id)
+        await update.message.reply_text("Não consegui salvar sua resposta agora. Tente novamente em instantes.")
+        return ConversationHandler.END
+    except Exception:
+        db.rollback()
+        logger.exception("Erro inesperado ao processar ação/causa. telegram_id=%s", telegram_id)
+        await update.message.reply_text("Ocorreu um erro ao processar sua resposta. Tente novamente.")
         return ConversationHandler.END
 
     finally:
