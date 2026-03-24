@@ -56,7 +56,20 @@ class User(Base):
 
     # 🔹 Relacionamentos
     anamnese = relationship("Anamnese", back_populates="user", uselist=False)
-    daily_reports = relationship("DailyReport", back_populates="user", cascade="all, delete-orphan")
+
+    daily_reports = relationship(
+        "DailyReport",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        foreign_keys="DailyReport.user_id"  # 🔥 ESSENCIAL
+    )
+
+    current_report = relationship(
+        "DailyReport",
+        foreign_keys=[current_report_id],  # 🔥 ESSENCIAL
+        post_update=True
+    )
+
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
 
 
@@ -95,7 +108,11 @@ class DailyReport(Base):
     completed = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
-    user = relationship("User", back_populates="daily_reports")
+    user = relationship(
+        "User",
+        back_populates="daily_reports",
+        foreign_keys=[user_id]  # 🔥 ESSENCIAL
+    )
 
 
 # ============================================================
