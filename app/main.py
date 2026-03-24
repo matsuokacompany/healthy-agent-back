@@ -69,6 +69,9 @@ async def startup_event():
     await telegram_app.initialize()
     await telegram_app.start()
 
+    # 🔥 ESSENCIAL (faltava isso)
+    await telegram_app.updater.start_polling()
+
     start_scheduler(telegram_app)
     logging.info("Bot Telegram inicializado ✅")
 
