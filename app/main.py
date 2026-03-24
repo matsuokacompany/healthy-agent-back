@@ -1,19 +1,19 @@
+import logging
 import os
 import sys
-import logging
-import asyncio
+
 from fastapi import FastAPI
 
+from app.bot.scheduler import start_scheduler, stop_scheduler
+from app.bot.telegram_bot import start_bot
 from app.routes import (
-    auth_routes,
     anamnese_routes,
+    auth_routes,
+    daily_reports_routes,
     insight_routes,
     report_routes,
     user_routes,
-    daily_reports_routes
 )
-from app.bot.telegram_bot import start_bot
-from app.bot.scheduler import schedule_prompts
 
 # ===============================
 # Configurações de logging
@@ -21,7 +21,7 @@ from app.bot.scheduler import schedule_prompts
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    stream=sys.stdout
+    stream=sys.stdout,
 )
 
 ENV = os.getenv("ENV", "dev").lower()
@@ -34,7 +34,7 @@ app = FastAPI(
     title="Symptom Tracker API",
     redirect_slashes=False,
     docs_url="/docs" if DEBUG else None,
-    redoc_url="/redoc" if DEBUG else None
+    redoc_url="/redoc" if DEBUG else None,
 )
 
 API_PREFIX = "/api"
@@ -54,6 +54,7 @@ app.include_router(user_routes.router, prefix=f"{API_PREFIX}/users")
 # ===============================
 telegram_app = None
 
+
 @app.on_event("startup")
 async def startup_event():
     global telegram_app
@@ -63,24 +64,26 @@ async def startup_event():
         logging.warning("TELEGRAM_BOT_TOKEN não definido. Bot não será iniciado.")
         return
 
-    # Inicializa o bot
     telegram_app = start_bot(telegram_token)
 
-    # Inicia scheduler de prompts em background
-    asyncio.create_task(schedule_prompts(telegram_app))
-
-    # Inicializa bot Telegram
     await telegram_app.initialize()
     await telegram_app.start()
+
+    start_scheduler(telegram_app)
     logging.info("Bot Telegram inicializado ✅")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     global telegram_app
+
+    stop_scheduler()
+
     if telegram_app:
-        # Para polling e shutdown seguro
-        await telegram_app.updater.stop()
+        updater = getattr(telegram_app, "updater", None)
+        if updater and updater.running:
+            await updater.stop()
+
         await telegram_app.stop()
         await telegram_app.shutdown()
         logging.info("Bot Telegram finalizado ✅")
