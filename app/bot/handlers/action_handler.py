@@ -69,6 +69,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ====================== Pergunta sobre sintomas ======================
 async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"🔥 HANDLER CHAMADO: {update.message.text}")
     telegram_id = str(update.message.from_user.id)
     text = update.message.text.strip()
     db, user_repo, daily_service = get_repos()  # Removido SymptomRepository
