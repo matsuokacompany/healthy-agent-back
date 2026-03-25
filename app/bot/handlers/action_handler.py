@@ -59,8 +59,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    raw_text = (update.message.text if update and update.message else "") or ""
+    from_user = update.message.from_user.id if update and update.message and update.message.from_user else None
+    logger.info(
+        "Entrada de mensagem no handler Telegram. from_user=%s chars=%s text_preview=%s",
+        from_user,
+        len(raw_text),
+        raw_text[:80],
+    )
+
     if not update.message or not update.message.from_user:
-        logger.warning("Update Telegram sem mensagem/from_user ignorado.")
+        logger.warning("Update Telegram sem message/from_user. update=%s", update)
         return ConversationHandler.END
 
     telegram_channel = context.application.bot_data.get("telegram_channel")
@@ -69,17 +78,24 @@ async def _handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Canal indisponível no momento. Tente novamente.")
         return ConversationHandler.END
 
-    response = await telegram_channel.handle_incoming(
-        {
-            "user_id": str(update.message.from_user.id),
-            "text": (update.message.text or "").strip(),
-            "reply": update.message.reply_text,
-        }
-    )
+    try:
+        response = await telegram_channel.handle_incoming(
+            {
+                "user_id": str(update.message.from_user.id),
+                "text": raw_text.strip(),
+                "reply": update.message.reply_text,
+            }
+        )
+    except Exception:
+        logger.exception("Falha ao delegar mensagem para TelegramBotChannel.")
+        await update.message.reply_text("Ocorreu um erro ao processar sua resposta. Tente novamente.")
+        return ConversationHandler.END
 
     if response and response.ask_followup:
+        logger.info("Fluxo Telegram seguirá para ASK_CAUSE. from_user=%s", from_user)
         return ASK_CAUSE
 
+    logger.info("Fluxo Telegram encerrado para mensagem atual. from_user=%s", from_user)
     return ConversationHandler.END
 
 
@@ -113,3 +129,4 @@ def register_action_handler(app):
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv_handler)
+    logger.info("ConversationHandler do Telegram registrado com sucesso.")

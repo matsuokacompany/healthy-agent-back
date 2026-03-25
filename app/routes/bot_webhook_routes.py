@@ -13,7 +13,12 @@ async def whatsapp_webhook(request: Request):
     payload = await request.json()
     logger.info('Webhook WhatsApp recebido no endpoint /webhook/whatsapp')
 
-    channel: WhatsAppBotChannel = request.app.state.bot_manager.channels.get('whatsapp')
+    bot_manager = getattr(request.app.state, 'bot_manager', None)
+    if not bot_manager:
+        logger.error('BotManager não inicializado na aplicação.')
+        return {'status': 'error', 'detail': 'bot_manager_unavailable'}
+
+    channel: WhatsAppBotChannel = bot_manager.channels.get('whatsapp')
     if not channel:
         logger.error('Canal WhatsApp não registrado no BotManager.')
         return {'status': 'error', 'detail': 'whatsapp_channel_unavailable'}

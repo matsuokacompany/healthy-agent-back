@@ -27,47 +27,82 @@ def _build_message(check_type: CheckTypeEnum) -> str:
     )
 
 
-async def send_prompt(bot_app, check_type: CheckTypeEnum) -> None:
+async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
     db = SessionLocal()
     users_processed = 0
+    users_failed = 0
     message = _build_message(check_type)
 
     try:
-        users = db.query(User).filter(User.telegram_id.isnot(None)).all()
+        users = db.query(User).all()
 
         if not users:
-            logger.info("Nenhum usuário com telegram_id configurado para o prompt %s.", check_type.value)
+            logger.info("Nenhum usuário encontrado para o prompt %s.", check_type.value)
             return
 
         for user in users:
-            report = DailyReport(user_id=user.id, check_type=check_type)
-            db.add(report)
-            db.flush()
+            try:
+                channel_name = bot_manager.resolve_channel_name_for_user(user)
+                channel = bot_manager.get_channel_for_user(user)
+                if not channel_name or not channel:
+                    logger.info("Usuário sem canal elegível para prompt. user_id=%s", user.id)
+                    continue
 
-            user.current_report_id = report.id
+                if channel_name == "whatsapp":
+                    logger.info(
+                        "Prompt não enviado para WhatsApp por segurança (stub). user_id=%s",
+                        user.id,
+                    )
+                    continue
 
-            await bot_app.bot.send_message(chat_id=user.telegram_id, text=message)
-            users_processed += 1
+                target_user_id = user.telegram_id
+                if not target_user_id:
+                    logger.warning("Usuário sem identificador válido no canal %s. user_id=%s", channel_name, user.id)
+                    continue
 
-        db.commit()
+                report = DailyReport(user_id=user.id, check_type=check_type)
+                db.add(report)
+                db.flush()
+                user.current_report_id = report.id
+
+                await channel.send_message(target_user_id, message)
+                db.commit()
+                users_processed += 1
+                logger.info(
+                    "Prompt enviado com sucesso. check_type=%s user_id=%s channel=%s report_id=%s",
+                    check_type.value,
+                    user.id,
+                    channel_name,
+                    report.id,
+                )
+            except SQLAlchemyError:
+                db.rollback()
+                users_failed += 1
+                logger.exception(
+                    "Erro de banco ao enviar prompt individual. check_type=%s user_id=%s",
+                    check_type.value,
+                    user.id,
+                )
+            except Exception:
+                db.rollback()
+                users_failed += 1
+                logger.exception(
+                    "Erro no envio de prompt individual. check_type=%s user_id=%s",
+                    check_type.value,
+                    user.id,
+                )
+
         logger.info(
-            "Prompt %s enviado com sucesso para %s usuário(s).",
+            "Envio de prompt finalizado. check_type=%s enviados=%s falhas=%s",
             check_type.value,
             users_processed,
+            users_failed,
         )
-    except SQLAlchemyError:
-        db.rollback()
-        logger.exception("Erro de banco ao enviar prompt %s.", check_type.value)
-        raise
-    except Exception:
-        db.rollback()
-        logger.exception("Erro ao enviar prompt %s pelo Telegram.", check_type.value)
-        raise
     finally:
         db.close()
 
 
-def start_scheduler(bot_app) -> AsyncIOScheduler:
+def start_scheduler(bot_manager) -> AsyncIOScheduler:
     global scheduler
 
     if scheduler and scheduler.running:
@@ -84,8 +119,8 @@ def start_scheduler(bot_app) -> AsyncIOScheduler:
             minute=settings.SCHEDULER_MORNING_MINUTE,
             timezone=timezone,
         ),
-        args=[bot_app, CheckTypeEnum.MORNING],
-        id="telegram_morning_prompt",
+        args=[bot_manager, CheckTypeEnum.MORNING],
+        id="bot_morning_prompt",
         replace_existing=True,
         misfire_grace_time=1800,
         coalesce=True,
@@ -98,8 +133,8 @@ def start_scheduler(bot_app) -> AsyncIOScheduler:
             minute=settings.SCHEDULER_NIGHT_MINUTE,
             timezone=timezone,
         ),
-        args=[bot_app, CheckTypeEnum.NIGHT],
-        id="telegram_night_prompt",
+        args=[bot_manager, CheckTypeEnum.NIGHT],
+        id="bot_night_prompt",
         replace_existing=True,
         misfire_grace_time=1800,
         coalesce=True,

@@ -12,7 +12,7 @@ class TelegramBotChannel(BaseBotChannel):
         self.bot_service = bot_service or BotService()
 
     async def send_message(self, user_id: str, text: str) -> None:
-        logger.info("Enviando mensagem Telegram para user_id=%s", user_id)
+        logger.info("Enviando mensagem Telegram. user_id=%s chars=%s", user_id, len(text or ""))
         await self.telegram_app.bot.send_message(chat_id=user_id, text=text)
 
     async def handle_incoming(self, payload):
@@ -20,11 +20,13 @@ class TelegramBotChannel(BaseBotChannel):
         text = payload.get("text", "")
         reply = payload["reply"]
 
-        logger.info("Recebido payload Telegram. user_id=%s", user_id)
+        logger.info("Recebido payload Telegram. user_id=%s chars=%s", user_id, len(text or ""))
         response = self.bot_service.process_incoming(
             channel="telegram",
             external_user_id=user_id,
             message_text=text,
         )
+
+        logger.info("Resposta Telegram gerada. user_id=%s ask_followup=%s", user_id, response.ask_followup)
         await reply(response.text)
         return response
