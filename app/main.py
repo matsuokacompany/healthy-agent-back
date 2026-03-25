@@ -4,11 +4,14 @@ import sys
 
 from fastapi import FastAPI
 
+from app.bot.channels.bot_manager import BotManager
+from app.bot.channels.whatsapp_channel import WhatsAppBotChannel
 from app.bot.scheduler import start_scheduler, stop_scheduler
 from app.bot.telegram_bot import start_bot
 from app.routes import (
     anamnese_routes,
     auth_routes,
+    bot_webhook_routes,
     daily_reports_routes,
     insight_routes,
     report_routes,
@@ -48,9 +51,10 @@ app.include_router(daily_reports_routes.router, prefix=f"{API_PREFIX}/daily-repo
 app.include_router(insight_routes.router, prefix=f"{API_PREFIX}/insights")
 app.include_router(report_routes.router, prefix=f"{API_PREFIX}/reports")
 app.include_router(user_routes.router, prefix=f"{API_PREFIX}/users")
+app.include_router(bot_webhook_routes.router)
 
 # ===============================
-# Bot Telegram
+# Bot Telegram / WhatsApp
 # ===============================
 telegram_app = None
 
@@ -60,8 +64,12 @@ async def startup_event():
     global telegram_app
     telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
 
+    bot_manager = BotManager()
+    bot_manager.register_channel("whatsapp", WhatsAppBotChannel())
+
     if not telegram_token:
         logging.warning("TELEGRAM_BOT_TOKEN não definido. Bot não será iniciado.")
+        app.state.bot_manager = bot_manager
         return
 
     telegram_app = start_bot(telegram_token)
@@ -71,6 +79,9 @@ async def startup_event():
 
     # 🔥 ESSENCIAL (faltava isso)
     await telegram_app.updater.start_polling()
+
+    bot_manager.register_channel("telegram", telegram_app.bot_data.get("telegram_channel"))
+    app.state.bot_manager = bot_manager
 
     start_scheduler(telegram_app)
     logging.info("Bot Telegram inicializado ✅")
