@@ -1,31 +1,21 @@
-from sqlalchemy.orm import Session
+import logging
+
+from sqlalchemy import func
 from telegram import Update
 from telegram.ext import (
+    CommandHandler,
     ContextTypes,
     ConversationHandler,
     MessageHandler,
-    CommandHandler,
     filters,
 )
+
 from app.db.session import SessionLocal
-from app.models.models import User, TelegramLinkCode
-from app.db.repositories.user_repository import UserRepository
-from app.services.daily_report_service import DailyReportService
-from sqlalchemy import func
-from sqlalchemy.exc import SQLAlchemyError
-import logging
+from app.models.models import TelegramLinkCode, User
 
 logger = logging.getLogger(__name__)
 
 ASK_CAUSE, = range(1)
-
-NEGATIVE_ANSWERS = {"não", "nao", "n", "nenhum", "não tive", "nao tive"}
-
-
-def get_repos():
-    """Retorna instâncias de repositórios e serviço com sessão do DB"""
-    db = SessionLocal()
-    return db, UserRepository(db), DailyReportService()
 
 
 # ========================= /start =========================
@@ -60,6 +50,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         link.used = True
         db.commit()
 
+        logger.info("Conta vinculada via Telegram. user_id=%s telegram_id=%s", user.id, telegram_id)
         await update.message.reply_text("Conta vinculada com sucesso ✅")
         return ConversationHandler.END
 
@@ -67,102 +58,55 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.close()
 
 
-# ====================== Pergunta sobre sintomas ======================
-async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info(f"🔥 HANDLER CHAMADO: {update.message.text}")
-    telegram_id = str(update.message.from_user.id)
-    text = update.message.text.strip()
-    db, user_repo, daily_service = get_repos()  # Removido SymptomRepository
+async def _handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    raw_text = (update.message.text if update and update.message else "") or ""
+    from_user = update.message.from_user.id if update and update.message and update.message.from_user else None
+    logger.info(
+        "Entrada de mensagem no handler Telegram. from_user=%s chars=%s text_preview=%s",
+        from_user,
+        len(raw_text),
+        raw_text[:80],
+    )
+
+    if not update.message or not update.message.from_user:
+        logger.warning("Update Telegram sem message/from_user. update=%s", update)
+        return ConversationHandler.END
+
+    telegram_channel = context.application.bot_data.get("telegram_channel")
+    if not telegram_channel:
+        logger.error("Telegram channel não configurado no bot_data.")
+        await update.message.reply_text("Canal indisponível no momento. Tente novamente.")
+        return ConversationHandler.END
 
     try:
-        user = user_repo.get_user_by_telegram_id(telegram_id)
-        if not user:
-            await update.message.reply_text(
-                "Sua conta não está vinculada. Use /start SEU_CODIGO."
-            )
-            return ConversationHandler.END
-
-        # Processa resposta do usuário usando o serviço
-        status = daily_service.process_response(db, user, text)
-
-        if status == "NOT_AWAITING":
-            await update.message.reply_text("Você não possui um registro pendente hoje.")
-            return ConversationHandler.END
-
-        if status == "TOO_LONG":
-            await update.message.reply_text("Mensagem muito longa. Tente reduzir para 280 caracteres.")
-            return ConversationHandler.END
-
-        if status == "EXPIRED":
-            await update.message.reply_text("Seu registro expirou. Espere o próximo prompt.")
-            return ConversationHandler.END
-
-        if status == "NEGATIVE":
-            await update.message.reply_text("Perfeito 👍 Nenhum sintoma registrado hoje.")
-            return ConversationHandler.END
-
-        if status == "ASK_CAUSE":
-            await update.message.reply_text(
-                "Entendi. Agora me diga: o que você fez de diferente ontem?"
-                " (algo que possa ter causado o sintoma)"
-            )
-            return ASK_CAUSE
-
-        if status == "COMPLETED":
-            await update.message.reply_text("Perfeito! Suas informações foram registradas ✅")
-            return ConversationHandler.END
-
-        return ConversationHandler.END
-    except SQLAlchemyError:
-        db.rollback()
-        logger.exception("Erro de banco ao processar resposta de sintoma. telegram_id=%s", telegram_id)
-        await update.message.reply_text("Não consegui salvar sua resposta agora. Tente novamente em instantes.")
-        return ConversationHandler.END
+        response = await telegram_channel.handle_incoming(
+            {
+                "user_id": str(update.message.from_user.id),
+                "text": raw_text.strip(),
+                "reply": update.message.reply_text,
+            }
+        )
     except Exception:
-        db.rollback()
-        logger.exception("Erro inesperado ao processar resposta de sintoma. telegram_id=%s", telegram_id)
+        logger.exception("Falha ao delegar mensagem para TelegramBotChannel.")
         await update.message.reply_text("Ocorreu um erro ao processar sua resposta. Tente novamente.")
         return ConversationHandler.END
 
-    finally:
-        db.close()
+    if response and response.ask_followup:
+        logger.info("Fluxo Telegram seguirá para ASK_CAUSE. from_user=%s", from_user)
+        return ASK_CAUSE
+
+    logger.info("Fluxo Telegram encerrado para mensagem atual. from_user=%s", from_user)
+    return ConversationHandler.END
+
+
+# ====================== Pergunta sobre sintomas ======================
+async def ask_symptom(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await _handle_text(update, context)
 
 
 # ====================== Pergunta sobre ação ======================
 async def ask_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    telegram_id = str(update.message.from_user.id)
-    action_text = update.message.text.strip()
-    db, user_repo, daily_service = get_repos()  # Removido SymptomRepository
-
-    try:
-        user = user_repo.get_user_by_telegram_id(telegram_id)
-        if not user:
-            await update.message.reply_text(
-                "Não encontrei seu usuário. Use /start para iniciar novamente."
-            )
-            return ConversationHandler.END
-
-        # Salva ação como causa suspeita
-        status = daily_service.process_response(db, user, action_text)
-
-        if status in ["COMPLETED", "NEGATIVE"]:
-            await update.message.reply_text("Perfeito! Suas informações foram registradas ✅")
-            return ConversationHandler.END
-
-        return ConversationHandler.END
-    except SQLAlchemyError:
-        db.rollback()
-        logger.exception("Erro de banco ao processar ação/causa. telegram_id=%s", telegram_id)
-        await update.message.reply_text("Não consegui salvar sua resposta agora. Tente novamente em instantes.")
-        return ConversationHandler.END
-    except Exception:
-        db.rollback()
-        logger.exception("Erro inesperado ao processar ação/causa. telegram_id=%s", telegram_id)
-        await update.message.reply_text("Ocorreu um erro ao processar sua resposta. Tente novamente.")
-        return ConversationHandler.END
-
-    finally:
-        db.close()
+    return await _handle_text(update, context)
 
 
 # ====================== /cancel ======================
@@ -185,3 +129,4 @@ def register_action_handler(app):
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv_handler)
+    logger.info("ConversationHandler do Telegram registrado com sucesso.")
