@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     SCHEDULER_MORNING_MINUTE: int = 0
     SCHEDULER_NIGHT_HOUR: int = 20
     SCHEDULER_NIGHT_MINUTE: int = 0
+    whatsapp_verify_token: str
 
     model_config = SettingsConfigDict(
         env_file=".env",
