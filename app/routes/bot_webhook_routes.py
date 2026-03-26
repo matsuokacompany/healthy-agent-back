@@ -1,4 +1,5 @@
 import logging
+import os
 from fastapi import APIRouter, Request
 
 from app.bot.channels.whatsapp_channel import WhatsAppBotChannel
@@ -6,6 +7,9 @@ from app.bot.channels.whatsapp_channel import WhatsAppBotChannel
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
+
 
 @router.get("/webhook/whatsapp")
 async def verify_webhook(request: Request):
@@ -15,10 +19,11 @@ async def verify_webhook(request: Request):
     token = params.get("hub.verify_token")
     challenge = params.get("hub.challenge")
 
-    if mode == "subscribe" and token == "SEU_VERIFY_TOKEN":
+    if mode == "subscribe" and token == VERIFY_TOKEN:
         return int(challenge)
 
     return {"error": "Verification failed"}
+
 
 @router.post('/webhook/whatsapp')
 async def whatsapp_webhook(request: Request):
