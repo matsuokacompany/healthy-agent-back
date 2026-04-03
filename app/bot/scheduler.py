@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models.models import CheckTypeEnum, DailyReport, User
+from app.models.models import CheckTypeEnum, User
 
 logger = logging.getLogger(__name__)
 
@@ -61,26 +61,21 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
                     logger.warning("Usuário sem identificador válido no canal %s. user_id=%s", channel_name, user.id)
                     continue
 
-                report = DailyReport(
-                    user_id=user.id,
-                    report_date=datetime.now(
-                        ZoneInfo(settings.SCHEDULER_TIMEZONE)
-                    ).date(),
-                    check_type=check_type,
-                )
-                db.add(report)
-                db.flush()
-                user.current_report_id = report.id
+                user.pending_check_type = check_type
+                user.pending_report_date = datetime.now(
+                    ZoneInfo(settings.SCHEDULER_TIMEZONE)
+                ).date()
+                user.pending_prompt_sent_at = datetime.now(ZoneInfo(settings.SCHEDULER_TIMEZONE))
 
                 await channel.send_message(target_user_id, message)
                 db.commit()
                 users_processed += 1
                 logger.info(
-                    "Prompt enviado com sucesso. check_type=%s user_id=%s channel=%s report_id=%s",
+                    "Prompt enviado com sucesso. check_type=%s user_id=%s channel=%s pending_report_date=%s",
                     check_type.value,
                     user.id,
                     channel_name,
-                    report.id,
+                    user.pending_report_date,
                 )
             except SQLAlchemyError:
                 db.rollback()

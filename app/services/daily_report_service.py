@@ -29,7 +29,50 @@ class DailyReportService:
                 return "TOO_LONG"
 
             if not user.current_report_id:
-                return "NOT_AWAITING"
+                if not user.pending_check_type:
+                    return "NOT_AWAITING"
+
+                prompt_sent_at = user.pending_prompt_sent_at
+                if prompt_sent_at and prompt_sent_at.tzinfo is None:
+                    prompt_sent_at = prompt_sent_at.replace(tzinfo=timezone.utc)
+
+                if prompt_sent_at and datetime.now(timezone.utc) - prompt_sent_at > timedelta(hours=24):
+                    user.pending_check_type = None
+                    user.pending_report_date = None
+                    user.pending_prompt_sent_at = None
+                    db.commit()
+                    return "EXPIRED"
+
+                if is_negative(message):
+                    report = DailyReport(
+                        user_id=user.id,
+                        check_type=user.pending_check_type,
+                        report_date=user.pending_report_date,
+                        had_symptoms=False,
+                        completed=True,
+                    )
+                    db.add(report)
+                    user.pending_check_type = None
+                    user.pending_report_date = None
+                    user.pending_prompt_sent_at = None
+                    db.commit()
+                    return "NEGATIVE"
+
+                report = DailyReport(
+                    user_id=user.id,
+                    check_type=user.pending_check_type,
+                    report_date=user.pending_report_date,
+                    had_symptoms=True,
+                    symptom_description=message,
+                )
+                db.add(report)
+                db.flush()
+                user.current_report_id = report.id
+                user.pending_check_type = None
+                user.pending_report_date = None
+                user.pending_prompt_sent_at = None
+                db.commit()
+                return "ASK_CAUSE"
 
             report = db.query(DailyReport).filter(
                 DailyReport.id == user.current_report_id,
@@ -60,6 +103,7 @@ class DailyReportService:
                     return "NEGATIVE"
 
                 report.symptom_description = message
+                report.had_symptoms = True
                 db.commit()
                 return "ASK_CAUSE"
 

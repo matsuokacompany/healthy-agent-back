@@ -53,6 +53,9 @@ class User(Base):
                         onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     current_report_id = Column(Integer, ForeignKey("daily_reports.id"), nullable=True)
+    pending_check_type = Column(Enum(CheckTypeEnum), nullable=True)
+    pending_report_date = Column(Date, nullable=True)
+    pending_prompt_sent_at = Column(DateTime(timezone=True), nullable=True)
 
     # 🔹 Relacionamentos
     anamnese = relationship("Anamnese", back_populates="user", uselist=False)
@@ -111,6 +114,7 @@ class DailyReport(Base):
     check_type = Column(Enum(CheckTypeEnum), nullable=False, index=True)
     symptom_description = Column(Text, nullable=True)
     suspected_cause = Column(Text, nullable=True)
+    had_symptoms = Column(Boolean, nullable=False)
     completed = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 

@@ -93,7 +93,7 @@ class BotService:
         if status == "EXPIRED":
             return BotResponse(text="Seu registro expirou. Espere o próximo prompt.")
         if status == "NEGATIVE":
-            return BotResponse(text="Perfeito 👍 Nenhum sintoma registrado hoje.")
+            return BotResponse(text="Perfeito! Suas informações foram registradas ✅")
         if status == "ASK_CAUSE":
             return BotResponse(
                 text=(

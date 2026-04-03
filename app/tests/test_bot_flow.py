@@ -26,6 +26,7 @@ def test_bot_service_response_flow(monkeypatch):
         user_id=user.id,
         report_date=date.today(),
         check_type=CheckTypeEnum.MORNING,
+        had_symptoms=True,
     )
     db.add(report)
     db.flush()
@@ -49,3 +50,28 @@ def test_bot_service_response_flow(monkeypatch):
         message_text="Comi algo diferente",
     )
     assert "registradas" in second.text
+
+
+def test_bot_service_negative_pending_flow(monkeypatch):
+    db = build_session()
+    user = User(
+        name="Teste",
+        email="bot-negative@example.com",
+        telegram_id="777",
+        pending_check_type=CheckTypeEnum.MORNING,
+        pending_report_date=date.today(),
+    )
+    db.add(user)
+    db.commit()
+
+    monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
+
+    service = BotService()
+    response = service.process_incoming(
+        channel="telegram",
+        external_user_id="777",
+        message_text="Não tive sintomas",
+    )
+
+    assert response.text == "Perfeito! Suas informações foram registradas ✅"
+    assert response.ask_followup is False

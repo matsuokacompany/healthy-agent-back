@@ -26,6 +26,7 @@ def test_daily_report_flow_complete():
         user_id=user.id,
         report_date=date.today(),
         check_type=CheckTypeEnum.MORNING,
+        had_symptoms=True,
     )
     db.add(report)
     db.flush()
@@ -55,6 +56,7 @@ def test_daily_report_expired():
         user_id=user.id,
         report_date=date.today(),
         check_type=CheckTypeEnum.NIGHT,
+        had_symptoms=True,
         created_at=datetime.now(timezone.utc) - timedelta(hours=25),
     )
     db.add(report)
@@ -64,3 +66,84 @@ def test_daily_report_expired():
 
     status = DailyReportService.process_response(db, user, "Senti náusea")
     assert status == "EXPIRED"
+
+
+def test_daily_report_pending_negative_creates_completed_report():
+    db = build_session()
+    user = User(
+        name="Teste",
+        email="pending-negative@example.com",
+        telegram_id="111",
+        pending_check_type=CheckTypeEnum.MORNING,
+        pending_report_date=date.today(),
+        pending_prompt_sent_at=datetime.now(timezone.utc),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    status = DailyReportService.process_response(db, user, "Não tive sintomas")
+    assert status == "NEGATIVE"
+
+    report = db.query(DailyReport).filter(DailyReport.user_id == user.id).first()
+    assert report is not None
+    assert report.completed is True
+    assert report.had_symptoms is False
+    assert report.symptom_description is None
+
+    db.refresh(user)
+    assert user.current_report_id is None
+    assert user.pending_check_type is None
+    assert user.pending_report_date is None
+    assert user.pending_prompt_sent_at is None
+
+
+def test_daily_report_pending_positive_creates_report_and_asks_cause():
+    db = build_session()
+    user = User(
+        name="Teste",
+        email="pending-positive@example.com",
+        telegram_id="222",
+        pending_check_type=CheckTypeEnum.NIGHT,
+        pending_report_date=date.today(),
+        pending_prompt_sent_at=datetime.now(timezone.utc),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    status = DailyReportService.process_response(db, user, "Tive dor de cabeça")
+    assert status == "ASK_CAUSE"
+
+    db.refresh(user)
+    assert user.current_report_id is not None
+    assert user.pending_check_type is None
+
+    report = db.query(DailyReport).filter(DailyReport.id == user.current_report_id).first()
+    assert report is not None
+    assert report.had_symptoms is True
+    assert report.symptom_description == "Tive dor de cabeça"
+
+
+def test_daily_report_pending_expired_returns_expired_and_clears_pending():
+    db = build_session()
+    user = User(
+        name="Teste",
+        email="pending-expired@example.com",
+        telegram_id="333",
+        pending_check_type=CheckTypeEnum.NIGHT,
+        pending_report_date=date.today(),
+        pending_prompt_sent_at=datetime.now(timezone.utc) - timedelta(hours=25),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    status = DailyReportService.process_response(db, user, "Tive febre")
+    assert status == "EXPIRED"
+
+    db.refresh(user)
+    assert user.current_report_id is None
+    assert user.pending_check_type is None
+    assert user.pending_report_date is None
+    assert user.pending_prompt_sent_at is None
