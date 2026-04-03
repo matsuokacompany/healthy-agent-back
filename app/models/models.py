@@ -97,11 +97,17 @@ class Anamnese(Base):
 class DailyReport(Base):
     __tablename__ = "daily_reports"
     __table_args__ = (
-        UniqueConstraint('user_id', 'check_type', 'created_at', name='uq_user_check_day'),
+        UniqueConstraint(
+            'user_id',
+            'report_date',
+            'check_type',
+            name='uq_user_report_date_check'
+        ),
     )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    report_date = Column(Date, nullable=False, index=True)
     check_type = Column(Enum(CheckTypeEnum), nullable=False, index=True)
     symptom_description = Column(Text, nullable=True)
     suspected_cause = Column(Text, nullable=True)

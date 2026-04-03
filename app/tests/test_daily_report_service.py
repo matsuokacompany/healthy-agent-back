@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -22,7 +22,11 @@ def test_daily_report_flow_complete():
     db.commit()
     db.refresh(user)
 
-    report = DailyReport(user_id=user.id, check_type=CheckTypeEnum.MORNING)
+    report = DailyReport(
+        user_id=user.id,
+        report_date=date.today(),
+        check_type=CheckTypeEnum.MORNING,
+    )
     db.add(report)
     db.flush()
     user.current_report_id = report.id
@@ -49,6 +53,7 @@ def test_daily_report_expired():
 
     report = DailyReport(
         user_id=user.id,
+        report_date=date.today(),
         check_type=CheckTypeEnum.NIGHT,
         created_at=datetime.now(timezone.utc) - timedelta(hours=25),
     )
