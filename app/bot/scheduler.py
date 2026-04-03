@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -60,7 +61,13 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
                     logger.warning("Usuário sem identificador válido no canal %s. user_id=%s", channel_name, user.id)
                     continue
 
-                report = DailyReport(user_id=user.id, check_type=check_type)
+                report = DailyReport(
+                    user_id=user.id,
+                    report_date=datetime.now(
+                        ZoneInfo(settings.SCHEDULER_TIMEZONE)
+                    ).date(),
+                    check_type=check_type,
+                )
                 db.add(report)
                 db.flush()
                 user.current_report_id = report.id

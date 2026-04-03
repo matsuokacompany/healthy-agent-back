@@ -1,3 +1,5 @@
+from datetime import date
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -20,7 +22,11 @@ def test_bot_service_response_flow(monkeypatch):
     db.commit()
     db.refresh(user)
 
-    report = DailyReport(user_id=user.id, check_type=CheckTypeEnum.MORNING)
+    report = DailyReport(
+        user_id=user.id,
+        report_date=date.today(),
+        check_type=CheckTypeEnum.MORNING,
+    )
     db.add(report)
     db.flush()
     user.current_report_id = report.id
