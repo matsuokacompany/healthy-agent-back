@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
@@ -19,7 +20,7 @@ from app.routes import (
 )
 
 # ===============================
-# Configurações de logging
+# LOGGING
 # ===============================
 logging.basicConfig(
     level=logging.INFO,
@@ -31,46 +32,36 @@ logger = logging.getLogger(__name__)
 ENV = os.getenv("ENV", "dev").lower()
 DEBUG = ENV == "dev"
 
-# ===============================
-# Inicializa FastAPI
-# ===============================
-app = FastAPI(
-    title="Symptom Tracker API",
-    redirect_slashes=False,
-    docs_url="/docs" if DEBUG else None,
-    redoc_url="/redoc" if DEBUG else None,
-)
-
-API_PREFIX = "/api"
-
-# ===============================
-# Inclui rotas
-# ===============================
-app.include_router(auth_routes.router, prefix=f"{API_PREFIX}/auth")
-app.include_router(anamnese_routes.router, prefix=f"{API_PREFIX}/anamneses")
-app.include_router(daily_reports_routes.router, prefix=f"{API_PREFIX}/daily-reports")
-app.include_router(insight_routes.router, prefix=f"{API_PREFIX}/insights")
-app.include_router(report_routes.router, prefix=f"{API_PREFIX}/reports")
-app.include_router(user_routes.router, prefix=f"{API_PREFIX}/users")
-app.include_router(bot_webhook_routes.router)
-
-# ===============================
-# Bot Telegram / WhatsApp
-# ===============================
 telegram_app = None
 
 
-@app.on_event("startup")
-async def startup_event():
+# ===============================
+# LIFESPAN (STARTUP + SHUTDOWN)
+# ===============================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     global telegram_app
-    telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
 
+    # ======================
+    # STARTUP
+    # ======================
     bot_manager = BotManager()
+
+    # WhatsApp sempre ativo
     bot_manager.register_channel("whatsapp", WhatsAppBotChannel())
     app.state.bot_manager = bot_manager
 
+    # Scheduler sempre ativo (independente de Telegram)
+    start_scheduler(bot_manager)
+    logger.info("Scheduler iniciado com BotManager.")
+
+    telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
+
     if not telegram_token:
-        logger.warning("TELEGRAM_BOT_TOKEN não definido. Bot Telegram não será iniciado.")
+        logger.warning("TELEGRAM_BOT_TOKEN não definido. Telegram desativado.")
+        yield
+        # SHUTDOWN abaixo ainda será executado
+        stop_scheduler()
         return
 
     try:
@@ -82,19 +73,43 @@ async def startup_event():
             bot_manager.register_channel("telegram", telegram_channel)
             logger.info("Canal Telegram registrado no BotManager.")
         else:
-            logger.error("Telegram channel ausente no bot_data após inicialização.")
+            logger.error("Telegram channel ausente no bot_data.")
 
-        start_scheduler(bot_manager)
-        logger.info("Scheduler iniciado com BotManager.")
     except Exception:
-        logger.exception("Falha ao inicializar bot Telegram; API seguirá ativa sem polling.")
+        logger.exception("Falha no Telegram. Sistema continua com WhatsApp + Scheduler.")
 
+    # aplicação rodando
+    yield
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    global telegram_app
-
+    # ======================
+    # SHUTDOWN
+    # ======================
     stop_scheduler()
 
     if telegram_app:
         await stop_telegram_polling(telegram_app)
+
+
+# ===============================
+# FASTAPI APP
+# ===============================
+app = FastAPI(
+    title="Symptom Tracker API",
+    redirect_slashes=False,
+    docs_url="/docs" if DEBUG else None,
+    redoc_url="/redoc" if DEBUG else None,
+    lifespan=lifespan
+)
+
+API_PREFIX = "/api"
+
+# ===============================
+# ROUTES
+# ===============================
+app.include_router(auth_routes.router, prefix=f"{API_PREFIX}/auth")
+app.include_router(anamnese_routes.router, prefix=f"{API_PREFIX}/anamneses")
+app.include_router(daily_reports_routes.router, prefix=f"{API_PREFIX}/daily-reports")
+app.include_router(insight_routes.router, prefix=f"{API_PREFIX}/insights")
+app.include_router(report_routes.router, prefix=f"{API_PREFIX}/reports")
+app.include_router(user_routes.router, prefix=f"{API_PREFIX}/users")
+app.include_router(bot_webhook_routes.router)
