@@ -15,11 +15,15 @@ logger = logging.getLogger(__name__)
 scheduler: AsyncIOScheduler | None = None
 
 
-def _build_message(check_type: CheckTypeEnum) -> str:
+# =========================================================
+# MESSAGE BUILDER
+# =========================================================
+
+def build_message(check_type: CheckTypeEnum) -> str:
     if check_type == CheckTypeEnum.MORNING:
         return (
             "🌅 Bom dia!\n"
-            "Você teve algum sintoma indesejado antes de dormir ou enquanto dormia?"
+            "Você teve algum sintoma indesejado antes de dormir ou durante a noite?"
         )
 
     return (
@@ -28,91 +32,104 @@ def _build_message(check_type: CheckTypeEnum) -> str:
     )
 
 
+# =========================================================
+# CORE JOB
+# =========================================================
+
 async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
-    db = SessionLocal()
+    message = build_message(check_type)
+
     users_processed = 0
     users_failed = 0
-    message = _build_message(check_type)
+
+    db = SessionLocal()
 
     try:
         users = db.query(User).all()
 
         if not users:
-            logger.info("Nenhum usuário encontrado para o prompt %s.", check_type.value)
+            logger.warning("Nenhum usuário encontrado para prompt: %s", check_type.value)
             return
 
         for user in users:
             try:
                 channel_name = bot_manager.resolve_channel_name_for_user(user)
                 channel = bot_manager.get_channel_for_user(user)
+
                 if not channel_name or not channel:
-                    logger.info("Usuário sem canal elegível para prompt. user_id=%s", user.id)
+                    logger.debug("Usuário sem canal válido. user_id=%s", user.id)
                     continue
 
+                # WhatsApp ainda é stub
                 if channel_name == "whatsapp":
-                    logger.info(
-                        "Prompt não enviado para WhatsApp por segurança (stub). user_id=%s",
-                        user.id,
-                    )
+                    logger.info("WhatsApp ainda em modo stub. user_id=%s", user.id)
                     continue
 
-                target_user_id = user.telegram_id
-                if not target_user_id:
-                    logger.warning("Usuário sem identificador válido no canal %s. user_id=%s", channel_name, user.id)
+                if not user.telegram_id:
+                    logger.warning("Usuário sem telegram_id. user_id=%s", user.id)
                     continue
+
+                now = datetime.now(ZoneInfo(settings.SCHEDULER_TIMEZONE))
 
                 user.pending_check_type = check_type
-                user.pending_report_date = datetime.now(
-                    ZoneInfo(settings.SCHEDULER_TIMEZONE)
-                ).date()
-                user.pending_prompt_sent_at = datetime.now(ZoneInfo(settings.SCHEDULER_TIMEZONE))
+                user.pending_report_date = now.date()
+                user.pending_prompt_sent_at = now
 
-                await channel.send_message(target_user_id, message)
+                await channel.send_message(user.telegram_id, message)
+
+                db.add(user)
                 db.commit()
+
                 users_processed += 1
+
                 logger.info(
-                    "Prompt enviado com sucesso. check_type=%s user_id=%s channel=%s pending_report_date=%s",
-                    check_type.value,
+                    "Prompt enviado com sucesso | user_id=%s | type=%s",
                     user.id,
-                    channel_name,
-                    user.pending_report_date,
+                    check_type.value,
                 )
+
             except SQLAlchemyError:
                 db.rollback()
                 users_failed += 1
-                logger.exception(
-                    "Erro de banco ao enviar prompt individual. check_type=%s user_id=%s",
-                    check_type.value,
-                    user.id,
-                )
+                logger.exception("Erro SQL no envio de prompt | user_id=%s", user.id)
+
             except Exception:
                 db.rollback()
                 users_failed += 1
-                logger.exception(
-                    "Erro no envio de prompt individual. check_type=%s user_id=%s",
-                    check_type.value,
-                    user.id,
-                )
+                logger.exception("Erro geral no envio de prompt | user_id=%s", user.id)
 
-        logger.info(
-            "Envio de prompt finalizado. check_type=%s enviados=%s falhas=%s",
-            check_type.value,
-            users_processed,
-            users_failed,
-        )
     finally:
         db.close()
 
+    logger.info(
+        "JOB FINALIZADO | type=%s | enviados=%s | falhas=%s",
+        check_type.value,
+        users_processed,
+        users_failed,
+    )
+
+
+# =========================================================
+# SCHEDULER START
+# =========================================================
 
 def start_scheduler(bot_manager) -> AsyncIOScheduler:
     global scheduler
 
     if scheduler and scheduler.running:
-        logger.info("Scheduler já está em execução; reutilizando instância existente.")
+        logger.warning("Scheduler já estava rodando — evitando duplicação.")
         return scheduler
 
     timezone = ZoneInfo(settings.SCHEDULER_TIMEZONE)
-    scheduler = AsyncIOScheduler(timezone=timezone)
+
+    scheduler = AsyncIOScheduler(
+        timezone=timezone,
+        job_defaults={
+            "coalesce": True,
+            "max_instances": 1,
+            "misfire_grace_time": 1800,
+        },
+    )
 
     scheduler.add_job(
         send_prompt,
@@ -122,12 +139,10 @@ def start_scheduler(bot_manager) -> AsyncIOScheduler:
             timezone=timezone,
         ),
         args=[bot_manager, CheckTypeEnum.MORNING],
-        id="bot_morning_prompt",
+        id="morning_prompt",
         replace_existing=True,
-        misfire_grace_time=1800,
-        coalesce=True,
-        max_instances=1,
     )
+
     scheduler.add_job(
         send_prompt,
         CronTrigger(
@@ -136,30 +151,33 @@ def start_scheduler(bot_manager) -> AsyncIOScheduler:
             timezone=timezone,
         ),
         args=[bot_manager, CheckTypeEnum.NIGHT],
-        id="bot_night_prompt",
+        id="night_prompt",
         replace_existing=True,
-        misfire_grace_time=1800,
-        coalesce=True,
-        max_instances=1,
     )
 
     scheduler.start()
+
     logger.info(
-        "Scheduler iniciado no timezone %s. Manhã: %02d:%02d | Noite: %02d:%02d",
+        "Scheduler ativo | TZ=%s | manhã=%02d:%02d | noite=%02d:%02d",
         settings.SCHEDULER_TIMEZONE,
         settings.SCHEDULER_MORNING_HOUR,
         settings.SCHEDULER_MORNING_MINUTE,
         settings.SCHEDULER_NIGHT_HOUR,
         settings.SCHEDULER_NIGHT_MINUTE,
     )
+
     return scheduler
 
+
+# =========================================================
+# STOP
+# =========================================================
 
 def stop_scheduler() -> None:
     global scheduler
 
-    if scheduler and scheduler.running:
+    if scheduler:
         scheduler.shutdown(wait=False)
-        logger.info("Scheduler finalizado com sucesso.")
+        logger.info("Scheduler desligado.")
 
     scheduler = None
