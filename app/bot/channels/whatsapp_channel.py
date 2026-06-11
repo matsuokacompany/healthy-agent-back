@@ -1,5 +1,8 @@
 import logging
 
+import httpx
+
+from app.core.config import settings
 from app.bot.channels.base import BaseBotChannel
 from app.services.bot_service import BotService
 
@@ -33,7 +36,7 @@ class WhatsAppBotChannel(BaseBotChannel):
             "Content-Type": "application/json"
         }
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 url,
                 json=payload,
@@ -45,6 +48,13 @@ class WhatsAppBotChannel(BaseBotChannel):
             response.status_code,
             response.text
         )
+
+        if response.status_code >= 400:
+            logger.error(
+                "Erro WhatsApp API status=%s body=%s",
+                response.status_code,
+                response.text,
+            )
 
         response.raise_for_status()
 
