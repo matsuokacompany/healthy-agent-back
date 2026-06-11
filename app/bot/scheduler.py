@@ -53,53 +53,57 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
 
         for user in users:
             try:
+                logger.info("➡️ PROCESSING user_id=%s", user.id)
+
                 channel_name = bot_manager.resolve_channel_name_for_user(user)
                 channel = bot_manager.get_channel_for_user(user)
 
+                logger.info(
+                    "🔎 CHANNEL RESOLUTION user_id=%s telegram=%s whatsapp=%s chosen=%s",
+                    user.id,
+                    bool(user.telegram_id),
+                    bool(user.phone),
+                    channel_name
+                )
+
                 if not channel_name or not channel:
-                    logger.debug(
-                        "Usuário sem canal válido. user_id=%s",
-                        user.id
+                    logger.warning(
+                        "⛔ NO CHANNEL user_id=%s channel_name=%s channel=%s",
+                        user.id,
+                        channel_name,
+                        channel
                     )
                     continue
 
                 now = datetime.now(ZoneInfo(settings.SCHEDULER_TIMEZONE))
 
-                user.pending_check_type = check_type
-                user.pending_report_date = now.date()
-                user.pending_prompt_sent_at = now
-
-                destination = (
-                    user.telegram_id
-                    if channel_name == "telegram"
-                    else user.phone
+                logger.info(
+                    "📤 SENDING user_id=%s to=%s",
+                    user.id,
+                    channel_name
                 )
 
                 await channel.send_message(
-                    destination,
+                    user.telegram_id if channel_name == "telegram" else user.phone,
                     message
                 )
+
+                logger.info("✅ SENT OK user_id=%s", user.id)
 
                 db.add(user)
                 db.commit()
 
                 users_processed += 1
 
-                logger.info(
-                    "Prompt enviado com sucesso | user_id=%s | type=%s",
+            except Exception as e:
+                db.rollback()
+                users_failed += 1
+
+                logger.exception(
+                    "💥 ERROR user_id=%s err=%s",
                     user.id,
-                    check_type.value,
+                    str(e)
                 )
-
-            except SQLAlchemyError:
-                db.rollback()
-                users_failed += 1
-                logger.exception("Erro SQL no envio de prompt | user_id=%s", user.id)
-
-            except Exception:
-                db.rollback()
-                users_failed += 1
-                logger.exception("Erro geral no envio de prompt | user_id=%s", user.id)
 
     finally:
         db.close()
