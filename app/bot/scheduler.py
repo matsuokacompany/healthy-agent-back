@@ -31,7 +31,7 @@ def _build_message(check_type: CheckTypeEnum) -> str:
 async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
     logger.info("🚀 SEND_PROMPT START | type=%s", check_type.value)
 
-    message = build_message(check_type)
+    message = _build_message(check_type)
 
     users_processed = 0
     users_failed = 0
