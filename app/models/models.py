@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Date, DateTime,
-    ForeignKey, Text, Boolean, Enum, UniqueConstraint
+    ForeignKey, Text, Boolean, Enum, UniqueConstraint, Index
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -37,21 +37,33 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True)
+
     name = Column(String, nullable=False)
-    email = Column(String, nullable=False)
-    telegram_id = Column(String, nullable=True)
-    phone = Column(String, nullable=True)
+    email = Column(String, nullable=False, unique=True)
+
+    telegram_id = Column(String, nullable=True, index=True)
+    phone = Column(String, nullable=True, index=True)
+
     city = Column(String, nullable=True)
     state = Column(String, nullable=True)
     gender = Column(String, nullable=True)
     birth_date = Column(Date, nullable=True)
-    cpf = Column(String, nullable=True)
+    cpf = Column(String, nullable=True, unique=True)
+
     hashed_password = Column(String, nullable=True)
     is_admin = Column(Boolean, default=False)
 
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
-                        onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
 
     current_report_id = Column(Integer, nullable=True)
     pending_check_type = Column(Enum(CheckTypeEnum), nullable=True)
@@ -90,6 +102,7 @@ class Anamnese(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+
     info = Column(Text)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -113,9 +126,11 @@ class DailyReport(Base):
             "check_type",
             name="uq_user_report_date_check"
         ),
+        Index("ix_daily_reports_user_id", "user_id"),
     )
 
     id = Column(Integer, primary_key=True)
+
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     report_date = Column(Date, nullable=False)
     check_type = Column(Enum(CheckTypeEnum), nullable=False)
@@ -143,10 +158,14 @@ class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 
     id = Column(Integer, primary_key=True)
+
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    token = Column(String, nullable=False)
+
+    token = Column(String, nullable=False, unique=True)
+
     expires_at = Column(DateTime(timezone=True), nullable=False)
     revoked = Column(Boolean, default=False)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="refresh_tokens")
@@ -161,8 +180,11 @@ class TelegramLinkCode(Base):
     __tablename__ = "telegram_link_codes"
 
     id = Column(Integer, primary_key=True)
+
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    code = Column(String, nullable=False)
+
+    code = Column(String, nullable=False, unique=True)
+
     expires_at = Column(DateTime(timezone=True), nullable=False)
     used = Column(Boolean, default=False)
 
