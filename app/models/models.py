@@ -65,7 +65,11 @@ class User(Base):
         nullable=False
     )
 
-    current_report_id = Column(Integer, nullable=True)
+    current_report_id = Column(
+        Integer,
+        ForeignKey("daily_reports.id"),
+        nullable=True
+    )
     pending_check_type = Column(Enum(CheckTypeEnum), nullable=True)
     pending_report_date = Column(Date, nullable=True)
     pending_prompt_sent_at = Column(DateTime(timezone=True), nullable=True)
