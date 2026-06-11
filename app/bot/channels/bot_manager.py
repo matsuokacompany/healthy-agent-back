@@ -10,16 +10,15 @@ class BotManager:
     """
     Gerencia canais de envio e decide qual usar por usuário.
 
-    Ordem de prioridade padrão:
-    1. Telegram
-    2. WhatsApp
+    Canal ativo atual:
+    - WhatsApp apenas
     """
 
     def __init__(self, channels: dict[str, Any] | None = None):
         self.channels = channels or {}
 
-        # ordem explícita = previsibilidade
-        self.channel_priority = ["telegram", "whatsapp"]
+        # Apenas WhatsApp (sem Telegram)
+        self.channel_priority = ["whatsapp"]
 
     # =========================================================
     # REGISTRO
@@ -35,13 +34,15 @@ class BotManager:
 
     def resolve_channel_name_for_user(self, user: User) -> str | None:
         """
-        Decide o melhor canal disponível para o usuário.
+        Decide o canal disponível para o usuário.
+        Telegram ignorado intencionalmente.
         """
 
         available_channels = []
 
-        if user.telegram_id and "telegram" in self.channels:
-            available_channels.append("telegram")
+        # ❌ Telegram removido do fluxo, mesmo que exista no DB
+        # if user.telegram_id and "telegram" in self.channels:
+        #     available_channels.append("telegram")
 
         if user.phone and "whatsapp" in self.channels:
             available_channels.append("whatsapp")
@@ -53,17 +54,8 @@ class BotManager:
             )
             return None
 
-        # escolhe baseado na prioridade
-        for channel in self.channel_priority:
-            if channel in available_channels:
-                logger.debug(
-                    "Canal escolhido=%s | user_id=%s",
-                    channel,
-                    user.id
-                )
-                return channel
-
-        return available_channels[0]
+        # só WhatsApp agora
+        return "whatsapp"
 
     # =========================================================
     # ACESSO AO CANAL
@@ -84,7 +76,7 @@ class BotManager:
     def get_user_channel_debug(self, user: User) -> dict:
         return {
             "user_id": user.id,
-            "telegram_available": bool(user.telegram_id and "telegram" in self.channels),
+            "telegram_available": False,  # forçado off
             "whatsapp_available": bool(user.phone and "whatsapp" in self.channels),
             "chosen_channel": self.resolve_channel_name_for_user(user),
         }

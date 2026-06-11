@@ -86,9 +86,7 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
                 user.pending_prompt_sent_at = now
 
                 destination = (
-                    user.telegram_id
-                    if channel_name == "telegram"
-                    else user.phone
+                    user.phone
                 )
 
                 logger.info(

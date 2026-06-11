@@ -1,10 +1,12 @@
 from sqlalchemy.orm import Session
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from passlib.context import CryptContext
+
 from app.models.models import User
 from app.models.schemas import UserCreate, UserUpdate
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 class UserService:
     def __init__(self, db: Session):
@@ -15,17 +17,16 @@ class UserService:
 
     def create_user(self, data: UserCreate) -> User:
 
-        # Verifica email
+        # Email único
         if self.db.query(User).filter(User.email == data.email).first():
             raise HTTPException(400, "Email already registered")
 
-        # Verifica CPF
+        # CPF único
         if data.cpf and self.db.query(User).filter(User.cpf == data.cpf).first():
             raise HTTPException(400, "CPF already registered")
 
-        # Verifica telegram_id
-        if data.telegram_id and self.db.query(User).filter(User.telegram_id == data.telegram_id).first():
-            raise HTTPException(400, "Telegram ID already registered")
+        # 🔴 TELEGRAM REMOVIDO (não validar mais canal externo aqui)
+        # if data.telegram_id ...
 
         hashed_pw = None
         if data.password:
@@ -35,14 +36,14 @@ class UserService:
             name=data.name,
             email=data.email,
             phone=data.phone,
-            telegram_id=data.telegram_id,
+            telegram_id=None,  # mantém campo, mas não usado mais no fluxo
             city=data.city,
             state=data.state,
             gender=data.gender,
             birth_date=data.birth_date,
             cpf=data.cpf,
             hashed_password=hashed_pw,
-            is_admin=False
+            is_admin=False,
         )
 
         self.db.add(new_user)
@@ -58,43 +59,44 @@ class UserService:
 
     def list_users(self) -> list[User]:
         return self.db.query(User).all()
-    
+
     def update_user(self, user_id: int, payload: UserUpdate, current_user: User) -> User:
         user = self.db.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Regra: só super admin pode mudar is_admin
+        # Regra admin
         if payload.is_admin is not None:
-            is_super_admin = (current_user.id == 1 and current_user.email == "matsuokacompany@gmail.com")
+            is_super_admin = (
+                current_user.id == 1
+                and current_user.email == "matsuokacompany@gmail.com"
+            )
             if not is_super_admin:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Only super admin can change admin permissions"
+                    detail="Only super admin can change admin permissions",
                 )
             user.is_admin = payload.is_admin
 
-        # Atualiza campos normais
-        if payload.name is not None:
-            user.name = payload.name
-        if payload.email is not None:
-            user.email = payload.email
-        if payload.telegram_id is not None:
-            user.telegram_id = payload.telegram_id
-        if payload.phone is not None:
-            user.phone = payload.phone
-        if payload.city is not None:
-            user.city = payload.city
-        if payload.state is not None:
-            user.state = payload.state
-        if payload.gender is not None:
-            user.gender = payload.gender
-        if payload.birth_date is not None:
-            user.birth_date = payload.birth_date
-        if payload.cpf is not None:
-            user.cpf = payload.cpf
+        # Campos normais
+        for field in [
+            "name",
+            "email",
+            "phone",
+            "city",
+            "state",
+            "gender",
+            "birth_date",
+            "cpf",
+        ]:
+            value = getattr(payload, field, None)
+            if value is not None:
+                setattr(user, field, value)
 
-        # Troca de senha
+        # 🔴 TELEGRAM REMOVIDO DO UPDATE
+        # if payload.telegram_id is not None:
+        #     user.telegram_id = payload.telegram_id
+
         if payload.password is not None:
             user.hashed_password = self._hash_password(payload.password)
 

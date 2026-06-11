@@ -1,18 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta, timezone
-import secrets
 
 from app.models.schemas import UserCreate, UserRead, UserUpdate
 from app.services.user_service import UserService
 from app.core.dependencies import get_db
 from app.core.auth import get_current_user, get_current_admin, get_current_user_optional
-from app.models.models import User, TelegramLinkCode
+from app.models.models import User
 
 router = APIRouter(tags=["Users"])
 
+
 # ============================================================
-#                     CREATE USER (ADMIN)
+# CREATE USER
 # ============================================================
 
 @router.post("/", response_model=UserRead, status_code=status.HTTP_201_CREATED)
@@ -26,27 +25,24 @@ def create_user(
     - Só super admin pode criar admin
     """
 
-    # se tentar criar admin...
     if user.is_admin:
-        # precisa estar logado
         if not current_user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required to create admin user"
+                detail="Authentication required to create admin user",
             )
 
-        # e precisa ser super admin
         if not (current_user.id == 1 and current_user.email == "matsuokacompany@gmail.com"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only super admin can create admin users"
+                detail="Only super admin can create admin users",
             )
 
-    service = UserService(db)
-    return service.create_user(user)
+    return UserService(db).create_user(user)
+
 
 # ============================================================
-#                  GET USER (SELF OR ADMIN)
+# GET USER
 # ============================================================
 
 @router.get("/{user_id}", response_model=UserRead)
@@ -62,7 +58,7 @@ def get_user(
 
 
 # ============================================================
-#                  LIST USERS (ADMIN ONLY)
+# LIST USERS (ADMIN ONLY)
 # ============================================================
 
 @router.get("/", response_model=list[UserRead])
@@ -74,8 +70,9 @@ def list_users(
 
 
 # ============================================================
-#                  DELETE USER (ADMIN ONLY)
+# DELETE USER
 # ============================================================
+
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     user_id: int,
@@ -88,9 +85,11 @@ def delete_user(
     UserService(db).delete_user(user_id)
     return
 
+
 # ============================================================
-#                  UPDATE USER (SELF OR ADMIN)
+# UPDATE USER
 # ============================================================
+
 @router.put("/{user_id}", response_model=UserRead)
 def update_user(
     user_id: int,
@@ -102,30 +101,3 @@ def update_user(
     require_access_user(current_user, user_id)
 
     return UserService(db).update_user(user_id, payload, current_user)
-
-# ============================================================
-#                  GENERATE TELEGRAM LINK CODE
-# ============================================================
-
-@router.post("/me/generate-telegram-code")
-def generate_telegram_code(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    code = secrets.token_hex(3).upper()
-
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
-
-    link = TelegramLinkCode(
-        user_id=current_user.id,
-        code=code,
-        expires_at=expires_at,
-    )
-
-    db.add(link)
-    db.commit()
-
-    return {
-        "telegram_code": code,
-        "expires_at": expires_at
-    }
