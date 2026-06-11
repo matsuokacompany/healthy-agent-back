@@ -1,5 +1,6 @@
 from sqlalchemy import (
-    Column, Integer, String, Date, DateTime, ForeignKey, Text, Boolean, Enum, UniqueConstraint
+    Column, Integer, String, Date, DateTime,
+    ForeignKey, Text, Boolean, Enum, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
@@ -29,22 +30,22 @@ class UrgenciaEnum(str, enum.Enum):
 
 
 # ============================================================
-# USER MODEL
+# USER
 # ============================================================
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
-    email = Column(String, unique=True, nullable=False)
-    telegram_id = Column(String, unique=True, index=True, nullable=True)
+    email = Column(String, nullable=False)
+    telegram_id = Column(String, nullable=True)
     phone = Column(String, nullable=True)
     city = Column(String, nullable=True)
     state = Column(String, nullable=True)
     gender = Column(String, nullable=True)
     birth_date = Column(Date, nullable=True)
-    cpf = Column(String, unique=True, nullable=True)
+    cpf = Column(String, nullable=True)
     hashed_password = Column(String, nullable=True)
     is_admin = Column(Boolean, default=False)
 
@@ -57,35 +58,40 @@ class User(Base):
     pending_report_date = Column(Date, nullable=True)
     pending_prompt_sent_at = Column(DateTime(timezone=True), nullable=True)
 
-    # 🔹 Relacionamentos
+    # relationships
     anamnese = relationship("Anamnese", back_populates="user", uselist=False)
 
     daily_reports = relationship(
         "DailyReport",
         back_populates="user",
         cascade="all, delete-orphan",
-        foreign_keys="DailyReport.user_id"  # 🔥 ESSENCIAL
+        foreign_keys="DailyReport.user_id"
     )
 
     current_report = relationship(
         "DailyReport",
-        foreign_keys=[current_report_id],  # 🔥 ESSENCIAL
+        foreign_keys=[current_report_id],
         post_update=True
     )
 
-    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+    refresh_tokens = relationship(
+        "RefreshToken",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
 
 
 # ============================================================
-# ANAMNESE MODEL
+# ANAMNESE
 # ============================================================
 
 class Anamnese(Base):
     __tablename__ = "anamneses"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     info = Column(Text)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
@@ -94,47 +100,51 @@ class Anamnese(Base):
 
 
 # ============================================================
-# DAILY REPORT MODEL
+# DAILY REPORT
 # ============================================================
 
 class DailyReport(Base):
     __tablename__ = "daily_reports"
+
     __table_args__ = (
         UniqueConstraint(
-            'user_id',
-            'report_date',
-            'check_type',
-            name='uq_user_report_date_check'
+            "user_id",
+            "report_date",
+            "check_type",
+            name="uq_user_report_date_check"
         ),
     )
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    report_date = Column(Date, nullable=False, index=True)
-    check_type = Column(Enum(CheckTypeEnum), nullable=False, index=True)
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    report_date = Column(Date, nullable=False)
+    check_type = Column(Enum(CheckTypeEnum), nullable=False)
+
     symptom_description = Column(Text, nullable=True)
     suspected_cause = Column(Text, nullable=True)
     had_symptoms = Column(Boolean, nullable=False)
     completed = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = relationship(
         "User",
         back_populates="daily_reports",
-        foreign_keys=[user_id]  # 🔥 ESSENCIAL
+        foreign_keys=[user_id]
     )
 
 
 # ============================================================
-# REFRESH TOKEN MODEL
+# REFRESH TOKEN
 # ============================================================
 
 class RefreshToken(Base):
+
     __tablename__ = "refresh_tokens"
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    token = Column(String, unique=True, nullable=False, index=True)
+    token = Column(String, nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     revoked = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -143,15 +153,16 @@ class RefreshToken(Base):
 
 
 # ============================================================
-# TELEGRAM LINK CODE MODEL
+# TELEGRAM LINK CODE
 # ============================================================
 
 class TelegramLinkCode(Base):
+
     __tablename__ = "telegram_link_codes"
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    code = Column(String, unique=True, index=True, nullable=False)
+    code = Column(String, nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     used = Column(Boolean, default=False)
 
