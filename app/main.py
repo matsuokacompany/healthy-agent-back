@@ -9,12 +9,6 @@ from app.bot.channels.bot_manager import BotManager
 from app.bot.channels.whatsapp_channel import WhatsAppBotChannel
 from app.bot.scheduler import start_scheduler, stop_scheduler
 
-from app.bot.telegram_bot import (
-    start_bot,
-    start_telegram_polling,
-    stop_telegram_polling,
-)
-
 from app.routes import (
     anamnese_routes,
     auth_routes,
@@ -39,15 +33,12 @@ logger = logging.getLogger(__name__)
 ENV = os.getenv("ENV", "dev").lower()
 DEBUG = ENV == "dev"
 
-telegram_app = None
-
 
 # =========================================================
 # LIFESPAN
 # =========================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global telegram_app
 
     # -------------------------
     # BOT MANAGER (CORE)
@@ -60,33 +51,10 @@ async def lifespan(app: FastAPI):
     logger.info("BotManager inicializado com WhatsApp")
 
     # -------------------------
-    # SCHEDULER (INDEPENDENTE)
+    # SCHEDULER
     # -------------------------
     start_scheduler(bot_manager)
     logger.info("Scheduler iniciado com BotManager")
-
-    # -------------------------
-    # TELEGRAM (OPCIONAL)
-    # -------------------------
-    telegram_token = os.getenv("TELEGRAM_BOT_TOKEN")
-
-    if telegram_token:
-        try:
-            telegram_app = start_bot(telegram_token)
-            await start_telegram_polling(telegram_app)
-
-            telegram_channel = telegram_app.bot_data.get("telegram_channel")
-
-            if telegram_channel:
-                bot_manager.register_channel("telegram", telegram_channel)
-                logger.info("Telegram habilitado e registrado no BotManager")
-            else:
-                logger.warning("Telegram iniciado, mas canal não encontrado")
-
-        except Exception:
-            logger.exception("Falha ao iniciar Telegram — sistema segue sem ele")
-    else:
-        logger.warning("Telegram desativado (sem TELEGRAM_BOT_TOKEN)")
 
     # -------------------------
     # APP RODANDO
@@ -94,13 +62,10 @@ async def lifespan(app: FastAPI):
     yield
 
     # -------------------------
-    # SHUTDOWN LIMPO
+    # SHUTDOWN
     # -------------------------
     stop_scheduler()
-
-    if telegram_app:
-        await stop_telegram_polling(telegram_app)
-        logger.info("Telegram finalizado")
+    logger.info("Scheduler finalizado")
 
 
 # =========================================================
