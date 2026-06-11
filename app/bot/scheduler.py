@@ -57,16 +57,10 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
                 channel = bot_manager.get_channel_for_user(user)
 
                 if not channel_name or not channel:
-                    logger.debug("Usuário sem canal válido. user_id=%s", user.id)
-                    continue
-
-                # WhatsApp ainda é stub
-                if channel_name == "whatsapp":
-                    logger.info("WhatsApp ainda em modo stub. user_id=%s", user.id)
-                    continue
-
-                if not user.telegram_id:
-                    logger.warning("Usuário sem telegram_id. user_id=%s", user.id)
+                    logger.debug(
+                        "Usuário sem canal válido. user_id=%s",
+                        user.id
+                    )
                     continue
 
                 now = datetime.now(ZoneInfo(settings.SCHEDULER_TIMEZONE))
@@ -75,7 +69,16 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
                 user.pending_report_date = now.date()
                 user.pending_prompt_sent_at = now
 
-                await channel.send_message(user.telegram_id, message)
+                destination = (
+                    user.telegram_id
+                    if channel_name == "telegram"
+                    else user.phone
+                )
+
+                await channel.send_message(
+                    destination,
+                    message
+                )
 
                 db.add(user)
                 db.commit()

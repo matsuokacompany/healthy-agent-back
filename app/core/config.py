@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     SCHEDULER_NIGHT_MINUTE: int = 0
 
     WHATSAPP_VERIFY_TOKEN: str
+    WHATSAPP_PHONE_NUMBER_ID: str
+    WHATSAPP_ACCESS_TOKEN: str
 
     model_config = SettingsConfigDict(
         env_file=".env",

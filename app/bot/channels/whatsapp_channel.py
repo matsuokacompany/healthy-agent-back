@@ -11,10 +11,42 @@ class WhatsAppBotChannel(BaseBotChannel):
         self.bot_service = bot_service or BotService()
 
     async def send_message(self, user_id: str, text: str) -> None:
-        logger.info(
-            "Envio WhatsApp solicitado para user_id=%s, mas integração de provider não configurada.",
-            user_id,
+
+        url = (
+            f"https://graph.facebook.com/v23.0/"
+            f"{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
         )
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": user_id,
+            "type": "text",
+            "text": {
+                "body": text
+            }
+        }
+
+        headers = {
+            "Authorization": (
+                f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"
+            ),
+            "Content-Type": "application/json"
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                json=payload,
+                headers=headers
+            )
+
+        logger.info(
+            "WhatsApp status=%s body=%s",
+            response.status_code,
+            response.text
+        )
+
+        response.raise_for_status()
 
     async def handle_incoming(self, payload) -> None:
         logger.info("Recebido webhook WhatsApp. keys=%s", list(payload.keys()))
@@ -37,6 +69,12 @@ class WhatsAppBotChannel(BaseBotChannel):
                 external_user_id=external_user_id,
                 message_text=text,
             )
+
+            await self.send_message(
+                external_user_id,
+                response.text
+            )
+
             logger.info(
                 "Mensagem WhatsApp processada para from=%s. resposta='%s'",
                 external_user_id,
