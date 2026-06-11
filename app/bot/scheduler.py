@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 scheduler: AsyncIOScheduler | None = None
 
 
+# =========================================================
+# MESSAGE BUILDER
+# =========================================================
+
 def _build_message(check_type: CheckTypeEnum) -> str:
     if check_type == CheckTypeEnum.MORNING:
         return (
@@ -27,6 +31,10 @@ def _build_message(check_type: CheckTypeEnum) -> str:
         "Você teve algum sintoma indesejado durante o dia?"
     )
 
+
+# =========================================================
+# CORE JOB
+# =========================================================
 
 async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
     logger.info("🚀 SEND_PROMPT START | type=%s", check_type.value)
@@ -92,8 +100,6 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
                 await channel.send_message(destination, message)
 
                 db.add(user)
-                db.commit()
-
                 users_processed += 1
 
                 logger.info(
@@ -118,6 +124,9 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
                     user.id,
                 )
 
+        # 💡 commit único (melhor performance e consistência)
+        db.commit()
+
     finally:
         db.close()
 
@@ -129,6 +138,10 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
     )
 
 
+# =========================================================
+# SCHEDULER START
+# =========================================================
+
 def start_scheduler(bot_manager) -> AsyncIOScheduler:
     global scheduler
 
@@ -137,7 +150,15 @@ def start_scheduler(bot_manager) -> AsyncIOScheduler:
         return scheduler
 
     timezone = ZoneInfo(settings.SCHEDULER_TIMEZONE)
-    scheduler = AsyncIOScheduler(timezone=timezone)
+
+    scheduler = AsyncIOScheduler(
+        timezone=timezone,
+        job_defaults={
+            "coalesce": True,
+            "max_instances": 1,
+            "misfire_grace_time": 1800,
+        },
+    )
 
     scheduler.add_job(
         send_prompt,
@@ -149,10 +170,8 @@ def start_scheduler(bot_manager) -> AsyncIOScheduler:
         args=[bot_manager, CheckTypeEnum.MORNING],
         id="bot_morning_prompt",
         replace_existing=True,
-        misfire_grace_time=1800,
-        coalesce=True,
-        max_instances=1,
     )
+
     scheduler.add_job(
         send_prompt,
         CronTrigger(
@@ -163,12 +182,10 @@ def start_scheduler(bot_manager) -> AsyncIOScheduler:
         args=[bot_manager, CheckTypeEnum.NIGHT],
         id="bot_night_prompt",
         replace_existing=True,
-        misfire_grace_time=1800,
-        coalesce=True,
-        max_instances=1,
     )
 
     scheduler.start()
+
     logger.info(
         "Scheduler iniciado no timezone %s. Manhã: %02d:%02d | Noite: %02d:%02d",
         settings.SCHEDULER_TIMEZONE,
@@ -177,8 +194,13 @@ def start_scheduler(bot_manager) -> AsyncIOScheduler:
         settings.SCHEDULER_NIGHT_HOUR,
         settings.SCHEDULER_NIGHT_MINUTE,
     )
+
     return scheduler
 
+
+# =========================================================
+# STOP
+# =========================================================
 
 def stop_scheduler() -> None:
     global scheduler
