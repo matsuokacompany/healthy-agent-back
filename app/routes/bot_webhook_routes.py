@@ -42,3 +42,18 @@ async def whatsapp_webhook(request: Request):
 
     await channel.handle_incoming(payload)
     return {'status': 'ok'}
+
+@router.post("/debug/send-prompt")
+async def debug_send_prompt():
+    from app.bot.scheduler import send_prompt
+    from app.bot.channels.bot_manager import BotManager
+    from app.bot.channels.whatsapp_channel import WhatsAppBotChannel
+    from app.models.models import CheckTypeEnum
+    import asyncio
+
+    bm = BotManager()
+    bm.register_channel("whatsapp", WhatsAppBotChannel())
+
+    await send_prompt(bm, CheckTypeEnum.MORNING)
+
+    return {"status": "ok"}
