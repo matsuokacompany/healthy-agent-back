@@ -12,7 +12,10 @@ from app.models.models import CheckTypeEnum, User
 
 logger = logging.getLogger(__name__)
 
-scheduler: AsyncIOScheduler | None = None
+# =========================================================
+# STATE INTERNO (NÃO EXPOR DIRETO)
+# =========================================================
+_scheduler: AsyncIOScheduler | None = None
 
 
 # =========================================================
@@ -85,9 +88,7 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
                 user.pending_report_date = now.date()
                 user.pending_prompt_sent_at = now
 
-                destination = (
-                    user.phone
-                )
+                destination = user.phone
 
                 logger.info(
                     "📤 SENDING MESSAGE | user_id=%s | destination=%s",
@@ -109,20 +110,13 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
             except SQLAlchemyError:
                 db.rollback()
                 users_failed += 1
-                logger.exception(
-                    "🧨 SQL ERROR | user_id=%s",
-                    user.id,
-                )
+                logger.exception("🧨 SQL ERROR | user_id=%s", user.id)
 
             except Exception:
                 db.rollback()
                 users_failed += 1
-                logger.exception(
-                    "🔥 GENERAL ERROR | user_id=%s",
-                    user.id,
-                )
+                logger.exception("🔥 GENERAL ERROR | user_id=%s", user.id)
 
-        # 💡 commit único (melhor performance e consistência)
         db.commit()
 
     finally:
@@ -137,19 +131,27 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
 
 
 # =========================================================
-# SCHEDULER START
+# GET SCHEDULER (DEBUG / TEST SAFE)
+# =========================================================
+
+def get_scheduler() -> AsyncIOScheduler | None:
+    return _scheduler
+
+
+# =========================================================
+# START SCHEDULER
 # =========================================================
 
 def start_scheduler(bot_manager) -> AsyncIOScheduler:
-    global scheduler
+    global _scheduler
 
-    if scheduler and scheduler.running:
+    if _scheduler and _scheduler.running:
         logger.info("Scheduler já está em execução; reutilizando instância existente.")
-        return scheduler
+        return _scheduler
 
     timezone = ZoneInfo(settings.SCHEDULER_TIMEZONE)
 
-    scheduler = AsyncIOScheduler(
+    _scheduler = AsyncIOScheduler(
         timezone=timezone,
         job_defaults={
             "coalesce": True,
@@ -158,7 +160,7 @@ def start_scheduler(bot_manager) -> AsyncIOScheduler:
         },
     )
 
-    scheduler.add_job(
+    _scheduler.add_job(
         send_prompt,
         CronTrigger(
             hour=settings.SCHEDULER_MORNING_HOUR,
@@ -170,7 +172,7 @@ def start_scheduler(bot_manager) -> AsyncIOScheduler:
         replace_existing=True,
     )
 
-    scheduler.add_job(
+    _scheduler.add_job(
         send_prompt,
         CronTrigger(
             hour=settings.SCHEDULER_NIGHT_HOUR,
@@ -182,7 +184,7 @@ def start_scheduler(bot_manager) -> AsyncIOScheduler:
         replace_existing=True,
     )
 
-    scheduler.start()
+    _scheduler.start()
 
     logger.info(
         "Scheduler iniciado no timezone %s. Manhã: %02d:%02d | Noite: %02d:%02d",
@@ -193,18 +195,18 @@ def start_scheduler(bot_manager) -> AsyncIOScheduler:
         settings.SCHEDULER_NIGHT_MINUTE,
     )
 
-    return scheduler
+    return _scheduler
 
 
 # =========================================================
-# STOP
+# STOP SCHEDULER
 # =========================================================
 
 def stop_scheduler() -> None:
-    global scheduler
+    global _scheduler
 
-    if scheduler and scheduler.running:
-        scheduler.shutdown(wait=False)
+    if _scheduler and _scheduler.running:
+        _scheduler.shutdown(wait=False)
         logger.info("Scheduler finalizado com sucesso.")
 
-    scheduler = None
+    _scheduler = None
