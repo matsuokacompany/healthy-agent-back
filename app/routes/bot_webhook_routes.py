@@ -28,6 +28,8 @@ async def verify_webhook(request: Request):
 @router.post('/webhook/whatsapp')
 async def whatsapp_webhook(request: Request):
     payload = await request.json()
+    logger.info("WEBHOOK RAW: %s", payload)
+
     logger.info('Webhook WhatsApp recebido no endpoint /webhook/whatsapp')
 
     bot_manager = getattr(request.app.state, 'bot_manager', None)
