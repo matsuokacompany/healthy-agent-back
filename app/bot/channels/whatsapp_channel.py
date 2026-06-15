@@ -59,19 +59,38 @@ class WhatsAppBotChannel(BaseBotChannel):
         response.raise_for_status()
 
     async def handle_incoming(self, payload) -> None:
-        logger.info("Recebido webhook WhatsApp. keys=%s", list(payload.keys()))
+        logger.info(
+            "Recebido webhook WhatsApp. keys=%s",
+            list(payload.keys())
+        )
 
-        messages = payload.get("messages") or []
+        messages = []
+
+        for entry in payload.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                messages.extend(value.get("messages", []))
+
         if not messages:
-            logger.warning("Webhook WhatsApp sem mensagens processáveis.")
+            logger.warning(
+                "Webhook WhatsApp sem mensagens processáveis."
+            )
             return
 
         for message in messages:
-            external_user_id = str(message.get("from", "")).strip()
-            text = (message.get("text") or {}).get("body", "").strip()
+            external_user_id = str(
+                message.get("from", "")
+            ).strip()
+
+            text = (
+                message.get("text") or {}
+            ).get("body", "").strip()
 
             if not external_user_id or not text:
-                logger.warning("Mensagem WhatsApp ignorada por falta de from/text. payload=%s", message)
+                logger.warning(
+                    "Mensagem WhatsApp ignorada por falta de from/text. payload=%s",
+                    message,
+                )
                 continue
 
             response = self.bot_service.process_incoming(
