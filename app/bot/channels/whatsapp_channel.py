@@ -4,6 +4,7 @@ import httpx
 from app.core.config import settings
 from app.bot.channels.base import BaseBotChannel
 from app.services.bot_service import BotService
+from app.models.models import User, CheckTypeEnum
 
 logger = logging.getLogger(__name__)
 
@@ -12,12 +13,15 @@ class WhatsAppBotChannel(BaseBotChannel):
     def __init__(self, bot_service: BotService | None = None):
         self.bot_service = bot_service or BotService()
 
-    async def send_message(self, user_id: str, text: str) -> None:
-        url = (
+        self.base_url = (
             f"https://graph.facebook.com/v23.0/"
             f"{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
         )
 
+    # =========================================================
+    # ENVIO DE TEXTO (respostas do bot)
+    # =========================================================
+    async def send_message(self, user_id: str, text: str) -> None:
         payload = {
             "messaging_product": "whatsapp",
             "to": user_id,
@@ -25,6 +29,59 @@ class WhatsAppBotChannel(BaseBotChannel):
             "text": {"body": text},
         }
 
+        await self._post(payload)
+
+    # =========================================================
+    # ENVIO DE TEMPLATE (INÍCIO DO FLUXO)
+    # =========================================================
+    async def send_template(self, user: User, check_type: CheckTypeEnum) -> None:
+        """
+        Template oficial do WhatsApp (Meta API).
+        Aqui começa o fluxo real do sistema.
+        """
+
+        if not user.phone:
+            logger.warning("Usuário sem telefone | user_id=%s", user.id)
+            return
+
+        template_name = "daily_symptom_checkin"
+
+        # exemplo simples de data legível
+        report_date = user.pending_report_date.strftime("%d/%m/%Y") if user.pending_report_date else ""
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": user.phone,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {
+                    "code": "pt_BR"
+                },
+                "components": [
+                    {
+                        "type": "body",
+                        "parameters": [
+                            {
+                                "type": "text",
+                                "text": user.name or "Usuário"
+                            },
+                            {
+                                "type": "text",
+                                "text": report_date
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+
+        await self._post(payload)
+
+    # =========================================================
+    # HTTP CORE
+    # =========================================================
+    async def _post(self, payload: dict) -> None:
         headers = {
             "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
             "Content-Type": "application/json",
@@ -32,13 +89,13 @@ class WhatsAppBotChannel(BaseBotChannel):
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                url,
+                self.base_url,
                 json=payload,
                 headers=headers,
             )
 
         logger.info(
-            "WhatsApp send status=%s body=%s",
+            "WhatsApp API status=%s response=%s",
             response.status_code,
             response.text,
         )
@@ -52,6 +109,9 @@ class WhatsAppBotChannel(BaseBotChannel):
 
         response.raise_for_status()
 
+    # =========================================================
+    # WEBHOOK (INBOUND)
+    # =========================================================
     def _extract_messages(self, payload: dict) -> list[dict]:
         messages = []
 
@@ -59,7 +119,6 @@ class WhatsAppBotChannel(BaseBotChannel):
             for change in entry.get("changes", []):
                 value = change.get("value", {})
 
-                # 🔥 ignora tudo que não for mensagem real
                 if "messages" not in value:
                     continue
 
@@ -69,16 +128,14 @@ class WhatsAppBotChannel(BaseBotChannel):
 
     async def handle_incoming(self, payload: dict) -> None:
         logger.info(
-            "Webhook WhatsApp recebido. keys=%s",
+            "Webhook WhatsApp recebido | keys=%s",
             list(payload.keys()),
         )
 
         messages = self._extract_messages(payload)
 
         if not messages:
-            logger.info(
-                "Webhook ignorado (sem mensagens reais, apenas eventos de status)."
-            )
+            logger.info("Webhook ignorado (sem mensagens reais)")
             return
 
         for message in messages:
@@ -94,35 +151,27 @@ class WhatsAppBotChannel(BaseBotChannel):
                 text = (message.get("button") or {}).get("payload", "").strip()
 
             else:
-                logger.warning(
-                    "Tipo de mensagem não suportado: %s | payload=%s",
-                    message_type,
-                    message,
-                )
+                logger.warning("Tipo não suportado: %s", message_type)
                 continue
 
             if not external_user_id or not text:
-                logger.warning(
-                    "Mensagem ignorada (missing from/text). payload=%s",
-                    message,
-                )
+                logger.warning("Mensagem inválida: %s", message)
                 continue
 
-            # 🚨 aqui está o "guard rail" principal:
-            # só entra no bot_service se for mensagem REAL do usuário
             response = self.bot_service.process_incoming(
                 channel="whatsapp",
                 external_user_id=external_user_id,
                 message_text=text,
             )
 
-            await self.send_message(
-                external_user_id,
-                response.text,
-            )
+            if response.text:
+                await self.send_message(
+                    external_user_id,
+                    response.text,
+                )
 
             logger.info(
-                "Mensagem processada from=%s response='%s'",
+                "Mensagem processada | from=%s | response=%s",
                 external_user_id,
                 response.text,
             )

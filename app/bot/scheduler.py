@@ -14,32 +14,15 @@ logger = logging.getLogger(__name__)
 _scheduler: AsyncIOScheduler | None = None
 
 
-def _build_message(check_type: CheckTypeEnum) -> str:
-    if check_type == CheckTypeEnum.MORNING:
-        return (
-            "🌅 Bom dia!\n"
-            "Você teve algum sintoma indesejado antes de dormir ou enquanto dormia?"
-        )
-
-    return (
-        "🌙 Boa noite!\n"
-        "Você teve algum sintoma indesejado durante o dia?"
-    )
-
-
 async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
     logger.info("SEND_PROMPT START | type=%s", check_type.value)
 
-    message = _build_message(check_type)
-
     db = SessionLocal()
-
     users_processed = 0
     users_failed = 0
 
     try:
         users = db.query(User).all()
-
         now = datetime.now(timezone.utc)
 
         for user in users:
@@ -49,15 +32,18 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
                 if not channel or not user.phone:
                     continue
 
-                # 🔥 ESSA É A PARTE CRÍTICA
+                # 🔥 só estado (NÃO enviar texto aqui)
                 user.pending_check_type = check_type
                 user.pending_prompt_sent_at = now
                 user.pending_report_date = now.date()
 
-                # limpa fluxo anterior
                 user.current_report_id = None
 
-                await channel.send_message(user.phone, message)
+                # ✅ aqui é onde o template deve ser disparado
+                await channel.send_template(
+                    user=user,
+                    check_type=check_type
+                )
 
                 users_processed += 1
 
@@ -79,10 +65,6 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
         users_processed,
         users_failed,
     )
-
-
-def get_scheduler():
-    return _scheduler
 
 
 def start_scheduler(bot_manager):
@@ -127,7 +109,6 @@ def start_scheduler(bot_manager):
     )
 
     _scheduler.start()
-
     logger.info("Scheduler iniciado")
 
     return _scheduler

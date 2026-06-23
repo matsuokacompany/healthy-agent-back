@@ -18,7 +18,12 @@ class BotResponse:
 
 
 class BotService:
-    """Orquestra fluxo de mensagens sem depender de canal específico."""
+    """
+    Camada de orquestração leve:
+    - resolve usuário
+    - chama serviço de domínio
+    - traduz status em resposta de UX
+    """
 
     def __init__(self, daily_report_service: DailyReportService | None = None):
         self.daily_report_service = daily_report_service or DailyReportService()
@@ -47,10 +52,8 @@ class BotService:
 
             if not user:
                 return BotResponse(
-                    text="Sua conta não está vinculada. Use o link de ativação no sistema."
+                    text="Conta não vinculada. Acesse o sistema para ativar seu acesso."
                 )
-
-            db.refresh(user)
 
             status = self.daily_report_service.process_response(
                 db,
@@ -58,41 +61,69 @@ class BotService:
                 message_text,
             )
 
-            return self._status_to_response(status)
+            return self._translate(status)
 
         except SQLAlchemyError:
-            logger.exception("Erro de banco no bot_service")
+            logger.exception("DB error no BotService")
             return BotResponse(
-                text="Não consegui salvar sua resposta agora. Tente novamente."
+                text="Não consegui processar sua resposta agora. Tente novamente."
             )
 
         except Exception:
-            logger.exception("Erro inesperado no bot_service")
+            logger.exception("Erro inesperado no BotService")
             return BotResponse(
-                text="Erro ao processar sua resposta. Tente novamente."
+                text="Erro ao processar mensagem. Tente novamente."
             )
 
         finally:
             db.close()
 
-    def _status_to_response(self, status: str) -> BotResponse:
+    # =========================================================
+    # TRADUÇÃO DE STATUS → UX
+    # =========================================================
+    def _translate(self, status: str) -> BotResponse:
 
-        if status == "NOT_AWAITING":
-            return BotResponse(text="Você não possui um registro ativo no momento.")
-
-        if status == "TOO_LONG":
-            return BotResponse(text="Mensagem muito longa. Tente resumir.")
-
-        if status == "EXPIRED":
-            return BotResponse(text="Seu registro expirou. Aguarde o próximo envio.")
-
-        if status in ("NEGATIVE", "COMPLETED"):
-            return BotResponse(text="Perfeito! Informações registradas ✅")
+        if status == "NEGATIVE":
+            return BotResponse(
+                text="Perfeito 👍 Obrigado por informar. Se sentir qualquer alteração, estamos por aqui."
+            )
 
         if status == "ASK_CAUSE":
             return BotResponse(
-                text="Entendi. O que pode ter influenciado isso ontem?",
+                text=(
+                    "Entendi.\n\n"
+                    "Agora me diga o que você acha que pode ter causado isso.\n"
+                    "Exemplo: alimentação, estresse, sono, atividade física...\n\n"
+                    "Máx: 280 caracteres."
+                ),
                 ask_followup=True,
             )
 
-        return BotResponse(text="Entendi. Obrigado pela resposta.")
+        if status == "COMPLETED":
+            return BotResponse(
+                text="Registro concluído com sucesso ✅ Obrigado pelas informações."
+            )
+
+        if status == "NOT_AWAITING":
+            return BotResponse(
+                text="Essa solicitação já foi encerrada ou expirou. Aguarde o próximo check-in."
+            )
+
+        if status == "TOO_LONG":
+            return BotResponse(
+                text="Mensagem muito longa. Tente resumir em até 280 caracteres."
+            )
+
+        if status == "INVALID_STATE":
+            return BotResponse(
+                text="Houve um problema de contexto. Vamos reiniciar o registro no próximo check-in."
+            )
+
+        if status == "ALREADY_COMPLETED":
+            return BotResponse(
+                text="Esse registro já foi finalizado 👍"
+            )
+
+        return BotResponse(
+            text="Entendi. Obrigado pela resposta."
+        )
