@@ -47,10 +47,15 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
                 if not channel or not user.phone:
                     continue
 
-                # 🔥 IMPORTANTE: reset de estado aqui evita ghost flow
-                user.current_report_id = None
+                # 🔥 CORRETO: só abre uma NOVA janela de resposta
+                # não destrói histórico ativo imediatamente
+
                 user.pending_check_type = check_type
-                user.pending_prompt_sent_at = None  # opcional: pode setar no webhook se quiser
+                user.pending_report_date = None
+                user.pending_prompt_sent_at = user.pending_prompt_sent_at or None
+
+                # ⚠️ IMPORTANTE:
+                # NÃO mexer em current_report_id aqui
 
                 await channel.send_message(user.phone, message)
 
@@ -63,8 +68,8 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
         db.commit()
 
     except Exception:
-        logger.exception("FATAL ERROR send_prompt")
         db.rollback()
+        logger.exception("FATAL ERROR send_prompt")
 
     finally:
         db.close()
