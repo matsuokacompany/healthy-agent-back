@@ -4,7 +4,6 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.db.session import SessionLocal
@@ -12,9 +11,6 @@ from app.models.models import CheckTypeEnum, User
 
 logger = logging.getLogger(__name__)
 
-# =========================================================
-# STATE INTERNO (NÃO EXPOR DIRETO)
-# =========================================================
 _scheduler: AsyncIOScheduler | None = None
 
 
@@ -36,86 +32,60 @@ def _build_message(check_type: CheckTypeEnum) -> str:
 
 
 # =========================================================
-# CORE JOB
+# CORE JOB (CORRIGIDO)
 # =========================================================
 
 async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
-    logger.info("🚀 SEND_PROMPT START | type=%s", check_type.value)
+    logger.info("SEND_PROMPT START | type=%s", check_type.value)
 
     message = _build_message(check_type)
+
+    db = SessionLocal()
 
     users_processed = 0
     users_failed = 0
 
-    db = SessionLocal()
-
     try:
         users = db.query(User).all()
 
-        logger.info("🔎 USERS FOUND=%s", len(users))
-
-        if not users:
-            logger.warning(
-                "⚠️ Nenhum usuário encontrado para prompt | type=%s",
-                check_type.value,
-            )
-            return
+        logger.info("USERS FOUND=%s", len(users))
 
         for user in users:
             try:
-                logger.info("➡️ PROCESSING user_id=%s", user.id)
-
-                channel_name = bot_manager.resolve_channel_name_for_user(user)
                 channel = bot_manager.get_channel_for_user(user)
 
-                logger.info(
-                    "📡 CHANNEL RESOLUTION | user_id=%s | channel=%s | available=%s",
-                    user.id,
-                    channel_name,
-                    bool(channel),
-                )
-
-                if not channel_name or not channel:
+                if not channel:
                     logger.warning(
-                        "❌ Usuário sem canal válido | user_id=%s",
+                        "NO CHANNEL | user_id=%s",
                         user.id,
                     )
                     continue
 
-                now = datetime.now(ZoneInfo(settings.SCHEDULER_TIMEZONE))
-
-                user.pending_check_type = check_type
-                user.pending_report_date = now.date()
-                user.pending_prompt_sent_at = now
-
                 destination = user.phone
 
                 logger.info(
-                    "📤 SENDING MESSAGE | user_id=%s | destination=%s",
+                    "SENDING PROMPT | user_id=%s | phone=%s",
                     user.id,
                     destination,
                 )
 
+                # 🔥 IMPORTANTE:
+                # scheduler NÃO cria estado mais
                 await channel.send_message(destination, message)
 
-                db.add(user)
                 users_processed += 1
 
                 logger.info(
-                    "✅ SENT SUCCESS | user_id=%s | type=%s",
+                    "SENT OK | user_id=%s",
                     user.id,
-                    check_type.value,
                 )
 
-            except SQLAlchemyError:
-                db.rollback()
-                users_failed += 1
-                logger.exception("🧨 SQL ERROR | user_id=%s", user.id)
-
             except Exception:
-                db.rollback()
                 users_failed += 1
-                logger.exception("🔥 GENERAL ERROR | user_id=%s", user.id)
+                logger.exception(
+                    "ERROR SENDING PROMPT | user_id=%s",
+                    user.id,
+                )
 
         db.commit()
 
@@ -123,7 +93,7 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
         db.close()
 
     logger.info(
-        "🏁 SEND_PROMPT DONE | type=%s | sent=%s | failed=%s",
+        "SEND_PROMPT DONE | type=%s | sent=%s | failed=%s",
         check_type.value,
         users_processed,
         users_failed,
@@ -131,22 +101,18 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
 
 
 # =========================================================
-# GET SCHEDULER (DEBUG / TEST SAFE)
+# SCHEDULER CONTROL
 # =========================================================
 
 def get_scheduler() -> AsyncIOScheduler | None:
     return _scheduler
 
 
-# =========================================================
-# START SCHEDULER
-# =========================================================
-
 def start_scheduler(bot_manager) -> AsyncIOScheduler:
     global _scheduler
 
     if _scheduler and _scheduler.running:
-        logger.info("Scheduler já está em execução; reutilizando instância existente.")
+        logger.info("Scheduler já em execução.")
         return _scheduler
 
     timezone = ZoneInfo(settings.SCHEDULER_TIMEZONE)
@@ -187,7 +153,7 @@ def start_scheduler(bot_manager) -> AsyncIOScheduler:
     _scheduler.start()
 
     logger.info(
-        "Scheduler iniciado no timezone %s. Manhã: %02d:%02d | Noite: %02d:%02d",
+        "Scheduler iniciado | TZ=%s | morning=%02d:%02d | night=%02d:%02d",
         settings.SCHEDULER_TIMEZONE,
         settings.SCHEDULER_MORNING_HOUR,
         settings.SCHEDULER_MORNING_MINUTE,
@@ -198,15 +164,11 @@ def start_scheduler(bot_manager) -> AsyncIOScheduler:
     return _scheduler
 
 
-# =========================================================
-# STOP SCHEDULER
-# =========================================================
-
 def stop_scheduler() -> None:
     global _scheduler
 
     if _scheduler and _scheduler.running:
         _scheduler.shutdown(wait=False)
-        logger.info("Scheduler finalizado com sucesso.")
+        logger.info("Scheduler finalizado.")
 
     _scheduler = None

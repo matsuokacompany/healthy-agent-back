@@ -26,18 +26,31 @@ class BotService:
     def process_incoming(
         self,
         *,
-        channel: Literal["whatsapp"],  # Telegram removido
+        channel: Literal["whatsapp"],
         external_user_id: str,
         message_text: str,
     ) -> BotResponse:
+
+        message_text = (message_text or "").strip()
+
         logger.info(
-            "Processando mensagem recebida. channel=%s external_user_id=%s chars=%s",
+            "Processando mensagem. channel=%s user=%s chars=%s",
             channel,
             external_user_id,
-            len(message_text or ""),
+            len(message_text),
         )
 
+        # 🔥 proteção contra lixo/duplicata vazia
+        if not message_text:
+            logger.warning(
+                "Mensagem vazia ignorada. channel=%s user=%s",
+                channel,
+                external_user_id,
+            )
+            return BotResponse(text="")
+
         db = SessionLocal()
+
         try:
             user = self._load_user(
                 db=db,
@@ -47,7 +60,7 @@ class BotService:
 
             if not user:
                 logger.warning(
-                    "Usuário não encontrado. channel=%s external_user_id=%s",
+                    "Usuário não encontrado. channel=%s user=%s",
                     channel,
                     external_user_id,
                 )
@@ -55,22 +68,23 @@ class BotService:
                     text="Sua conta não está vinculada. Use o link de ativação no sistema."
                 )
 
-            status = self.daily_report_service.process_response(db, user, message_text)
+            status = self.daily_report_service.process_response(
+                db,
+                user,
+                message_text,
+            )
 
             logger.info(
-                "Mensagem processada. channel=%s external_user_id=%s user_id=%s status=%s",
-                channel,
-                external_user_id,
+                "Status gerado. user=%s status=%s",
                 user.id,
                 status,
             )
 
-            return self._status_to_response(status)
+            return self._status_to_response(status, user)
 
         except SQLAlchemyError:
             logger.exception(
-                "Erro de banco ao processar mensagem. channel=%s external_user_id=%s",
-                channel,
+                "Erro de banco. user=%s",
                 external_user_id,
             )
             return BotResponse(
@@ -79,8 +93,7 @@ class BotService:
 
         except Exception:
             logger.exception(
-                "Erro inesperado ao processar mensagem. channel=%s external_user_id=%s",
-                channel,
+                "Erro inesperado. user=%s",
                 external_user_id,
             )
             return BotResponse(
@@ -92,30 +105,44 @@ class BotService:
 
     @staticmethod
     def _load_user(db, *, channel: str, external_user_id: str) -> User | None:
-        # Telegram removido do sistema
         if channel == "whatsapp":
             return db.query(User).filter(User.phone == external_user_id).first()
 
         return None
 
+    # 🔥 NOVA REGRA: só pergunta follow-up se houver contexto válido
     @staticmethod
-    def _status_to_response(status: str) -> BotResponse:
+    def _has_valid_context(user: User) -> bool:
+        return bool(getattr(user, "has_pending_report", False))
+
+    def _status_to_response(self, status: str, user: User) -> BotResponse:
+
         if status == "NOT_AWAITING":
             return BotResponse(text="Você não possui um registro pendente hoje.")
+
         if status == "TOO_LONG":
             return BotResponse(text="Mensagem muito longa. Tente reduzir o texto.")
+
         if status == "EXPIRED":
             return BotResponse(text="Seu registro expirou. Aguarde o próximo envio.")
-        if status == "NEGATIVE":
+
+        if status in ("NEGATIVE", "COMPLETED"):
             return BotResponse(text="Perfeito! Informações registradas ✅")
+
+        # 🚨 PONTO CRÍTICO CORRIGIDO
         if status == "ASK_CAUSE":
+
+            # só pergunta se existir contexto real
+            if not self._has_valid_context(user):
+                logger.warning(
+                    "ASK_CAUSE bloqueado por falta de contexto. user=%s",
+                    user.id,
+                )
+                return BotResponse(text="Perfeito! Informações registradas ✅")
+
             return BotResponse(
-                text=(
-                    "Entendi. O que pode ter influenciado isso ontem?"
-                ),
+                text="Entendi. O que pode ter influenciado isso ontem?",
                 ask_followup=True,
             )
-        if status == "COMPLETED":
-            return BotResponse(text="Perfeito! Informações registradas ✅")
 
         return BotResponse(text="Entendi. Obrigado pela resposta.")
