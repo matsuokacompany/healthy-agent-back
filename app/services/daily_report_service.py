@@ -8,6 +8,7 @@ from app.models.models import DailyReport, User
 logger = logging.getLogger(__name__)
 
 MAX_INPUT_CHARS = 280
+WINDOW_HOURS = 24
 
 NEGATIVE_KEYWORDS = [
     "não", "nao", "nenhum", "nenhuma", "não tive", "nao tive", "sem sintomas"
@@ -19,42 +20,52 @@ def is_negative(message: str) -> bool:
 
 
 class DailyReportService:
-    """Fluxo determinístico de Daily Report com controle de estado explícito."""
+    """
+    Fluxo baseado em JANELA DE TEMPLATE:
+    - pending_prompt_sent_at define validade
+    - current_report_id define etapa ativa
+    """
+
+    @staticmethod
+    def _is_window_valid(user: User) -> bool:
+        if not user.pending_prompt_sent_at:
+            return False
+
+        now = datetime.now(timezone.utc)
+        sent_at = user.pending_prompt_sent_at
+
+        if sent_at.tzinfo is None:
+            sent_at = sent_at.replace(tzinfo=timezone.utc)
+
+        return now - sent_at <= timedelta(hours=WINDOW_HOURS)
 
     @staticmethod
     def process_response(db: Session, user: User, message: str):
         try:
             message = (message or "").strip()
 
-            if len(message) == 0:
+            if not message:
                 return "INVALID"
 
             if len(message) > MAX_INPUT_CHARS:
                 return "TOO_LONG"
 
-            # 🔒 Sem contexto ativo
-            if not user.current_report_id and not user.pending_check_type:
+            # 🔒 fora da janela do template
+            if not DailyReportService._is_window_valid(user):
+                # limpa estado antigo para evitar ghost flow
+                user.current_report_id = None
+                user.pending_check_type = None
+                user.pending_report_date = None
+                user.pending_prompt_sent_at = None
+                db.commit()
                 return "NOT_AWAITING"
 
             # =========================
-            # 🔵 INÍCIO DE FLUXO NOVO
+            # 🟢 INÍCIO DO FLUXO
             # =========================
             if not user.current_report_id:
 
-                prompt_sent_at = user.pending_prompt_sent_at
-
-                if prompt_sent_at and prompt_sent_at.tzinfo is None:
-                    prompt_sent_at = prompt_sent_at.replace(tzinfo=timezone.utc)
-
-                # timeout de 24h do prompt
-                if prompt_sent_at and datetime.now(timezone.utc) - prompt_sent_at > timedelta(hours=24):
-                    user.pending_check_type = None
-                    user.pending_report_date = None
-                    user.pending_prompt_sent_at = None
-                    db.commit()
-                    return "EXPIRED"
-
-                # resposta negativa encerra fluxo
+                # resposta negativa → encerra fluxo direto
                 if is_negative(message):
                     report = DailyReport(
                         user_id=user.id,
@@ -63,6 +74,7 @@ class DailyReportService:
                         had_symptoms=False,
                         completed=True,
                     )
+
                     db.add(report)
 
                     user.pending_check_type = None
@@ -72,13 +84,13 @@ class DailyReportService:
                     db.commit()
                     return "NEGATIVE"
 
-                # resposta positiva cria report e entra no estado "aguardando causa"
+                # resposta positiva → cria report
                 report = DailyReport(
                     user_id=user.id,
                     check_type=user.pending_check_type,
                     report_date=user.pending_report_date,
-                    had_symptoms=True,
                     symptom_description=message,
+                    had_symptoms=True,
                     completed=False,
                 )
 
@@ -91,13 +103,11 @@ class DailyReportService:
                 user.pending_prompt_sent_at = None
 
                 db.commit()
-
                 return "ASK_CAUSE"
 
             # =========================
-            # 🔵 FLUXO EXISTENTE
+            # 🔵 FLUXO ATIVO (CAUSA)
             # =========================
-
             report = db.query(DailyReport).filter(
                 DailyReport.id == user.current_report_id,
                 DailyReport.user_id == user.id,
@@ -108,54 +118,20 @@ class DailyReportService:
                 db.commit()
                 return "INVALID_STATE"
 
-            # timeout do report
-            created_at = report.created_at
-            if created_at and created_at.tzinfo is None:
-                created_at = created_at.replace(tzinfo=timezone.utc)
-
-            if created_at and datetime.now(timezone.utc) - created_at > timedelta(hours=24):
-                user.current_report_id = None
-                db.commit()
-                return "EXPIRED"
-
-            # =========================
-            # 🔥 GUARD PRINCIPAL (ANTI BUG)
-            # =========================
-
-            # já finalizado
+            # segurança extra
             if report.completed:
                 return "ALREADY_COMPLETED"
 
-            # =========================
-            # 🔵 ETAPA 1: sintoma
-            # =========================
-            if not report.symptom_description:
-                if is_negative(message):
-                    report.completed = True
-                    db.commit()
-
-                    user.current_report_id = None
-                    return "NEGATIVE"
-
-                report.symptom_description = message
-                report.had_symptoms = True
-
-                db.commit()
-                return "ASK_CAUSE"
-
-            # =========================
-            # 🔵 ETAPA 2: causa
-            # =========================
+            # etapa 2: causa
             if not report.suspected_cause:
                 report.suspected_cause = message
                 report.completed = True
 
-                db.commit()
-
                 user.current_report_id = None
+
+                db.commit()
                 return "COMPLETED"
 
-            # estado inconsistente (idempotência)
             return "ALREADY_COMPLETED"
 
         except SQLAlchemyError:

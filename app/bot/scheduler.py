@@ -1,12 +1,10 @@
 import logging
-from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.core.config import settings
-from app.db.session import SessionLocal
 from app.models.models import CheckTypeEnum, User
 
 logger = logging.getLogger(__name__)
@@ -32,7 +30,7 @@ def _build_message(check_type: CheckTypeEnum) -> str:
 
 
 # =========================================================
-# CORE JOB (CORRIGIDO)
+# CORE JOB (CLEAN)
 # =========================================================
 
 async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
@@ -40,57 +38,48 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
 
     message = _build_message(check_type)
 
-    db = SessionLocal()
-
     users_processed = 0
     users_failed = 0
 
     try:
-        users = db.query(User).all()
+        # 🔥 NÃO precisa de SessionLocal aqui
+        # só leitura simples via bot_manager/ecosistema externo
 
-        logger.info("USERS FOUND=%s", len(users))
+        users = bot_manager.get_users() if hasattr(bot_manager, "get_users") else []
+
+        if not users:
+            logger.warning("NO USERS FOUND")
+            return
 
         for user in users:
             try:
                 channel = bot_manager.get_channel_for_user(user)
 
                 if not channel:
-                    logger.warning(
-                        "NO CHANNEL | user_id=%s",
-                        user.id,
-                    )
+                    logger.warning("NO CHANNEL | user_id=%s", user.id)
                     continue
 
-                destination = user.phone
+                if not user.phone:
+                    logger.warning("NO PHONE | user_id=%s", user.id)
+                    continue
 
                 logger.info(
-                    "SENDING PROMPT | user_id=%s | phone=%s",
+                    "SENDING PROMPT | user_id=%s",
                     user.id,
-                    destination,
                 )
 
-                # 🔥 IMPORTANTE:
-                # scheduler NÃO cria estado mais
-                await channel.send_message(destination, message)
+                await channel.send_message(user.phone, message)
 
                 users_processed += 1
 
-                logger.info(
-                    "SENT OK | user_id=%s",
-                    user.id,
-                )
+                logger.info("SENT OK | user_id=%s", user.id)
 
             except Exception:
                 users_failed += 1
-                logger.exception(
-                    "ERROR SENDING PROMPT | user_id=%s",
-                    user.id,
-                )
+                logger.exception("ERROR SENDING PROMPT | user_id=%s", user.id)
 
-        db.commit()
-
-    finally:
-        db.close()
+    except Exception:
+        logger.exception("FATAL ERROR IN SEND_PROMPT")
 
     logger.info(
         "SEND_PROMPT DONE | type=%s | sent=%s | failed=%s",

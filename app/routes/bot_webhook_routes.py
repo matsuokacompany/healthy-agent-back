@@ -35,29 +35,20 @@ async def whatsapp_webhook(request: Request):
     payload = await request.json()
 
     logger.info("WEBHOOK RAW: %s", payload)
-    logger.info("Webhook WhatsApp recebido no endpoint /webhook/whatsapp")
-
-    # 🔥 Firewall leve: ignora eventos sem messages já no edge
-    has_messages = any(
-        "messages" in change.get("value", {})
-        for entry in payload.get("entry", [])
-        for change in entry.get("changes", [])
-    )
-
-    if not has_messages:
-        logger.info("Webhook ignorado no router (sem messages reais).")
-        return {"status": "ignored"}
 
     bot_manager = getattr(request.app.state, "bot_manager", None)
+
     if not bot_manager:
-        logger.error("BotManager não inicializado na aplicação.")
-        return {"status": "error", "detail": "bot_manager_unavailable"}
+        logger.error("BotManager não inicializado.")
+        raise HTTPException(status_code=500, detail="bot_manager_unavailable")
 
-    channel: WhatsAppBotChannel = bot_manager.channels.get("whatsapp")
+    channel = bot_manager.channels.get("whatsapp")
+
     if not channel:
-        logger.error("Canal WhatsApp não registrado no BotManager.")
-        return {"status": "error", "detail": "whatsapp_channel_unavailable"}
+        logger.error("Canal WhatsApp não registrado.")
+        raise HTTPException(status_code=500, detail="whatsapp_channel_unavailable")
 
+    # 🔥 SEM FILTRO PREMATURO
     await channel.handle_incoming(payload)
 
     return {"status": "ok"}

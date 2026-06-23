@@ -54,7 +54,6 @@ class BotService:
             user = (
                 db.query(User)
                 .filter(User.phone == external_user_id)
-                .with_for_update()
                 .first()
             )
 
