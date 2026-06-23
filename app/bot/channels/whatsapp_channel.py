@@ -82,9 +82,27 @@ class WhatsAppBotChannel(BaseBotChannel):
                 message.get("from", "")
             ).strip()
 
-            text = (
-                message.get("text") or {}
-            ).get("body", "").strip()
+            message_type = message.get("type")
+
+            text = ""
+
+            if message_type == "text":
+                text = (
+                    message.get("text") or {}
+                ).get("body", "").strip()
+
+            elif message_type == "button":
+                text = (
+                    message.get("button") or {}
+                ).get("payload", "").strip()
+
+            else:
+                logger.warning(
+                    "Tipo de mensagem não suportado: %s | payload=%s",
+                    message_type,
+                    message,
+                )
+                continue
 
             if not external_user_id or not text:
                 logger.warning(
