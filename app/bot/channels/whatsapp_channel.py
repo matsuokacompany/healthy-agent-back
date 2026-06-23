@@ -53,17 +53,13 @@ class WhatsAppBotChannel(BaseBotChannel):
         response.raise_for_status()
 
     def _extract_messages(self, payload: dict) -> list[dict]:
-        """
-        Extrai apenas mensagens reais.
-        Ignora statuses, deliveries, reads etc.
-        """
         messages = []
 
         for entry in payload.get("entry", []):
             for change in entry.get("changes", []):
                 value = change.get("value", {})
 
-                # 🔥 ponto crítico: ignora tudo que não for message
+                # 🔥 ignora tudo que não for mensagem real
                 if "messages" not in value:
                     continue
 

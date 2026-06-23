@@ -51,10 +51,11 @@ class BotService:
         db = SessionLocal()
 
         try:
-            user = self._load_user(
-                db=db,
-                channel=channel,
-                external_user_id=external_user_id,
+            user = (
+                db.query(User)
+                .filter(User.phone == external_user_id)
+                .with_for_update()
+                .first()
             )
 
             if not user:
