@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -27,7 +28,6 @@ def _build_message(check_type: CheckTypeEnum) -> str:
 
 
 async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
-
     logger.info("SEND_PROMPT START | type=%s", check_type.value)
 
     message = _build_message(check_type)
@@ -40,6 +40,8 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
     try:
         users = db.query(User).all()
 
+        now = datetime.now(timezone.utc)
+
         for user in users:
             try:
                 channel = bot_manager.get_channel_for_user(user)
@@ -47,15 +49,13 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
                 if not channel or not user.phone:
                     continue
 
-                # 🔥 CORRETO: só abre uma NOVA janela de resposta
-                # não destrói histórico ativo imediatamente
-
+                # 🔥 ESSA É A PARTE CRÍTICA
                 user.pending_check_type = check_type
-                user.pending_report_date = None
-                user.pending_prompt_sent_at = user.pending_prompt_sent_at or None
+                user.pending_prompt_sent_at = now
+                user.pending_report_date = now.date()
 
-                # ⚠️ IMPORTANTE:
-                # NÃO mexer em current_report_id aqui
+                # limpa fluxo anterior
+                user.current_report_id = None
 
                 await channel.send_message(user.phone, message)
 
@@ -86,7 +86,6 @@ def get_scheduler():
 
 
 def start_scheduler(bot_manager):
-
     global _scheduler
 
     if _scheduler and _scheduler.running:
