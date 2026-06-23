@@ -33,19 +33,7 @@ class BotService:
 
         message_text = (message_text or "").strip()
 
-        logger.info(
-            "Processando mensagem. channel=%s user=%s chars=%s",
-            channel,
-            external_user_id,
-            len(message_text),
-        )
-
         if not message_text:
-            logger.warning(
-                "Mensagem vazia ignorada. channel=%s user=%s",
-                channel,
-                external_user_id,
-            )
             return BotResponse(text="")
 
         db = SessionLocal()
@@ -58,16 +46,10 @@ class BotService:
             )
 
             if not user:
-                logger.warning(
-                    "Usuário não encontrado. channel=%s user=%s",
-                    channel,
-                    external_user_id,
-                )
                 return BotResponse(
                     text="Sua conta não está vinculada. Use o link de ativação no sistema."
                 )
 
-            # 🔥 CORREÇÃO CRÍTICA: garante estado fresco do DB
             db.refresh(user)
 
             status = self.daily_report_service.process_response(
@@ -76,54 +58,30 @@ class BotService:
                 message_text,
             )
 
-            logger.info(
-                "Status gerado. user=%s status=%s",
-                user.id,
-                status,
-            )
-
-            return self._status_to_response(status, user)
+            return self._status_to_response(status)
 
         except SQLAlchemyError:
-            logger.exception(
-                "Erro de banco. user=%s",
-                external_user_id,
-            )
+            logger.exception("Erro de banco no bot_service")
             return BotResponse(
-                text="Não consegui salvar sua resposta agora. Tente novamente em instantes."
+                text="Não consegui salvar sua resposta agora. Tente novamente."
             )
 
         except Exception:
-            logger.exception(
-                "Erro inesperado. user=%s",
-                external_user_id,
-            )
+            logger.exception("Erro inesperado no bot_service")
             return BotResponse(
-                text="Ocorreu um erro ao processar sua resposta. Tente novamente."
+                text="Erro ao processar sua resposta. Tente novamente."
             )
 
         finally:
             db.close()
 
-    @staticmethod
-    def _load_user(db, *, channel: str, external_user_id: str) -> User | None:
-        if channel == "whatsapp":
-            return db.query(User).filter(User.phone == external_user_id).first()
-
-        return None
-
-    # 🔥 REGRA CORRIGIDA: usa estado REAL, não derivado
-    @staticmethod
-    def _has_valid_context(user: User) -> bool:
-        return bool(user.current_report_id or user.pending_check_type)
-
-    def _status_to_response(self, status: str, user: User) -> BotResponse:
+    def _status_to_response(self, status: str) -> BotResponse:
 
         if status == "NOT_AWAITING":
-            return BotResponse(text="Você não possui um registro pendente hoje.")
+            return BotResponse(text="Você não possui um registro ativo no momento.")
 
         if status == "TOO_LONG":
-            return BotResponse(text="Mensagem muito longa. Tente reduzir o texto.")
+            return BotResponse(text="Mensagem muito longa. Tente resumir.")
 
         if status == "EXPIRED":
             return BotResponse(text="Seu registro expirou. Aguarde o próximo envio.")
@@ -132,15 +90,6 @@ class BotService:
             return BotResponse(text="Perfeito! Informações registradas ✅")
 
         if status == "ASK_CAUSE":
-
-            # 🔥 validação REAL de estado (anti-fantasma)
-            if not self._has_valid_context(user):
-                logger.warning(
-                    "ASK_CAUSE bloqueado por falta de contexto. user=%s",
-                    user.id,
-                )
-                return BotResponse(text="Perfeito! Informações registradas ✅")
-
             return BotResponse(
                 text="Entendi. O que pode ter influenciado isso ontem?",
                 ask_followup=True,

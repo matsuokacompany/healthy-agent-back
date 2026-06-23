@@ -20,11 +20,6 @@ def is_negative(message: str) -> bool:
 
 
 class DailyReportService:
-    """
-    Fluxo baseado em JANELA DE TEMPLATE:
-    - pending_prompt_sent_at define validade
-    - current_report_id define etapa ativa
-    """
 
     @staticmethod
     def _is_window_valid(user: User) -> bool:
@@ -40,6 +35,14 @@ class DailyReportService:
         return now - sent_at <= timedelta(hours=WINDOW_HOURS)
 
     @staticmethod
+    def _get_existing_report(db: Session, user: User):
+        return db.query(DailyReport).filter(
+            DailyReport.user_id == user.id,
+            DailyReport.report_date == user.pending_report_date,
+            DailyReport.check_type == user.pending_check_type,
+        ).first()
+
+    @staticmethod
     def process_response(db: Session, user: User, message: str):
         try:
             message = (message or "").strip()
@@ -50,9 +53,10 @@ class DailyReportService:
             if len(message) > MAX_INPUT_CHARS:
                 return "TOO_LONG"
 
-            # 🔒 fora da janela do template
+            # =========================
+            # 🔒 JANELA DO TEMPLATE
+            # =========================
             if not DailyReportService._is_window_valid(user):
-                # limpa estado antigo para evitar ghost flow
                 user.current_report_id = None
                 user.pending_check_type = None
                 user.pending_report_date = None
@@ -61,11 +65,24 @@ class DailyReportService:
                 return "NOT_AWAITING"
 
             # =========================
+            # 🔒 BLOQUEIO DE DUPLICIDADE
+            # =========================
+            existing = DailyReportService._get_existing_report(db, user)
+
+            if existing and existing.completed:
+                user.current_report_id = None
+                user.pending_check_type = None
+                user.pending_report_date = None
+                user.pending_prompt_sent_at = None
+                db.commit()
+                return "ALREADY_COMPLETED"
+
+            # =========================
             # 🟢 INÍCIO DO FLUXO
             # =========================
             if not user.current_report_id:
 
-                # resposta negativa → encerra fluxo direto
+                # 🔴 negativa encerra fluxo
                 if is_negative(message):
                     report = DailyReport(
                         user_id=user.id,
@@ -84,7 +101,7 @@ class DailyReportService:
                     db.commit()
                     return "NEGATIVE"
 
-                # resposta positiva → cria report
+                # 🟢 cria report inicial
                 report = DailyReport(
                     user_id=user.id,
                     check_type=user.pending_check_type,
@@ -106,7 +123,7 @@ class DailyReportService:
                 return "ASK_CAUSE"
 
             # =========================
-            # 🔵 FLUXO ATIVO (CAUSA)
+            # 🔵 FLUXO ATIVO
             # =========================
             report = db.query(DailyReport).filter(
                 DailyReport.id == user.current_report_id,
@@ -118,11 +135,12 @@ class DailyReportService:
                 db.commit()
                 return "INVALID_STATE"
 
-            # segurança extra
             if report.completed:
                 return "ALREADY_COMPLETED"
 
-            # etapa 2: causa
+            # =========================
+            # 🔵 ETAPA 2: CAUSA
+            # =========================
             if not report.suspected_cause:
                 report.suspected_cause = message
                 report.completed = True
