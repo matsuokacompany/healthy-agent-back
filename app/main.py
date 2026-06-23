@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from app.bot.channels.bot_manager import BotManager
 from app.bot.channels.whatsapp_channel import WhatsAppBotChannel
-from app.bot.scheduler import start_scheduler, stop_scheduler
+from app.bot.scheduler import start_scheduler, stop_scheduler, get_scheduler
 
 from app.routes import (
     anamnese_routes,
@@ -40,31 +40,41 @@ DEBUG = ENV == "dev"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    # -------------------------
-    # BOT MANAGER (CORE)
-    # -------------------------
-    bot_manager = BotManager()
+    logger.info("Starting application | env=%s", ENV)
 
+    # =====================================================
+    # BOT MANAGER (singleton por processo)
+    # =====================================================
+    bot_manager = BotManager()
     bot_manager.register_channel("whatsapp", WhatsAppBotChannel())
+
     app.state.bot_manager = bot_manager
 
-    logger.info("BotManager inicializado com WhatsApp")
+    logger.info("BotManager inicializado")
 
-    # -------------------------
-    # SCHEDULER
-    # -------------------------
-    start_scheduler(bot_manager)
-    logger.info("Scheduler iniciado com BotManager")
+    # =====================================================
+    # SCHEDULER (proteção contra duplicação)
+    # =====================================================
+    existing_scheduler = get_scheduler()
 
-    # -------------------------
+    if existing_scheduler and existing_scheduler.running:
+        logger.warning("Scheduler já está rodando. Evitando duplicação.")
+    else:
+        start_scheduler(bot_manager)
+        logger.info("Scheduler iniciado")
+
+    # =====================================================
     # APP RODANDO
-    # -------------------------
+    # =====================================================
     yield
 
-    # -------------------------
+    # =====================================================
     # SHUTDOWN
-    # -------------------------
+    # =====================================================
+    logger.info("Shutting down application")
+
     stop_scheduler()
+
     logger.info("Scheduler finalizado")
 
 

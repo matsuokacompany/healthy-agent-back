@@ -40,7 +40,6 @@ class BotService:
             len(message_text),
         )
 
-        # 🔥 proteção contra lixo/duplicata vazia
         if not message_text:
             logger.warning(
                 "Mensagem vazia ignorada. channel=%s user=%s",
@@ -67,6 +66,9 @@ class BotService:
                 return BotResponse(
                     text="Sua conta não está vinculada. Use o link de ativação no sistema."
                 )
+
+            # 🔥 CORREÇÃO CRÍTICA: garante estado fresco do DB
+            db.refresh(user)
 
             status = self.daily_report_service.process_response(
                 db,
@@ -110,10 +112,10 @@ class BotService:
 
         return None
 
-    # 🔥 NOVA REGRA: só pergunta follow-up se houver contexto válido
+    # 🔥 REGRA CORRIGIDA: usa estado REAL, não derivado
     @staticmethod
     def _has_valid_context(user: User) -> bool:
-        return bool(getattr(user, "has_pending_report", False))
+        return bool(user.current_report_id or user.pending_check_type)
 
     def _status_to_response(self, status: str, user: User) -> BotResponse:
 
@@ -129,10 +131,9 @@ class BotService:
         if status in ("NEGATIVE", "COMPLETED"):
             return BotResponse(text="Perfeito! Informações registradas ✅")
 
-        # 🚨 PONTO CRÍTICO CORRIGIDO
         if status == "ASK_CAUSE":
 
-            # só pergunta se existir contexto real
+            # 🔥 validação REAL de estado (anti-fantasma)
             if not self._has_valid_context(user):
                 logger.warning(
                     "ASK_CAUSE bloqueado por falta de contexto. user=%s",
