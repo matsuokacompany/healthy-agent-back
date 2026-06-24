@@ -26,3 +26,5 @@ bcrypt==4.0.1
 email-validator==2.1.0.post1
 langchain-openai==0.1.16
 python-telegram-bot==20.7
+
+httpx==0.27.2

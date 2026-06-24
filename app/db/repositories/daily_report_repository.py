@@ -1,33 +1,29 @@
-from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from app.models.models import User
+
+from app.models.models import DailyReport, DailyReportStatusEnum, User
+
 
 class DailyReportRepository:
-    """
-    Repository para controlar fluxo de prompts diários do usuário.
-    """
-
     def __init__(self, db: Session):
         self.db = db
 
-    def mark_prompt_sent(self, user: User):
-        """
-        Marca que o usuário recebeu o prompt.
-        """
-        user.current_report_id = user.current_report_id or None
-        self.db.commit()
-        return user
-
-    def mark_response_received(self, user: User):
-        """
-        Marca que o usuário respondeu.
-        """
-        user.current_report_id = None
-        self.db.commit()
-        return user
+    def get_open_report_for_user(self, user: User) -> DailyReport | None:
+        return (
+            self.db.query(DailyReport)
+            .filter(DailyReport.user_id == user.id)
+            .filter(DailyReport.completed.is_(False))
+            .filter(
+                DailyReport.status.in_(
+                    [
+                        DailyReportStatusEnum.PENDING,
+                        DailyReportStatusEnum.AWAITING_SYMPTOM_DESCRIPTION,
+                        DailyReportStatusEnum.AWAITING_CAUSE,
+                    ]
+                )
+            )
+            .order_by(DailyReport.created_at.desc(), DailyReport.id.desc())
+            .first()
+        )
 
     def is_awaiting(self, user: User) -> bool:
-        """
-        Retorna True se o usuário está aguardando resposta.
-        """
-        return bool(user.current_report_id)
+        return self.get_open_report_for_user(user) is not None

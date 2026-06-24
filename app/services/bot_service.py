@@ -44,9 +44,10 @@ class BotService:
         db = SessionLocal()
 
         try:
+            normalized_user_id = self._normalize_phone(external_user_id)
             user = (
                 db.query(User)
-                .filter(User.phone == external_user_id)
+                .filter(User.phone.in_([external_user_id, normalized_user_id]))
                 .first()
             )
 
@@ -86,6 +87,15 @@ class BotService:
         if status == "NEGATIVE":
             return BotResponse(
                 text="Perfeito 👍 Obrigado por informar. Se sentir qualquer alteração, estamos por aqui."
+            )
+
+        if status == "ASK_SYMPTOM_DESCRIPTION":
+            return BotResponse(
+                text=(
+                    "Entendi. Quais sintomas você teve ontem?\n\n"
+                    "Descreva em poucas palavras. Máx: 280 caracteres."
+                ),
+                ask_followup=True,
             )
 
         if status == "ASK_CAUSE":

@@ -15,6 +15,12 @@ class UserService:
     def _hash_password(self, password: str) -> str:
         return pwd_context.hash(password[:72])
 
+    @staticmethod
+    def _normalize_phone(phone: str | None) -> str | None:
+        if not phone:
+            return None
+        return "".join(ch for ch in phone if ch.isdigit())
+
     def create_user(self, data: UserCreate) -> User:
 
         # Email único
@@ -35,7 +41,7 @@ class UserService:
         new_user = User(
             name=data.name,
             email=data.email,
-            phone=data.phone,
+            phone=self._normalize_phone(data.phone),
             telegram_id=None,  # mantém campo, mas não usado mais no fluxo
             city=data.city,
             state=data.state,
@@ -43,7 +49,7 @@ class UserService:
             birth_date=data.birth_date,
             cpf=data.cpf,
             hashed_password=hashed_pw,
-            is_admin=False,
+            is_admin=bool(data.is_admin),
         )
 
         self.db.add(new_user)
@@ -91,6 +97,8 @@ class UserService:
         ]:
             value = getattr(payload, field, None)
             if value is not None:
+                if field == "phone":
+                    value = self._normalize_phone(value)
                 setattr(user, field, value)
 
         # 🔴 TELEGRAM REMOVIDO DO UPDATE

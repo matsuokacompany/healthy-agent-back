@@ -1,4 +1,6 @@
 import logging
+from datetime import date
+
 import httpx
 
 from app.core.config import settings
@@ -34,7 +36,12 @@ class WhatsAppBotChannel(BaseBotChannel):
     # =========================================================
     # ENVIO DE TEMPLATE (INÍCIO DO FLUXO)
     # =========================================================
-    async def send_template(self, user: User, check_type: CheckTypeEnum) -> None:
+    async def send_template(
+        self,
+        user: User,
+        check_type: CheckTypeEnum,
+        report_date: date | None = None,
+    ) -> None:
         """
         Template oficial do WhatsApp (Meta API).
         Aqui começa o fluxo real do sistema.
@@ -44,10 +51,8 @@ class WhatsAppBotChannel(BaseBotChannel):
             logger.warning("Usuário sem telefone | user_id=%s", user.id)
             return
 
-        template_name = "daily_symptom_checkin"
-
-        # exemplo simples de data legível
-        report_date = user.pending_report_date.strftime("%d/%m/%Y") if user.pending_report_date else ""
+        template_name = settings.WHATSAPP_DAILY_TEMPLATE_NAME
+        formatted_report_date = report_date.strftime("%d/%m/%Y") if report_date else ""
 
         payload = {
             "messaging_product": "whatsapp",
@@ -68,7 +73,7 @@ class WhatsAppBotChannel(BaseBotChannel):
                             },
                             {
                                 "type": "text",
-                                "text": report_date
+                                "text": formatted_report_date
                             }
                         ]
                     }
@@ -149,6 +154,18 @@ class WhatsAppBotChannel(BaseBotChannel):
 
             elif message_type == "button":
                 text = (message.get("button") or {}).get("payload", "").strip()
+
+            elif message_type == "interactive":
+                interactive = message.get("interactive") or {}
+                button_reply = interactive.get("button_reply") or {}
+                list_reply = interactive.get("list_reply") or {}
+                text = (
+                    button_reply.get("id")
+                    or button_reply.get("title")
+                    or list_reply.get("id")
+                    or list_reply.get("title")
+                    or ""
+                ).strip()
 
             else:
                 logger.warning("Tipo não suportado: %s", message_type)
