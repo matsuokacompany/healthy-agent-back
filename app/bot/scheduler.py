@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -28,14 +28,15 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
         tz = ZoneInfo(settings.SCHEDULER_TIMEZONE)
         now = datetime.now(tz)
         today = now.date()
+        report_date = today - timedelta(days=1)
         now_utc = now.astimezone(timezone.utc)
 
         plans = (
             db.query(MonitoringPlan)
             .join(User, MonitoringPlan.patient_id == User.id)
             .filter(MonitoringPlan.active.is_(True))
-            .filter(or_(MonitoringPlan.start_date.is_(None), MonitoringPlan.start_date <= today))
-            .filter(or_(MonitoringPlan.end_date.is_(None), MonitoringPlan.end_date >= today))
+            .filter(or_(MonitoringPlan.start_date.is_(None), MonitoringPlan.start_date <= report_date))
+            .filter(or_(MonitoringPlan.end_date.is_(None), MonitoringPlan.end_date >= report_date))
             .filter(User.phone.isnot(None))
             .all()
         )
@@ -54,6 +55,7 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
                     monitoring_plan=plan,
                     check_type=check_type,
                     now=now_utc,
+                    report_date=report_date,
                 )
                 if report.completed:
                     db.rollback()
@@ -117,18 +119,6 @@ def start_scheduler(bot_manager):
         ),
         args=[bot_manager, CheckTypeEnum.MORNING],
         id="morning",
-        replace_existing=True,
-    )
-
-    _scheduler.add_job(
-        send_prompt,
-        CronTrigger(
-            hour=settings.SCHEDULER_NIGHT_HOUR,
-            minute=settings.SCHEDULER_NIGHT_MINUTE,
-            timezone=tz,
-        ),
-        args=[bot_manager, CheckTypeEnum.NIGHT],
-        id="night",
         replace_existing=True,
     )
 

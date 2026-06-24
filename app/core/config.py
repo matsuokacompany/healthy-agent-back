@@ -20,8 +20,6 @@ class Settings(BaseSettings):
     SCHEDULER_MORNING_HOUR: int = 8
     SCHEDULER_MORNING_MINUTE: int = 0
 
-    SCHEDULER_NIGHT_HOUR: int = 20
-    SCHEDULER_NIGHT_MINUTE: int = 0
 
     WHATSAPP_VERIFY_TOKEN: str
     WHATSAPP_PHONE_NUMBER_ID: str

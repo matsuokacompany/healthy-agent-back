@@ -89,6 +89,15 @@ class BotService:
                 text="Perfeito 👍 Obrigado por informar. Se sentir qualquer alteração, estamos por aqui."
             )
 
+        if status == "ASK_SYMPTOM_DESCRIPTION":
+            return BotResponse(
+                text=(
+                    "Entendi. Quais sintomas você teve ontem?\n\n"
+                    "Descreva em poucas palavras. Máx: 280 caracteres."
+                ),
+                ask_followup=True,
+            )
+
         if status == "ASK_CAUSE":
             return BotResponse(
                 text=(

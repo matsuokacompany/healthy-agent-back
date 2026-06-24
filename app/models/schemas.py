@@ -12,6 +12,7 @@ class CheckTypeEnum(str, Enum):
 
 class DailyReportStatusEnum(str, Enum):
     PENDING = "PENDING"
+    AWAITING_SYMPTOM_DESCRIPTION = "AWAITING_SYMPTOM_DESCRIPTION"
     AWAITING_CAUSE = "AWAITING_CAUSE"
     COMPLETED = "COMPLETED"
     EXPIRED = "EXPIRED"

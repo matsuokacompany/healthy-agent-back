@@ -12,7 +12,15 @@ class DailyReportRepository:
             self.db.query(DailyReport)
             .filter(DailyReport.user_id == user.id)
             .filter(DailyReport.completed.is_(False))
-            .filter(DailyReport.status.in_([DailyReportStatusEnum.PENDING, DailyReportStatusEnum.AWAITING_CAUSE]))
+            .filter(
+                DailyReport.status.in_(
+                    [
+                        DailyReportStatusEnum.PENDING,
+                        DailyReportStatusEnum.AWAITING_SYMPTOM_DESCRIPTION,
+                        DailyReportStatusEnum.AWAITING_CAUSE,
+                    ]
+                )
+            )
             .order_by(DailyReport.created_at.desc(), DailyReport.id.desc())
             .first()
         )

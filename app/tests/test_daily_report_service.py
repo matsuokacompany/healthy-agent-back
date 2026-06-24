@@ -27,11 +27,20 @@ def create_user_and_plan(db):
     return user, plan
 
 
-def test_daily_report_flow_complete():
+def test_daily_report_button_flow_complete():
     db = build_session()
     user, plan = create_user_and_plan(db)
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
     db.commit()
+    db.refresh(plan)
+    return user, plan
+
+
+    assert DailyReportService.process_response(db, user, "Tive sintomas") == "ASK_SYMPTOM_DESCRIPTION"
+    db.refresh(report)
+    assert report.status == DailyReportStatusEnum.AWAITING_SYMPTOM_DESCRIPTION
+    assert report.had_symptoms is True
+    assert report.symptom_description is None
 
     assert DailyReportService.process_response(db, user, "Dor de cabeça") == "ASK_CAUSE"
     assert DailyReportService.process_response(db, user, "Dormi tarde") == "COMPLETED"
@@ -82,10 +91,10 @@ def test_daily_report_negative_completes_open_report():
     assert report.awaiting_cause is False
 
 
-def test_daily_report_positive_asks_cause():
+def test_daily_report_free_text_symptom_asks_cause():
     db = build_session()
     user, plan = create_user_and_plan(db)
-    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.NIGHT)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
     db.commit()
 
     assert DailyReportService.process_response(db, user, "Tive dor de cabeça") == "ASK_CAUSE"
@@ -108,3 +117,20 @@ def test_create_pending_report_reuses_same_plan_day_check():
 
     assert first.id == second.id
     assert db.query(DailyReport).count() == 1
+
+
+def test_create_pending_report_accepts_explicit_report_date():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    yesterday = date.today() - timedelta(days=1)
+
+    report = DailyReportService.create_pending_report(
+        db,
+        user=user,
+        monitoring_plan=plan,
+        check_type=CheckTypeEnum.MORNING,
+        report_date=yesterday,
+    )
+    db.commit()
+
+    assert report.report_date == yesterday

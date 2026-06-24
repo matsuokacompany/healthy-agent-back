@@ -70,10 +70,8 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `WHATSAPP_ACCESS_TOKEN` | sim | `EAA...` | Token WhatsApp Cloud API. |
 | `WHATSAPP_DAILY_TEMPLATE_NAME` | sim | `daily_symptom_checkin` | Template de check-in aprovado na Meta. |
 | `SCHEDULER_TIMEZONE` | não | `America/Sao_Paulo` | Timezone dos jobs. |
-| `SCHEDULER_MORNING_HOUR` | não | `8` | Hora do check-in da manhã. |
-| `SCHEDULER_MORNING_MINUTE` | não | `0` | Minuto do check-in da manhã. |
-| `SCHEDULER_NIGHT_HOUR` | não | `20` | Hora do check-in da noite. |
-| `SCHEDULER_NIGHT_MINUTE` | não | `0` | Minuto do check-in da noite. |
+| `SCHEDULER_MORNING_HOUR` | não | `8` | Hora do check-in diário da manhã. |
+| `SCHEDULER_MORNING_MINUTE` | não | `0` | Minuto do check-in diário da manhã. |
 
 ## Desenvolvimento local
 

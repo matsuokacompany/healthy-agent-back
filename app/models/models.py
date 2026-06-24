@@ -26,6 +26,7 @@ class CheckTypeEnum(str, enum.Enum):
 
 class DailyReportStatusEnum(str, enum.Enum):
     PENDING = "PENDING"
+    AWAITING_SYMPTOM_DESCRIPTION = "AWAITING_SYMPTOM_DESCRIPTION"
     AWAITING_CAUSE = "AWAITING_CAUSE"
     COMPLETED = "COMPLETED"
     EXPIRED = "EXPIRED"

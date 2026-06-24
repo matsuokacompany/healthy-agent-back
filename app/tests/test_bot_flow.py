@@ -47,11 +47,15 @@ def test_bot_service_response_flow(monkeypatch):
     monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
 
     service = BotService()
-    first = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Tive tontura")
+    first = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Tive sintomas")
     assert first.ask_followup is True
+    assert "Quais sintomas" in first.text
 
-    second = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Comi algo diferente")
-    assert "concluído" in second.text
+    second = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Tive tontura")
+    assert second.ask_followup is True
+
+    third = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Comi algo diferente")
+    assert "concluído" in third.text
 
 
 def test_bot_service_negative_flow(monkeypatch):

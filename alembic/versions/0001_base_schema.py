@@ -7,6 +7,7 @@ Create Date: 2026-06-24
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision = "0001"
@@ -14,14 +15,42 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
-check_type_enum = sa.Enum("MORNING", "NIGHT", name="checktypeenum")
-daily_report_status_enum = sa.Enum("PENDING", "AWAITING_CAUSE", "COMPLETED", "EXPIRED", name="dailyreportstatusenum")
+check_type_enum = postgresql.ENUM("MORNING", "NIGHT", name="checktypeenum", create_type=False)
+daily_report_status_enum = postgresql.ENUM(
+    "PENDING",
+    "AWAITING_SYMPTOM_DESCRIPTION",
+    "AWAITING_CAUSE",
+    "COMPLETED",
+    "EXPIRED",
+    name="dailyreportstatusenum",
+    create_type=False,
+)
 
 
 def upgrade():
-    bind = op.get_bind()
-    check_type_enum.create(bind, checkfirst=True)
-    daily_report_status_enum.create(bind, checkfirst=True)
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'checktypeenum') THEN
+                CREATE TYPE checktypeenum AS ENUM ('MORNING', 'NIGHT');
+            END IF;
+        END
+        $$;
+        """
+    )
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dailyreportstatusenum') THEN
+                CREATE TYPE dailyreportstatusenum AS ENUM ('PENDING', 'AWAITING_SYMPTOM_DESCRIPTION', 'AWAITING_CAUSE', 'COMPLETED', 'EXPIRED');
+            END IF;
+            ALTER TYPE dailyreportstatusenum ADD VALUE IF NOT EXISTS 'AWAITING_SYMPTOM_DESCRIPTION';
+        END
+        $$;
+        """
+    )
 
     op.create_table(
         "users",
