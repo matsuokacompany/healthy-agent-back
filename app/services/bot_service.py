@@ -44,9 +44,10 @@ class BotService:
         db = SessionLocal()
 
         try:
+            normalized_user_id = self._normalize_phone(external_user_id)
             user = (
                 db.query(User)
-                .filter(User.phone == external_user_id)
+                .filter(User.phone.in_([external_user_id, normalized_user_id]))
                 .first()
             )
 
