@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     USER_ID: int = 1
     ENV: str = "dev"
+    DEBUG: bool = False
 
     SECRET_KEY: str
 

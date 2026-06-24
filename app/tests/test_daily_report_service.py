@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base_class import Base
-from app.models.models import CheckTypeEnum, DailyReport, User
+from app.models.models import CheckTypeEnum, DailyReport, DailyReportStatusEnum, MonitoringPlan, User
 from app.services.daily_report_service import DailyReportService
 
 
@@ -15,135 +15,96 @@ def build_session():
     return TestingSessionLocal()
 
 
-def test_daily_report_flow_complete():
-    db = build_session()
-    user = User(name="Teste", email="t@example.com", telegram_id="123")
+def create_user_and_plan(db):
+    user = User(name="Teste", email=f"u-{datetime.now().timestamp()}@example.com", phone=str(datetime.now().timestamp()).replace('.', ''))
     db.add(user)
     db.commit()
     db.refresh(user)
+    plan = MonitoringPlan(patient_id=user.id, title="Plano", active=True, start_date=date.today())
+    db.add(plan)
+    db.commit()
+    db.refresh(plan)
+    return user, plan
 
-    report = DailyReport(
-        user_id=user.id,
-        report_date=date.today(),
-        check_type=CheckTypeEnum.MORNING,
-        had_symptoms=True,
-    )
-    db.add(report)
-    db.flush()
-    user.current_report_id = report.id
+
+def test_daily_report_flow_complete():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
     db.commit()
 
-    status_first = DailyReportService.process_response(db, user, "Dor de cabeça")
-    assert status_first == "ASK_CAUSE"
-
-    status_second = DailyReportService.process_response(db, user, "Dormi tarde")
-    assert status_second == "COMPLETED"
+    assert DailyReportService.process_response(db, user, "Dor de cabeça") == "ASK_CAUSE"
+    assert DailyReportService.process_response(db, user, "Dormi tarde") == "COMPLETED"
 
     db.refresh(report)
     assert report.completed is True
+    assert report.status == DailyReportStatusEnum.COMPLETED
     assert report.symptom_description == "Dor de cabeça"
     assert report.suspected_cause == "Dormi tarde"
 
 
 def test_daily_report_expired():
     db = build_session()
-    user = User(name="Teste", email="expired@example.com", telegram_id="321")
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
+    user, plan = create_user_and_plan(db)
     report = DailyReport(
         user_id=user.id,
+        monitoring_plan_id=plan.id,
         report_date=date.today(),
         check_type=CheckTypeEnum.NIGHT,
-        had_symptoms=True,
-        created_at=datetime.now(timezone.utc) - timedelta(hours=25),
+        status=DailyReportStatusEnum.PENDING,
+        completed=False,
+        awaiting_response=True,
+        awaiting_cause=False,
+        prompt_sent_at=datetime.now(timezone.utc) - timedelta(hours=25),
+        expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
     )
     db.add(report)
-    db.flush()
-    user.current_report_id = report.id
     db.commit()
 
-    status = DailyReportService.process_response(db, user, "Senti náusea")
-    assert status == "EXPIRED"
+    assert DailyReportService.process_response(db, user, "Senti náusea") == "EXPIRED"
+    db.refresh(report)
+    assert report.status == DailyReportStatusEnum.EXPIRED
 
 
-def test_daily_report_pending_negative_creates_completed_report():
+def test_daily_report_negative_completes_open_report():
     db = build_session()
-    user = User(
-        name="Teste",
-        email="pending-negative@example.com",
-        telegram_id="111",
-        pending_check_type=CheckTypeEnum.MORNING,
-        pending_report_date=date.today(),
-        pending_prompt_sent_at=datetime.now(timezone.utc),
-    )
-    db.add(user)
+    user, plan = create_user_and_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
     db.commit()
-    db.refresh(user)
 
-    status = DailyReportService.process_response(db, user, "Não tive sintomas")
-    assert status == "NEGATIVE"
+    assert DailyReportService.process_response(db, user, "Não tive sintomas") == "NEGATIVE"
 
-    report = db.query(DailyReport).filter(DailyReport.user_id == user.id).first()
-    assert report is not None
+    db.refresh(report)
     assert report.completed is True
+    assert report.status == DailyReportStatusEnum.COMPLETED
     assert report.had_symptoms is False
-    assert report.symptom_description is None
-
-    db.refresh(user)
-    assert user.current_report_id is None
-    assert user.pending_check_type is None
-    assert user.pending_report_date is None
-    assert user.pending_prompt_sent_at is None
+    assert report.awaiting_response is False
+    assert report.awaiting_cause is False
 
 
-def test_daily_report_pending_positive_creates_report_and_asks_cause():
+def test_daily_report_positive_asks_cause():
     db = build_session()
-    user = User(
-        name="Teste",
-        email="pending-positive@example.com",
-        telegram_id="222",
-        pending_check_type=CheckTypeEnum.NIGHT,
-        pending_report_date=date.today(),
-        pending_prompt_sent_at=datetime.now(timezone.utc),
-    )
-    db.add(user)
+    user, plan = create_user_and_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.NIGHT)
     db.commit()
-    db.refresh(user)
 
-    status = DailyReportService.process_response(db, user, "Tive dor de cabeça")
-    assert status == "ASK_CAUSE"
+    assert DailyReportService.process_response(db, user, "Tive dor de cabeça") == "ASK_CAUSE"
 
-    db.refresh(user)
-    assert user.current_report_id is not None
-    assert user.pending_check_type is None
-
-    report = db.query(DailyReport).filter(DailyReport.id == user.current_report_id).first()
-    assert report is not None
+    db.refresh(report)
+    assert report.completed is False
+    assert report.status == DailyReportStatusEnum.AWAITING_CAUSE
+    assert report.awaiting_response is False
+    assert report.awaiting_cause is True
     assert report.had_symptoms is True
-    assert report.symptom_description == "Tive dor de cabeça"
 
 
-def test_daily_report_pending_expired_returns_expired_and_clears_pending():
+def test_create_pending_report_reuses_same_plan_day_check():
     db = build_session()
-    user = User(
-        name="Teste",
-        email="pending-expired@example.com",
-        telegram_id="333",
-        pending_check_type=CheckTypeEnum.NIGHT,
-        pending_report_date=date.today(),
-        pending_prompt_sent_at=datetime.now(timezone.utc) - timedelta(hours=25),
-    )
-    db.add(user)
+    user, plan = create_user_and_plan(db)
+    first = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
     db.commit()
-    db.refresh(user)
+    second = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    db.commit()
 
-    status = DailyReportService.process_response(db, user, "Tive febre")
-    assert status == "EXPIRED"
-
-    db.refresh(user)
-    assert user.current_report_id is None
-    assert user.pending_check_type is None
-    assert user.pending_report_date is None
-    assert user.pending_prompt_sent_at is None
+    assert first.id == second.id
+    assert db.query(DailyReport).count() == 1

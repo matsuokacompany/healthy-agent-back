@@ -1,15 +1,20 @@
-from pydantic import BaseModel, EmailStr, Field
 from datetime import date, datetime
-from typing import Optional, List, Literal
 from enum import Enum
+from typing import List, Literal, Optional
 
-# ============================================================
-# ENUMS
-# ============================================================
+from pydantic import BaseModel, EmailStr, Field
+
 
 class CheckTypeEnum(str, Enum):
     MORNING = "MORNING"
     NIGHT = "NIGHT"
+
+
+class DailyReportStatusEnum(str, Enum):
+    PENDING = "PENDING"
+    AWAITING_CAUSE = "AWAITING_CAUSE"
+    COMPLETED = "COMPLETED"
+    EXPIRED = "EXPIRED"
 
 
 class NivelSuspeicaoEnum(str, Enum):
@@ -24,9 +29,10 @@ class UrgenciaEnum(str, Enum):
     ALTA = "alta"
 
 
-# ============================================================
-# USER SCHEMAS
-# ============================================================
+class ORMModel(BaseModel):
+    class Config:
+        from_attributes = True
+
 
 class UserBase(BaseModel):
     name: str
@@ -59,19 +65,12 @@ class UserUpdate(BaseModel):
     is_admin: Optional[bool] = None
 
 
-class UserRead(UserBase):
+class UserRead(UserBase, ORMModel):
     id: int
     created_at: datetime
     updated_at: datetime
     is_admin: bool
 
-    class Config:
-        from_attributes = True
-
-
-# ============================================================
-# ANAMNESE SCHEMAS
-# ============================================================
 
 class AnamneseBase(BaseModel):
     info: str
@@ -85,19 +84,85 @@ class AnamneseUpdate(BaseModel):
     info: Optional[str] = None
 
 
-class AnamneseRead(AnamneseBase):
+class AnamneseRead(AnamneseBase, ORMModel):
     id: int
     user_id: int
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+
+class ProfessionalProfileBase(BaseModel):
+    license_number: Optional[str] = None
+    license_state: Optional[str] = None
+    specialty: Optional[str] = None
+    bio: Optional[str] = None
+    active: bool = True
 
 
-# ============================================================
-# DAILY REPORT SCHEMAS
-# ============================================================
+class ProfessionalProfileCreate(ProfessionalProfileBase):
+    user_id: int
+
+
+class ProfessionalProfileUpdate(BaseModel):
+    license_number: Optional[str] = None
+    license_state: Optional[str] = None
+    specialty: Optional[str] = None
+    bio: Optional[str] = None
+    active: Optional[bool] = None
+
+
+class ProfessionalProfileRead(ProfessionalProfileBase, ORMModel):
+    id: int
+    user_id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class MonitoringPlanBase(BaseModel):
+    title: str
+    description: Optional[str] = None
+    active: bool = True
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+
+
+class MonitoringPlanCreate(MonitoringPlanBase):
+    patient_id: int
+
+
+class MonitoringPlanUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    active: Optional[bool] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+
+
+class MonitoringPlanRead(MonitoringPlanBase, ORMModel):
+    id: int
+    patient_id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class MonitoringProfessionalCreate(BaseModel):
+    professional_profile_id: int
+    role: Optional[str] = None
+
+
+class MonitoringProfessionalUpdate(BaseModel):
+    role: Optional[str] = None
+    active: Optional[bool] = None
+
+
+class MonitoringProfessionalRead(ORMModel):
+    id: int
+    monitoring_plan_id: int
+    professional_profile_id: int
+    role: Optional[str] = None
+    active: bool
+    created_at: datetime
+
 
 class DailyReportBase(BaseModel):
     check_type: CheckTypeEnum
@@ -106,6 +171,7 @@ class DailyReportBase(BaseModel):
 
 
 class DailyReportCreate(BaseModel):
+    monitoring_plan_id: int
     check_type: CheckTypeEnum
 
 
@@ -115,19 +181,21 @@ class DailyReportUpdate(BaseModel):
     completed: Optional[bool] = None
 
 
-class DailyReportRead(DailyReportBase):
+class DailyReportRead(DailyReportBase, ORMModel):
     id: int
     user_id: int
+    monitoring_plan_id: int
+    report_date: date
+    had_symptoms: Optional[bool] = None
+    status: DailyReportStatusEnum
     completed: bool
+    awaiting_response: bool
+    awaiting_cause: bool
+    prompt_sent_at: datetime
+    expires_at: datetime
     created_at: datetime
+    updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
-
-# ============================================================
-# INSIGHT SCHEMAS
-# ============================================================
 
 class InsightScenario(BaseModel):
     descricao: str
@@ -166,10 +234,6 @@ class InsightClinicalResponse(BaseModel):
     urgencia: UrgenciaEnum
     alerta_legal: str
 
-
-# ============================================================
-# REFRESH TOKEN
-# ============================================================
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str

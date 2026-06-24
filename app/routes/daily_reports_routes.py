@@ -1,25 +1,24 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_user
+from app.core.dependencies import get_db
 from app.models.models import DailyReport, User
 from app.models.schemas import DailyReportRead, DailyReportUpdate
-from app.core.dependencies import get_db
-from app.core.auth import get_current_user
 
 router = APIRouter(tags=["Daily Reports"])
 
 
 @router.get("/", response_model=list[DailyReportRead])
 def get_my_reports(
+    monitoring_plan_id: int | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return (
-        db.query(DailyReport)
-        .filter(DailyReport.user_id == current_user.id)
-        .order_by(DailyReport.created_at.desc())
-        .all()
-    )
+    query = db.query(DailyReport).filter(DailyReport.user_id == current_user.id)
+    if monitoring_plan_id is not None:
+        query = query.filter(DailyReport.monitoring_plan_id == monitoring_plan_id)
+    return query.order_by(DailyReport.created_at.desc()).all()
 
 
 @router.get("/{report_id}", response_model=DailyReportRead)

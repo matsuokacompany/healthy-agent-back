@@ -1,177 +1,141 @@
-import logging
-import httpx
+from datetime import datetime, timedelta, timezone
 
-from app.core.config import settings
-from app.bot.channels.base import BaseBotChannel
-from app.services.bot_service import BotService
-from app.models.models import User, CheckTypeEnum
+from sqlalchemy.orm import Session
 
-logger = logging.getLogger(__name__)
+from app.models.models import CheckTypeEnum, DailyReport, DailyReportStatusEnum, MonitoringPlan, User
 
 
-class WhatsAppBotChannel(BaseBotChannel):
-    def __init__(self, bot_service: BotService | None = None):
-        self.bot_service = bot_service or BotService()
+class DailyReportService:
+    MAX_TEXT_LENGTH = 280
+    RESPONSE_WINDOW_HOURS = 24
 
-        self.base_url = (
-            f"https://graph.facebook.com/v23.0/"
-            f"{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
+    @classmethod
+    def create_pending_report(
+        cls,
+        db: Session,
+        *,
+        user: User,
+        monitoring_plan: MonitoringPlan,
+        check_type: CheckTypeEnum,
+        now: datetime | None = None,
+    ) -> DailyReport:
+        now = now or datetime.now(timezone.utc)
+        report = (
+            db.query(DailyReport)
+            .filter(DailyReport.monitoring_plan_id == monitoring_plan.id)
+            .filter(DailyReport.report_date == now.date())
+            .filter(DailyReport.check_type == check_type)
+            .first()
         )
 
-    # =========================================================
-    # ENVIO DE TEXTO (respostas do bot)
-    # =========================================================
-    async def send_message(self, user_id: str, text: str) -> None:
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": user_id,
-            "type": "text",
-            "text": {"body": text},
-        }
-
-        await self._post(payload)
-
-    # =========================================================
-    # ENVIO DE TEMPLATE (INÍCIO DO FLUXO)
-    # =========================================================
-    async def send_template(self, user: User, check_type: CheckTypeEnum) -> None:
-        """
-        Template oficial do WhatsApp (Meta API).
-        Aqui começa o fluxo real do sistema.
-        """
-
-        if not user.phone:
-            logger.warning("Usuário sem telefone | user_id=%s", user.id)
-            return
-
-        template_name = "daily_symptom_checkin"
-
-        # exemplo simples de data legível
-        report_date = user.pending_report_date.strftime("%d/%m/%Y") if user.pending_report_date else ""
-
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": user.phone,
-            "type": "template",
-            "template": {
-                "name": template_name,
-                "language": {
-                    "code": "pt_BR"
-                },
-                "components": [
-                    {
-                        "type": "body",
-                        "parameters": [
-                            {
-                                "type": "text",
-                                "text": user.name or "Usuário"
-                            },
-                            {
-                                "type": "text",
-                                "text": report_date
-                            }
-                        ]
-                    }
-                ]
-            }
-        }
-
-        await self._post(payload)
-
-    # =========================================================
-    # HTTP CORE
-    # =========================================================
-    async def _post(self, payload: dict) -> None:
-        headers = {
-            "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
-            "Content-Type": "application/json",
-        }
-
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                self.base_url,
-                json=payload,
-                headers=headers,
+        if report is None:
+            report = DailyReport(
+                user_id=user.id,
+                monitoring_plan_id=monitoring_plan.id,
+                report_date=now.date(),
+                check_type=check_type,
+                prompt_sent_at=now,
+                expires_at=now + timedelta(hours=cls.RESPONSE_WINDOW_HOURS),
             )
+            db.add(report)
+        elif report.completed or report.status == DailyReportStatusEnum.COMPLETED:
+            return report
 
-        logger.info(
-            "WhatsApp API status=%s response=%s",
-            response.status_code,
-            response.text,
+        report.user_id = user.id
+        report.symptom_description = None
+        report.suspected_cause = None
+        report.had_symptoms = None
+        report.completed = False
+        report.awaiting_response = True
+        report.awaiting_cause = False
+        report.status = DailyReportStatusEnum.PENDING
+        report.prompt_sent_at = now
+        report.expires_at = now + timedelta(hours=cls.RESPONSE_WINDOW_HOURS)
+
+        db.flush()
+        return report
+
+    @classmethod
+    def process_response(cls, db: Session, user: User, message_text: str) -> str:
+        message_text = (message_text or "").strip()
+
+        if len(message_text) > cls.MAX_TEXT_LENGTH:
+            return "TOO_LONG"
+
+        report = cls._get_open_report(db, user)
+        if not report:
+            return "NOT_AWAITING"
+
+        now = datetime.now(timezone.utc)
+        if cls._is_expired(report, now):
+            report.awaiting_response = False
+            report.awaiting_cause = False
+            report.completed = False
+            report.status = DailyReportStatusEnum.EXPIRED
+            db.commit()
+            return "EXPIRED"
+
+        if report.completed or report.status == DailyReportStatusEnum.COMPLETED:
+            return "ALREADY_COMPLETED"
+
+        if report.awaiting_cause or report.status == DailyReportStatusEnum.AWAITING_CAUSE:
+            report.suspected_cause = message_text
+            report.awaiting_cause = False
+            report.awaiting_response = False
+            report.completed = True
+            report.status = DailyReportStatusEnum.COMPLETED
+            db.commit()
+            return "COMPLETED"
+
+        if not report.awaiting_response:
+            return "NOT_AWAITING"
+
+        if cls._is_negative_response(message_text):
+            report.had_symptoms = False
+            report.symptom_description = None
+            report.suspected_cause = None
+            report.awaiting_response = False
+            report.awaiting_cause = False
+            report.completed = True
+            report.status = DailyReportStatusEnum.COMPLETED
+            db.commit()
+            return "NEGATIVE"
+
+        report.had_symptoms = True
+        report.symptom_description = message_text
+        report.awaiting_response = False
+        report.awaiting_cause = True
+        report.status = DailyReportStatusEnum.AWAITING_CAUSE
+        db.commit()
+        return "ASK_CAUSE"
+
+    @classmethod
+    def _get_open_report(cls, db: Session, user: User) -> DailyReport | None:
+        return (
+            db.query(DailyReport)
+            .filter(DailyReport.user_id == user.id)
+            .filter(DailyReport.completed.is_(False))
+            .filter(DailyReport.status.in_([DailyReportStatusEnum.PENDING, DailyReportStatusEnum.AWAITING_CAUSE]))
+            .order_by(DailyReport.created_at.desc(), DailyReport.id.desc())
+            .first()
         )
 
-        if response.status_code >= 400:
-            logger.error(
-                "Erro WhatsApp API status=%s body=%s",
-                response.status_code,
-                response.text,
-            )
+    @staticmethod
+    def _is_expired(report: DailyReport, now: datetime) -> bool:
+        expires_at = report.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        return expires_at < now
 
-        response.raise_for_status()
-
-    # =========================================================
-    # WEBHOOK (INBOUND)
-    # =========================================================
-    def _extract_messages(self, payload: dict) -> list[dict]:
-        messages = []
-
-        for entry in payload.get("entry", []):
-            for change in entry.get("changes", []):
-                value = change.get("value", {})
-
-                if "messages" not in value:
-                    continue
-
-                messages.extend(value.get("messages", []))
-
-        return messages
-
-    async def handle_incoming(self, payload: dict) -> None:
-        logger.info(
-            "Webhook WhatsApp recebido | keys=%s",
-            list(payload.keys()),
+    @staticmethod
+    def _is_negative_response(message_text: str) -> bool:
+        normalized = message_text.lower().strip()
+        negative_markers = (
+            "não tive",
+            "nao tive",
+            "sem sintomas",
+            "nenhum sintoma",
+            "estou bem",
+            "tudo bem",
         )
-
-        messages = self._extract_messages(payload)
-
-        if not messages:
-            logger.info("Webhook ignorado (sem mensagens reais)")
-            return
-
-        for message in messages:
-            external_user_id = str(message.get("from", "")).strip()
-            message_type = message.get("type")
-
-            text = ""
-
-            if message_type == "text":
-                text = (message.get("text") or {}).get("body", "").strip()
-
-            elif message_type == "button":
-                text = (message.get("button") or {}).get("payload", "").strip()
-
-            else:
-                logger.warning("Tipo não suportado: %s", message_type)
-                continue
-
-            if not external_user_id or not text:
-                logger.warning("Mensagem inválida: %s", message)
-                continue
-
-            response = self.bot_service.process_incoming(
-                channel="whatsapp",
-                external_user_id=external_user_id,
-                message_text=text,
-            )
-
-            if response.text:
-                await self.send_message(
-                    external_user_id,
-                    response.text,
-                )
-
-            logger.info(
-                "Mensagem processada | from=%s | response=%s",
-                external_user_id,
-                response.text,
-            )
+        return any(marker in normalized for marker in negative_markers)
