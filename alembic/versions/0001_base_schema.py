@@ -57,7 +57,6 @@ def upgrade():
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column("name", sa.String, nullable=False),
         sa.Column("email", sa.String, nullable=False),
-        sa.Column("telegram_id", sa.String, nullable=True),
         sa.Column("phone", sa.String, nullable=True),
         sa.Column("city", sa.String, nullable=True),
         sa.Column("state", sa.String, nullable=True),
@@ -71,7 +70,6 @@ def upgrade():
         sa.UniqueConstraint("email"),
         sa.UniqueConstraint("cpf"),
     )
-    op.create_index("ix_users_telegram_id", "users", ["telegram_id"], unique=False)
     op.create_index("ix_users_phone", "users", ["phone"], unique=True)
 
     op.create_table(
@@ -163,19 +161,8 @@ def upgrade():
     op.create_index("ix_refresh_tokens_token", "refresh_tokens", ["token"], unique=True)
     op.create_index("ix_refresh_tokens_expires_at", "refresh_tokens", ["expires_at"], unique=False)
 
-    op.create_table(
-        "telegram_link_codes",
-        sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("user_id", sa.Integer, sa.ForeignKey("users.id"), nullable=False),
-        sa.Column("code", sa.String, nullable=False, unique=True),
-        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("used", sa.Boolean, nullable=False, server_default=sa.text("false")),
-    )
-    op.create_index("ix_telegram_link_codes_code", "telegram_link_codes", ["code"], unique=True)
-
 
 def downgrade():
-    op.drop_table("telegram_link_codes")
     op.drop_table("refresh_tokens")
     op.drop_table("daily_reports")
     op.drop_table("monitoring_professionals")

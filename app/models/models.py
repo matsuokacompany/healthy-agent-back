@@ -50,7 +50,6 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     email = Column(String, nullable=False, unique=True)
-    telegram_id = Column(String, nullable=True, index=True)
     phone = Column(String, nullable=True, unique=True, index=True)
     city = Column(String, nullable=True)
     state = Column(String, nullable=True)
@@ -82,7 +81,6 @@ class User(Base):
         uselist=False,
     )
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
-    telegram_link_codes = relationship("TelegramLinkCode", back_populates="user", cascade="all, delete-orphan")
 
 
 class ProfessionalProfile(Base):
@@ -232,15 +230,3 @@ class RefreshToken(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     user = relationship("User", back_populates="refresh_tokens")
-
-
-class TelegramLinkCode(Base):
-    __tablename__ = "telegram_link_codes"
-
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    code = Column(String, nullable=False, unique=True)
-    expires_at = Column(DateTime(timezone=True), nullable=False)
-    used = Column(Boolean, default=False, nullable=False)
-
-    user = relationship("User", back_populates="telegram_link_codes")

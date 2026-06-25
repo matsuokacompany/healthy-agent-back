@@ -7,7 +7,6 @@ class Settings(BaseSettings):
     DATABASE_URL: str
 
     OPENAI_API_KEY: Optional[str] = None
-    TELEGRAM_BOT_TOKEN: Optional[str] = None
 
     USER_ID: int = 1
     ENV: str = "dev"
