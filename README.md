@@ -63,9 +63,13 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | --- | --- | --- | --- |
 | `ENV` | não | `production` | Ambiente da aplicação. |
 | `DATABASE_URL` | sim | `postgresql+psycopg2://postgres:<PASSWORD>@db.<PROJECT_REF>.supabase.co:5432/postgres?sslmode=require` | URL do Supabase PostgreSQL. |
-| `SECRET_KEY` | sim | `change-me` | Segredo JWT. |
+| `SECRET_KEY` | sim | `change-me` | Segredo JWT legado. |
+| `SUPABASE_PROJECT_URL` | sim | `https://<PROJECT_REF>.supabase.co` | URL do projeto Supabase usada para validar o issuer `https://<PROJECT_REF>.supabase.co/auth/v1`. |
+| `SUPABASE_JWT_SECRET` | sim | `<supabase-jwt-secret>` | JWT secret do Supabase usado para validar access tokens `HS256`. |
+| `SUPABASE_JWT_AUDIENCE` | não | `authenticated` | Audience exigida nos access tokens do Supabase. |
+| `SUPABASE_JWT_ISSUER` | não | `https://<PROJECT_REF>.supabase.co/auth/v1` | Issuer customizado; por padrão é derivado de `SUPABASE_PROJECT_URL`. |
 | `OPENAI_API_KEY` | não | `sk-...` | Chave OpenAI para insights. |
-| `CORS_ORIGINS` | não | `http://localhost:3000,https://app.julha.com.br` | Origens permitidas no CORS, separadas por vírgula. Em desenvolvimento, o padrão é `http://localhost:3000`; em produção, configure `https://app.julha.com.br`. |
+| `CORS_ORIGINS` | não | `http://localhost:3000,https://app.julha.com.br` | Origens permitidas no CORS, separadas por vírgula. O padrão já inclui `http://localhost:3000` e `https://app.julha.com.br`. |
 | `WHATSAPP_VERIFY_TOKEN` | sim | `verify-token` | Token de verificação do webhook Meta. |
 | `WHATSAPP_PHONE_NUMBER_ID` | sim | `123456789` | Phone Number ID da Meta. |
 | `WHATSAPP_ACCESS_TOKEN` | sim | `EAA...` | Token WhatsApp Cloud API. |

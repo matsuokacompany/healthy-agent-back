@@ -21,11 +21,27 @@ bearer_scheme = HTTPBearer()
 bearer_scheme_optional = HTTPBearer(auto_error=False)
 
 
+def _supabase_project_url() -> str | None:
+    if not settings.SUPABASE_PROJECT_URL:
+        return None
+    return settings.SUPABASE_PROJECT_URL.rstrip("/")
+
+
+def _supabase_jwt_issuer() -> str | None:
+    if settings.SUPABASE_JWT_ISSUER:
+        return settings.SUPABASE_JWT_ISSUER.rstrip("/")
+    project_url = _supabase_project_url()
+    if project_url:
+        return f"{project_url}/auth/v1"
+    return None
+
+
 def _supabase_jwks_url() -> str | None:
     if settings.SUPABASE_JWKS_URL:
         return settings.SUPABASE_JWKS_URL
-    if settings.SUPABASE_PROJECT_URL:
-        return settings.SUPABASE_PROJECT_URL.rstrip("/") + "/auth/v1/.well-known/jwks.json"
+    project_url = _supabase_project_url()
+    if project_url:
+        return project_url + "/auth/v1/.well-known/jwks.json"
     return None
 
 
@@ -67,14 +83,14 @@ def _decode_supabase_token(token: str) -> dict[str, Any]:
         else:
             key = _find_jwk(header.get("kid"))
 
-        options = {"verify_aud": bool(settings.SUPABASE_JWT_AUDIENCE)}
         decode_kwargs: dict[str, Any] = {
             "algorithms": ALGORITHMS,
-            "audience": settings.SUPABASE_JWT_AUDIENCE or None,
-            "options": options,
+            "audience": settings.SUPABASE_JWT_AUDIENCE,
+            "options": {"verify_aud": True, "verify_iss": bool(_supabase_jwt_issuer())},
         }
-        if settings.SUPABASE_JWT_ISSUER:
-            decode_kwargs["issuer"] = settings.SUPABASE_JWT_ISSUER
+        issuer = _supabase_jwt_issuer()
+        if issuer:
+            decode_kwargs["issuer"] = issuer
         payload = jwt.decode(token, key, **decode_kwargs)
     except (JWTError, ValueError, RuntimeError, HTTPException):
         raise credentials_exception

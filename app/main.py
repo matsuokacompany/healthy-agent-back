@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 ENV = os.getenv("ENV", "dev").lower()
 DEBUG = ENV == "dev"
-DEFAULT_CORS_ORIGINS = "http://localhost:3000"
+DEFAULT_CORS_ORIGINS = "http://localhost:3000,https://app.julha.com.br"
 
 
 def parse_cors_origins(cors_origins: str) -> list[str]:

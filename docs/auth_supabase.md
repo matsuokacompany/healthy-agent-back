@@ -2,7 +2,7 @@
 
 ## Current architecture
 
-Authentication is delegated to Supabase Auth. Clients authenticate with Supabase and send the Supabase access token as a Bearer token to this API. The backend validates that JWT and resolves it to a local `users` record through `users.supabase_user_id`.
+Authentication is delegated to Supabase Auth. Clients authenticate with Supabase and send the Supabase access token as a Bearer token to this API. The backend validates that JWT with the Supabase JWT secret for `HS256` tokens, requires `aud=authenticated`, requires `iss=https://<project-ref>.supabase.co/auth/v1` derived from `SUPABASE_PROJECT_URL`, and resolves the `sub` claim to a local `users` record through `users.supabase_user_id`.
 
 Authorization remains local to this application. Business tables keep referencing the internal `users.id`; no business table references Supabase `auth.users` directly.
 
