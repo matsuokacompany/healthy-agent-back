@@ -1,19 +1,17 @@
-from sqlalchemy.orm import Session
+import uuid
+
 from fastapi import HTTPException, status
-from passlib.context import CryptContext
+from sqlalchemy.orm import Session
 
-from app.models.models import User
-from app.models.schemas import UserCreate, UserUpdate
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+from app.core.auth import assign_role
+from app.core.permissions import is_super_admin
+from app.models.models import RoleNameEnum, User, UserRole
+from app.models.schemas import UserCreate, UserRoleUpdate, UserUpdate
 
 
 class UserService:
     def __init__(self, db: Session):
         self.db = db
-
-    def _hash_password(self, password: str) -> str:
-        return pwd_context.hash(password[:72])
 
     @staticmethod
     def _normalize_phone(phone: str | None) -> str | None:
@@ -21,34 +19,40 @@ class UserService:
             return None
         return "".join(ch for ch in phone if ch.isdigit())
 
-    def create_user(self, data: UserCreate) -> User:
-
-        # Email único
+    def create_user(self, data: UserCreate, current_user: User) -> User:
         if self.db.query(User).filter(User.email == data.email).first():
             raise HTTPException(400, "Email already registered")
-
-        # CPF único
         if data.cpf and self.db.query(User).filter(User.cpf == data.cpf).first():
             raise HTTPException(400, "CPF already registered")
 
-        hashed_pw = None
-        if data.password:
-            hashed_pw = self._hash_password(data.password)
+        requested_role_values = {role.value for role in data.roles}
+        privileged_roles = {RoleNameEnum.ADMIN.value, RoleNameEnum.SUPER_ADMIN.value}
+        if requested_role_values & privileged_roles and not is_super_admin(current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only super admins can assign admin or super_admin roles",
+            )
+
+        supabase_user_id = uuid.UUID(data.supabase_user_id) if data.supabase_user_id else None
+        if supabase_user_id and self.db.query(User).filter(User.supabase_user_id == supabase_user_id).first():
+            raise HTTPException(400, "Supabase user already linked")
 
         new_user = User(
             name=data.name,
             email=data.email,
+            supabase_user_id=supabase_user_id,
             phone=self._normalize_phone(data.phone),
             city=data.city,
             state=data.state,
             gender=data.gender,
             birth_date=data.birth_date,
             cpf=data.cpf,
-            hashed_password=hashed_pw,
-            is_admin=bool(data.is_admin),
+            is_admin=any(role.value in {RoleNameEnum.ADMIN.value, RoleNameEnum.SUPER_ADMIN.value} for role in data.roles),
         )
-
         self.db.add(new_user)
+        self.db.flush()
+        for role in data.roles or [RoleNameEnum.PATIENT]:
+            assign_role(self.db, new_user, RoleNameEnum(role.value))
         self.db.commit()
         self.db.refresh(new_user)
         return new_user
@@ -62,44 +66,34 @@ class UserService:
     def list_users(self) -> list[User]:
         return self.db.query(User).all()
 
-    def update_user(self, user_id: int, payload: UserUpdate, current_user: User) -> User:
+    def update_user(self, user_id: int, payload: UserUpdate) -> User:
         user = self.db.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Regra admin
-        if payload.is_admin is not None:
-            is_super_admin = (
-                current_user.id == 1
-                and current_user.email == "matsuokacompany@gmail.com"
-            )
-            if not is_super_admin:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Only super admin can change admin permissions",
-                )
-            user.is_admin = payload.is_admin
-
-        # Campos normais
-        for field in [
-            "name",
-            "email",
-            "phone",
-            "city",
-            "state",
-            "gender",
-            "birth_date",
-            "cpf",
-        ]:
+        for field in ["name", "email", "phone", "city", "state", "gender", "birth_date", "cpf"]:
             value = getattr(payload, field, None)
             if value is not None:
                 if field == "phone":
                     value = self._normalize_phone(value)
                 setattr(user, field, value)
 
-        if payload.password is not None:
-            user.hashed_password = self._hash_password(payload.password)
+        self.db.commit()
+        self.db.refresh(user)
+        return user
 
+    def update_roles(self, user_id: int, payload: UserRoleUpdate, current_user: User) -> User:
+        if not is_super_admin(current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only super admins can change user roles",
+            )
+        user = self.get_user(user_id)
+        self.db.query(UserRole).filter(UserRole.user_id == user.id).delete()
+        self.db.flush()
+        for role in payload.roles:
+            assign_role(self.db, user, RoleNameEnum(role.value))
+        user.is_admin = any(role.value in {RoleNameEnum.ADMIN.value, RoleNameEnum.SUPER_ADMIN.value} for role in payload.roles)
         self.db.commit()
         self.db.refresh(user)
         return user

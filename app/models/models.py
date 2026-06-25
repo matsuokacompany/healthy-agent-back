@@ -15,6 +15,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base_class import Base
 
@@ -44,20 +45,56 @@ class UrgenciaEnum(str, enum.Enum):
     ALTA = "alta"
 
 
+class RoleNameEnum(str, enum.Enum):
+    SUPER_ADMIN = "super_admin"
+    ADMIN = "admin"
+    PROFESSIONAL = "professional"
+    PATIENT = "patient"
+
+
+class UserRole(Base):
+    __tablename__ = "user_roles"
+    __table_args__ = (
+        UniqueConstraint("user_id", "role_id", name="uq_user_role"),
+        Index("ix_user_roles_user_id", "user_id"),
+        Index("ix_user_roles_role_id", "role_id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    user = relationship("User", back_populates="role_links")
+    role = relationship("Role", back_populates="user_links")
+
+
+class Role(Base):
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False, unique=True, index=True)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    user_links = relationship("UserRole", back_populates="role", cascade="all, delete-orphan")
+    users = relationship("User", secondary="user_roles", back_populates="role_records", viewonly=True)
+
+
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     email = Column(String, nullable=False, unique=True)
+    supabase_user_id = Column(UUID(as_uuid=True), nullable=True, unique=True, index=True)
     phone = Column(String, nullable=True, unique=True, index=True)
     city = Column(String, nullable=True)
     state = Column(String, nullable=True)
     gender = Column(String, nullable=True)
     birth_date = Column(Date, nullable=True)
     cpf = Column(String, nullable=True, unique=True)
-    hashed_password = Column(String, nullable=True)
-    is_admin = Column(Boolean, default=False, nullable=False)
+    is_admin = Column(Boolean, default=False, nullable=False)  # Deprecated: use roles/user_roles for authorization.
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
@@ -80,7 +117,12 @@ class User(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
-    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+    role_links = relationship("UserRole", back_populates="user", cascade="all, delete-orphan")
+    role_records = relationship("Role", secondary="user_roles", back_populates="users", viewonly=True)
+
+    @property
+    def roles(self) -> list[str]:
+        return [role.name for role in self.role_records]
 
 
 class ProfessionalProfile(Base):
@@ -217,16 +259,3 @@ class DailyReport(Base):
 
     user = relationship("User", back_populates="daily_reports")
     monitoring_plan = relationship("MonitoringPlan", back_populates="daily_reports")
-
-
-class RefreshToken(Base):
-    __tablename__ = "refresh_tokens"
-
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    token = Column(String, nullable=False, unique=True)
-    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
-    revoked = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
-
-    user = relationship("User", back_populates="refresh_tokens")

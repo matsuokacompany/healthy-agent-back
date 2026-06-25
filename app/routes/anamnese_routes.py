@@ -4,6 +4,7 @@ from app.models.models import Anamnese, User
 from app.models.schemas import AnamneseCreate, AnamneseRead, AnamneseUpdate
 from app.core.dependencies import get_db
 from app.core.auth import get_current_user
+from app.core.permissions import is_admin
 
 router = APIRouter(tags=["Anamneses"])
 
@@ -15,7 +16,7 @@ def create_anamnese(
     current_user: User = Depends(get_current_user),
 ):
     # user normal só pode criar pra ele mesmo
-    if not current_user.is_admin and anamnese.user_id != current_user.id:
+    if not is_admin(current_user) and anamnese.user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to create anamnese for another user"
@@ -43,7 +44,7 @@ def get_user_anamneses(
     current_user: User = Depends(get_current_user),
 ):
     # user normal só pode listar as dele
-    if not current_user.is_admin and user_id != current_user.id:
+    if not is_admin(current_user) and user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized"
@@ -101,7 +102,7 @@ def delete_anamnese(
         raise HTTPException(404, "Anamnese not found")
 
     # user normal só pode deletar a dele
-    if not current_user.is_admin and item.user_id != current_user.id:
+    if not is_admin(current_user) and item.user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized"

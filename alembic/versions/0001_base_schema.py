@@ -63,7 +63,6 @@ def upgrade():
         sa.Column("gender", sa.String, nullable=True),
         sa.Column("birth_date", sa.Date, nullable=True),
         sa.Column("cpf", sa.String, nullable=True),
-        sa.Column("hashed_password", sa.String, nullable=True),
         sa.Column("is_admin", sa.Boolean, nullable=False, server_default=sa.text("false")),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),

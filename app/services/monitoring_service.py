@@ -3,7 +3,8 @@ from datetime import date
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.models.models import MonitoringPlan, MonitoringProfessional, ProfessionalProfile, User
+from app.core.auth import assign_role
+from app.models.models import MonitoringPlan, MonitoringProfessional, ProfessionalProfile, RoleNameEnum, User
 from app.models.schemas import (
     MonitoringPlanCreate,
     MonitoringPlanUpdate,
@@ -26,6 +27,7 @@ class ProfessionalProfileService:
             raise HTTPException(status_code=409, detail="Professional profile already exists")
         profile = ProfessionalProfile(**payload.model_dump())
         self.db.add(profile)
+        assign_role(self.db, user, RoleNameEnum.PROFESSIONAL)
         self.db.commit()
         self.db.refresh(profile)
         return profile
@@ -52,6 +54,7 @@ class MonitoringPlanService:
         self._validate_dates(payload.start_date, payload.end_date)
         plan = MonitoringPlan(**payload.model_dump())
         self.db.add(plan)
+        assign_role(self.db, patient, RoleNameEnum.PATIENT)
         self.db.commit()
         self.db.refresh(plan)
         return plan

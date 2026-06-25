@@ -6,8 +6,10 @@ from app.models.models import (
     MonitoringPlan,
     MonitoringProfessional,
     ProfessionalProfile,
-    RefreshToken,
+    Role,
+    RoleNameEnum,
     User,
+    UserRole,
 )
 
 __all__ = [
@@ -19,5 +21,7 @@ __all__ = [
     "DailyReport",
     "DailyReportStatusEnum",
     "Anamnese",
-    "RefreshToken",
+    "Role",
+    "RoleNameEnum",
+    "UserRole",
 ]
