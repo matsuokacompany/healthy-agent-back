@@ -31,9 +31,6 @@ class UserService:
         if data.cpf and self.db.query(User).filter(User.cpf == data.cpf).first():
             raise HTTPException(400, "CPF already registered")
 
-        # 🔴 TELEGRAM REMOVIDO (não validar mais canal externo aqui)
-        # if data.telegram_id ...
-
         hashed_pw = None
         if data.password:
             hashed_pw = self._hash_password(data.password)
@@ -42,7 +39,6 @@ class UserService:
             name=data.name,
             email=data.email,
             phone=self._normalize_phone(data.phone),
-            telegram_id=None,  # mantém campo, mas não usado mais no fluxo
             city=data.city,
             state=data.state,
             gender=data.gender,
@@ -100,10 +96,6 @@ class UserService:
                 if field == "phone":
                     value = self._normalize_phone(value)
                 setattr(user, field, value)
-
-        # 🔴 TELEGRAM REMOVIDO DO UPDATE
-        # if payload.telegram_id is not None:
-        #     user.telegram_id = payload.telegram_id
 
         if payload.password is not None:
             user.hashed_password = self._hash_password(payload.password)

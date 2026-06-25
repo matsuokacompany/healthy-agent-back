@@ -38,7 +38,6 @@ class ORMModel(BaseModel):
 class UserBase(BaseModel):
     name: str
     email: EmailStr
-    telegram_id: Optional[str] = None
     phone: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
@@ -55,7 +54,6 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
-    telegram_id: Optional[str] = None
     phone: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
