@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from enum import Enum
+from uuid import UUID
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field
@@ -71,7 +72,7 @@ class UserUpdate(BaseModel):
 
 class UserRead(UserBase, ORMModel):
     id: int
-    supabase_user_id: Optional[str] = None
+    supabase_user_id: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
     roles: List[RoleNameEnum] = Field(default_factory=list)
