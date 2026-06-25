@@ -30,6 +30,13 @@ class UrgenciaEnum(str, Enum):
     ALTA = "alta"
 
 
+class RoleNameEnum(str, Enum):
+    SUPER_ADMIN = "super_admin"
+    ADMIN = "admin"
+    PROFESSIONAL = "professional"
+    PATIENT = "patient"
+
+
 class ORMModel(BaseModel):
     class Config:
         from_attributes = True
@@ -38,7 +45,6 @@ class ORMModel(BaseModel):
 class UserBase(BaseModel):
     name: str
     email: EmailStr
-    telegram_id: Optional[str] = None
     phone: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
@@ -48,29 +54,31 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    password: Optional[str] = None
-    is_admin: Optional[bool] = False
+    supabase_user_id: Optional[str] = None
+    roles: List[RoleNameEnum] = Field(default_factory=lambda: [RoleNameEnum.PATIENT])
 
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
-    telegram_id: Optional[str] = None
     phone: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
     gender: Optional[str] = None
     birth_date: Optional[date] = None
     cpf: Optional[str] = None
-    password: Optional[str] = None
-    is_admin: Optional[bool] = None
 
 
 class UserRead(UserBase, ORMModel):
     id: int
+    supabase_user_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-    is_admin: bool
+    roles: List[RoleNameEnum] = Field(default_factory=list)
+
+
+class UserRoleUpdate(BaseModel):
+    roles: List[RoleNameEnum]
 
 
 class AnamneseBase(BaseModel):
@@ -234,7 +242,3 @@ class InsightClinicalResponse(BaseModel):
     exames_prioritarios: List[str]
     urgencia: UrgenciaEnum
     alerta_legal: str
-
-
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str
