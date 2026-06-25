@@ -4,6 +4,7 @@ import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.bot.channels.bot_manager import BotManager
 from app.bot.channels.whatsapp_channel import WhatsAppBotChannel
@@ -33,6 +34,20 @@ logger = logging.getLogger(__name__)
 
 ENV = os.getenv("ENV", "dev").lower()
 DEBUG = ENV == "dev"
+DEFAULT_CORS_ORIGINS = "http://localhost:3000"
+
+
+def parse_cors_origins(cors_origins: str) -> list[str]:
+    return [
+        origin.strip().strip("[]")
+        for origin in cors_origins.split(",")
+        if origin.strip().strip("[]")
+    ]
+
+
+CORS_ORIGINS = parse_cors_origins(
+    os.getenv("CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
+)
 
 
 # =========================================================
@@ -91,6 +106,14 @@ app = FastAPI(
 )
 
 API_PREFIX = "/api"
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # =========================================================

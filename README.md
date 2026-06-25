@@ -65,6 +65,7 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `DATABASE_URL` | sim | `postgresql+psycopg2://postgres:<PASSWORD>@db.<PROJECT_REF>.supabase.co:5432/postgres?sslmode=require` | URL do Supabase PostgreSQL. |
 | `SECRET_KEY` | sim | `change-me` | Segredo JWT. |
 | `OPENAI_API_KEY` | não | `sk-...` | Chave OpenAI para insights. |
+| `CORS_ORIGINS` | não | `http://localhost:3000,https://app.julha.com.br` | Origens permitidas no CORS, separadas por vírgula. Em desenvolvimento, o padrão é `http://localhost:3000`; em produção, configure `https://app.julha.com.br`. |
 | `WHATSAPP_VERIFY_TOKEN` | sim | `verify-token` | Token de verificação do webhook Meta. |
 | `WHATSAPP_PHONE_NUMBER_ID` | sim | `123456789` | Phone Number ID da Meta. |
 | `WHATSAPP_ACCESS_TOKEN` | sim | `EAA...` | Token WhatsApp Cloud API. |
