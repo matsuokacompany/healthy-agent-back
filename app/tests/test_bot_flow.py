@@ -1,5 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -68,3 +70,35 @@ def test_bot_service_negative_flow(monkeypatch):
 
     assert "Obrigado por informar" in response.text
     assert response.ask_followup is False
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_template_payload_matches_meta_header_and_body_variables():
+    from app.bot.channels.whatsapp_channel import WhatsAppBotChannel
+
+    captured_payload = {}
+
+    async def fake_post(payload):
+        captured_payload.update(payload)
+
+    channel = WhatsAppBotChannel()
+    channel._post = fake_post
+    user = User(name="Igor", email="igor@example.com", phone="5543999999999")
+
+    await channel.send_template(
+        user=user,
+        check_type=CheckTypeEnum.MORNING,
+        report_date=date(2026, 6, 18),
+    )
+
+    components = captured_payload["template"]["components"]
+    assert components == [
+        {
+            "type": "header",
+            "parameters": [{"type": "text", "text": "Igor"}],
+        },
+        {
+            "type": "body",
+            "parameters": [{"type": "text", "text": "quinta-feira - 18/06/2026"}],
+        },
+    ]
