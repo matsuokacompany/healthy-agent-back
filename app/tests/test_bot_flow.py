@@ -102,3 +102,19 @@ async def test_whatsapp_template_payload_matches_meta_header_and_body_variables(
             "parameters": [{"type": "text", "text": "quinta-feira - 18/06/2026"}],
         },
     ]
+
+
+def test_bot_service_matches_normalized_phone(monkeypatch):
+    db = build_session()
+    user, _ = create_pending_report(db, phone="5543935050108")
+    monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
+
+    service = BotService()
+    response = service.process_incoming(
+        channel="whatsapp",
+        external_user_id="+55 (43) 93505-0108",
+        message_text="Não tive sintomas",
+    )
+
+    assert "Obrigado por informar" in response.text
+    assert response.ask_followup is False

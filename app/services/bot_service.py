@@ -79,6 +79,12 @@ class BotService:
         finally:
             db.close()
 
+    @staticmethod
+    def _normalize_phone(phone: str | None) -> str | None:
+        if not phone:
+            return None
+        return "".join(ch for ch in phone if ch.isdigit())
+
     # =========================================================
     # TRADUÇÃO DE STATUS → UX
     # =========================================================
