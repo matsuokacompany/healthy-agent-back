@@ -52,7 +52,7 @@ class WhatsAppBotChannel(BaseBotChannel):
             return
 
         template_name = settings.WHATSAPP_DAILY_TEMPLATE_NAME
-        formatted_report_date = report_date.strftime("%d/%m/%Y") if report_date else ""
+        formatted_report_date = self._format_report_date(report_date)
 
         payload = {
             "messaging_product": "whatsapp",
@@ -65,12 +65,17 @@ class WhatsAppBotChannel(BaseBotChannel):
                 },
                 "components": [
                     {
-                        "type": "body",
+                        "type": "header",
                         "parameters": [
                             {
                                 "type": "text",
                                 "text": user.name or "Usuário"
-                            },
+                            }
+                        ]
+                    },
+                    {
+                        "type": "body",
+                        "parameters": [
                             {
                                 "type": "text",
                                 "text": formatted_report_date
@@ -82,6 +87,23 @@ class WhatsAppBotChannel(BaseBotChannel):
         }
 
         await self._post(payload)
+
+    @staticmethod
+    def _format_report_date(report_date: date | None) -> str:
+        if not report_date:
+            return ""
+
+        weekdays = [
+            "segunda-feira",
+            "terça-feira",
+            "quarta-feira",
+            "quinta-feira",
+            "sexta-feira",
+            "sábado",
+            "domingo",
+        ]
+        weekday = weekdays[report_date.weekday()]
+        return f"{weekday} - {report_date.strftime('%d/%m/%Y')}"
 
     # =========================================================
     # HTTP CORE
