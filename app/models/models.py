@@ -47,6 +47,7 @@ class User(Base):
     cpf = Column(String, unique=True, nullable=True)
     hashed_password = Column(String, nullable=True)
     is_admin = Column(Boolean, default=False)
+    role = Column(String, nullable=False, default="patient", server_default="patient")
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),

@@ -1,6 +1,4 @@
 from datetime import datetime, timedelta, timezone
-from typing import Optional
-
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
@@ -10,6 +8,13 @@ import secrets
 
 from app.core.dependencies import get_db
 from app.models.models import User
+from app.core.access_control import (
+    AccessContext,
+    AuthenticatedContext,
+    assert_can_access_context,
+    get_default_context,
+    get_user_role,
+)
 from app.core.config import settings
 
 SECRET_KEY = settings.SECRET_KEY
@@ -33,13 +38,16 @@ oauth2_scheme_optional = OAuth2PasswordBearer(
 #                   TOKENS
 # ==================================================
 
-def create_access_token(user_id: int) -> str:
+def create_access_token(user_id: int, active_context: AccessContext | None = None) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
     payload = {
         "sub": str(user_id),
         "exp": int(expire.timestamp()),
     }
+
+    if active_context is not None:
+        payload["active_context"] = active_context.value
 
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -86,6 +94,57 @@ def get_current_user(
     return user
 
 
+def _get_active_context_from_token(token: str) -> AccessContext | None:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        return None
+
+    raw_context = payload.get("active_context")
+    if not raw_context:
+        return None
+
+    try:
+        return AccessContext(raw_context)
+    except ValueError:
+        return None
+
+
+def get_current_auth_context(
+    token: str = Depends(oauth2_scheme),
+    current_user: User = Depends(get_current_user),
+) -> AuthenticatedContext:
+    role = get_user_role(current_user)
+    active_context = _get_active_context_from_token(token) or get_default_context(role)
+
+    return AuthenticatedContext(
+        user=current_user,
+        role=role,
+        active_context=active_context,
+    )
+
+
+def require_patient_context(
+    auth_context: AuthenticatedContext = Depends(get_current_auth_context),
+) -> AuthenticatedContext:
+    assert_can_access_context(auth_context, AccessContext.PATIENT)
+    return auth_context
+
+
+def require_professional_context(
+    auth_context: AuthenticatedContext = Depends(get_current_auth_context),
+) -> AuthenticatedContext:
+    assert_can_access_context(auth_context, AccessContext.PROFESSIONAL)
+    return auth_context
+
+
+def require_admin_context(
+    auth_context: AuthenticatedContext = Depends(get_current_auth_context),
+) -> AuthenticatedContext:
+    assert_can_access_context(auth_context, AccessContext.ADMIN)
+    return auth_context
+
+
 def get_current_user_optional(
     token: str | None = Depends(oauth2_scheme_optional),
     db: Session = Depends(get_db),
@@ -105,11 +164,6 @@ def get_current_user_optional(
     return db.query(User).filter(User.id == user_id).first()
 
 def get_current_admin(
-    current_user: User = Depends(get_current_user),
+    auth_context: AuthenticatedContext = Depends(require_admin_context),
 ) -> User:
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required"
-        )
-    return current_user
+    return auth_context.user

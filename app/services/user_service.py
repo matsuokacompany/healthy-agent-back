@@ -1,8 +1,9 @@
 from sqlalchemy.orm import Session
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from passlib.context import CryptContext
 from app.models.models import User
 from app.models.schemas import UserCreate, UserUpdate
+from app.core.access_control import UserRole, get_user_role
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -31,6 +32,8 @@ class UserService:
         if data.password:
             hashed_pw = self._hash_password(data.password)
 
+        role = data.role or (UserRole.PROFESSIONAL.value if data.is_admin else UserRole.PATIENT.value)
+
         new_user = User(
             name=data.name,
             email=data.email,
@@ -42,7 +45,8 @@ class UserService:
             birth_date=data.birth_date,
             cpf=data.cpf,
             hashed_password=hashed_pw,
-            is_admin=False
+            is_admin=role in {UserRole.PROFESSIONAL.value, UserRole.SUPER_ADMIN.value},
+            role=role
         )
 
         self.db.add(new_user)
@@ -64,15 +68,24 @@ class UserService:
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Regra: só super admin pode mudar is_admin
+        # Regra: só super admin pode mudar permissões administrativas/role
+        current_role = get_user_role(current_user)
         if payload.is_admin is not None:
-            is_super_admin = (current_user.id == 1 and current_user.email == "matsuokacompany@gmail.com")
-            if not is_super_admin:
+            if current_role != UserRole.SUPER_ADMIN:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Only super admin can change admin permissions"
                 )
             user.is_admin = payload.is_admin
+
+        if payload.role is not None:
+            if current_role != UserRole.SUPER_ADMIN:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only super admin can change user roles"
+                )
+            user.role = payload.role
+            user.is_admin = payload.role in {UserRole.PROFESSIONAL.value, UserRole.SUPER_ADMIN.value}
 
         # Atualiza campos normais
         if payload.name is not None:

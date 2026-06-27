@@ -8,6 +8,7 @@ from app.services.user_service import UserService
 from app.core.dependencies import get_db
 from app.core.auth import get_current_user, get_current_admin, get_current_user_optional
 from app.models.models import User, TelegramLinkCode
+from app.core.access_control import UserRole, get_user_role
 
 router = APIRouter(tags=["Users"])
 
@@ -26,8 +27,9 @@ def create_user(
     - Só super admin pode criar admin
     """
 
-    # se tentar criar admin...
-    if user.is_admin:
+    # se tentar criar usuário administrativo/profissional/super admin...
+    creates_privileged_user = user.is_admin or user.role in {UserRole.PROFESSIONAL.value, UserRole.SUPER_ADMIN.value}
+    if creates_privileged_user:
         # precisa estar logado
         if not current_user:
             raise HTTPException(
@@ -36,10 +38,10 @@ def create_user(
             )
 
         # e precisa ser super admin
-        if not (current_user.id == 1 and current_user.email == "matsuokacompany@gmail.com"):
+        if get_user_role(current_user) != UserRole.SUPER_ADMIN:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only super admin can create admin users"
+                detail="Only super admin can create privileged users"
             )
 
     service = UserService(db)

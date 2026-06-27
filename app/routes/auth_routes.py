@@ -1,24 +1,60 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from fastapi.security import OAuth2PasswordRequestForm
 
-from app.core.dependencies import get_db
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session
+
+from app.core.access_control import (
+    AccessContext,
+    AuthenticatedContext,
+    UserRole,
+    assert_super_admin,
+    get_context_label,
+    get_context_redirect,
+    get_default_context,
+    get_login_redirect,
+    get_user_role,
+)
 from app.core.auth import (
-    verify_password,
     create_access_token,
     create_refresh_token,
+    get_current_auth_context,
+    get_current_user,
+    verify_password,
 )
-from app.models.models import User, RefreshToken
-from app.models.schemas import RefreshTokenRequest
+from app.core.dependencies import get_db
+from app.models.models import RefreshToken, User
+from app.models.schemas import (
+    AuthLoginResponse,
+    AuthUserPayload,
+    ChooseContextRequest,
+    ChooseContextResponse,
+    RefreshTokenRequest,
+)
 
 router = APIRouter(tags=["Auth"])
+
+
+def _build_auth_user_payload(
+    user: User,
+    role: UserRole,
+    active_context: AccessContext | None,
+) -> AuthUserPayload:
+    return AuthUserPayload(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        role=role.value,
+        active_context=active_context.value if active_context else None,
+        active_context_label=get_context_label(active_context),
+    )
+
 
 # =========================
 # LOGIN
 # =========================
 
-@router.post("/login")
+@router.post("/login", response_model=AuthLoginResponse)
 def login(
     form: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
@@ -31,7 +67,9 @@ def login(
     if not verify_password(form.password, user.hashed_password):
         raise HTTPException(401, "Invalid email or password")
 
-    access_token = create_access_token(user.id)
+    role = get_user_role(user)
+    active_context = get_default_context(role)
+    access_token = create_access_token(user.id, active_context=active_context)
     refresh_token, expires_at = create_refresh_token()
 
     db.add(
@@ -43,11 +81,72 @@ def login(
     )
     db.commit()
 
+    return AuthLoginResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
+        redirect_to=get_login_redirect(role),
+        user=_build_auth_user_payload(user, role, active_context),
+    )
+
+
+@router.get("/me", response_model=AuthUserPayload)
+def get_me(
+    auth_context: AuthenticatedContext = Depends(get_current_auth_context),
+):
+    return _build_auth_user_payload(
+        auth_context.user,
+        auth_context.role,
+        auth_context.active_context,
+    )
+
+
+@router.get("/contexts")
+def list_available_contexts(
+    current_user: User = Depends(get_current_user),
+):
+    assert_super_admin(current_user)
+
     return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
+        "message": "Escolha como deseja acessar a plataforma.",
+        "contexts": [
+            {
+                "context": AccessContext.ADMIN.value,
+                "label": get_context_label(AccessContext.ADMIN),
+                "redirect_to": get_context_redirect(AccessContext.ADMIN),
+            },
+            {
+                "context": AccessContext.PROFESSIONAL.value,
+                "label": get_context_label(AccessContext.PROFESSIONAL),
+                "redirect_to": get_context_redirect(AccessContext.PROFESSIONAL),
+            },
+            {
+                "context": AccessContext.PATIENT.value,
+                "label": get_context_label(AccessContext.PATIENT),
+                "redirect_to": get_context_redirect(AccessContext.PATIENT),
+            },
+        ],
     }
+
+
+@router.post("/context", response_model=ChooseContextResponse)
+def choose_context(
+    data: ChooseContextRequest,
+    current_user: User = Depends(get_current_user),
+):
+    assert_super_admin(current_user)
+
+    active_context = AccessContext(data.context)
+    access_token = create_access_token(current_user.id, active_context=active_context)
+    role = UserRole.SUPER_ADMIN
+
+    return ChooseContextResponse(
+        access_token=access_token,
+        token_type="bearer",
+        redirect_to=get_context_redirect(active_context),
+        user=_build_auth_user_payload(current_user, role, active_context),
+    )
+
 
 # =========================
 # REFRESH
@@ -71,11 +170,15 @@ def refresh_access_token(
     if not db_token:
         raise HTTPException(401, "Invalid refresh token")
 
-    # 🔐 revoga o antigo
     db_token.revoked = True
 
-    # 🔁 cria novos tokens
-    new_access_token = create_access_token(db_token.user_id)
+    user = db.query(User).filter(User.id == db_token.user_id).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    role = get_user_role(user)
+    active_context = get_default_context(role)
+    new_access_token = create_access_token(db_token.user_id, active_context=active_context)
     new_refresh_token, expires_at = create_refresh_token()
 
     db.add(
@@ -92,7 +195,10 @@ def refresh_access_token(
         "access_token": new_access_token,
         "refresh_token": new_refresh_token,
         "token_type": "bearer",
+        "redirect_to": get_login_redirect(role),
+        "user": _build_auth_user_payload(user, role, active_context),
     }
+
 
 # =========================
 # LOGOUT

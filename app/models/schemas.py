@@ -43,6 +43,7 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: Optional[str] = None
     is_admin: Optional[bool] = False
+    role: Optional[Literal["patient", "professional", "super_admin"]] = None
 
 
 class UserUpdate(BaseModel):
@@ -57,6 +58,7 @@ class UserUpdate(BaseModel):
     cpf: Optional[str] = None
     password: Optional[str] = None
     is_admin: Optional[bool] = None
+    role: Optional[Literal["patient", "professional", "super_admin"]] = None
 
 
 class UserRead(UserBase):
@@ -64,10 +66,39 @@ class UserRead(UserBase):
     created_at: datetime
     updated_at: datetime
     is_admin: bool
+    role: Literal["patient", "professional", "super_admin"]
 
     class Config:
         from_attributes = True
 
+
+
+class AuthUserPayload(BaseModel):
+    id: int
+    name: str
+    email: EmailStr
+    role: Literal["patient", "professional", "super_admin"]
+    active_context: Optional[Literal["admin", "professional", "patient"]] = None
+    active_context_label: Optional[str] = None
+
+
+class AuthLoginResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    redirect_to: str
+    user: AuthUserPayload
+
+
+class ChooseContextRequest(BaseModel):
+    context: Literal["admin", "professional", "patient"]
+
+
+class ChooseContextResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    redirect_to: str
+    user: AuthUserPayload
 
 # ============================================================
 # ANAMNESE SCHEMAS
