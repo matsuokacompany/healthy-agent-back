@@ -5,11 +5,15 @@ Usage:
 """
 
 import argparse
+import logging
+import traceback
 import uuid
 
 from app.core.auth import assign_role
 from app.db.session import SessionLocal
 from app.models.models import RoleNameEnum, User
+
+logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,9 +47,24 @@ def main() -> None:
             db.flush()
             action = "created"
         else:
+            next_name = user.name or args.name
+            if (
+                user.supabase_user_id != supabase_user_id
+                or user.email != args.email
+                or user.name != next_name
+                or not user.is_admin
+            ):
+                logger.warning(
+                    "Updating public.users user_id=%s previous_name=%r new_name=%r origin=%s stack=%s",
+                    user.id,
+                    user.name,
+                    next_name,
+                    "create_super_admin.main",
+                    "".join(traceback.format_stack(limit=8)),
+                )
             user.supabase_user_id = supabase_user_id
             user.email = args.email
-            user.name = user.name or args.name
+            user.name = next_name
             user.is_admin = True
             action = "promoted"
 

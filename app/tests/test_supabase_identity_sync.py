@@ -50,6 +50,44 @@ def test_sync_updates_email_from_supabase_without_changing_identity_link():
     assert user.email == "new@example.com"
 
 
+def test_sync_does_not_replace_name_when_supabase_metadata_is_missing():
+    db = build_session()
+    user = create_user(db, name="Igor", email="igor@email.com")
+
+    _sync_supabase_profile(
+        db,
+        user,
+        {
+            "sub": str(user.supabase_user_id),
+            "email": user.email,
+            "user_metadata": {},
+        },
+    )
+    db.commit()
+    db.refresh(user)
+
+    assert user.name == "Igor"
+
+
+def test_sync_does_not_replace_name_with_email_from_supabase_metadata():
+    db = build_session()
+    user = create_user(db, name="Igor", email="igor@email.com")
+
+    _sync_supabase_profile(
+        db,
+        user,
+        {
+            "sub": str(user.supabase_user_id),
+            "email": user.email,
+            "user_metadata": {"name": user.email},
+        },
+    )
+    db.commit()
+    db.refresh(user)
+
+    assert user.name == "Igor"
+
+
 def test_sync_updates_name_from_supabase_metadata():
     db = build_session()
     user = create_user(db, name="Old Name")
