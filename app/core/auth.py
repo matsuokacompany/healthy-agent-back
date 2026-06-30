@@ -138,10 +138,6 @@ def _metadata_name(payload: dict[str, Any]) -> str | None:
     return name or None
 
 
-def _default_name(payload: dict[str, Any]) -> str:
-    return _metadata_name(payload) or "Supabase user"
-
-
 def _log_user_update(user: User, *, previous_name: str | None, new_name: str | None, origin: str) -> None:
     logger.warning(
         "Updating public.users user_id=%s previous_name=%r new_name=%r origin=%s stack=%s",
@@ -207,18 +203,13 @@ def get_current_user(
             )
             user.supabase_user_id = supabase_user_id
 
-    if user:
-        _sync_supabase_profile(db, user, payload)
-
     if not user:
-        user = User(
-            supabase_user_id=supabase_user_id,
-            email=email or f"{supabase_user_id}@supabase.local",
-            name=_default_name(payload),
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User is not provisioned for this application",
         )
-        db.add(user)
-        db.flush()
-        assign_role(db, user, RoleNameEnum.PATIENT)
+
+    _sync_supabase_profile(db, user, payload)
 
     db.commit()
     db.refresh(user)

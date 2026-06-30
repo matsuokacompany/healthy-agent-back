@@ -40,7 +40,7 @@ class DailyReportService:
                 expires_at=now + timedelta(hours=cls.RESPONSE_WINDOW_HOURS),
             )
             db.add(report)
-        elif report.completed or report.status == DailyReportStatusEnum.COMPLETED:
+        elif report.status != DailyReportStatusEnum.EXPIRED:
             return report
 
         report.user_id = user.id

@@ -10,6 +10,7 @@ from app.models.models import (
     RoleNameEnum,
     User,
     UserRole,
+    WhatsAppMessage,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "Role",
     "RoleNameEnum",
     "UserRole",
+    "WhatsAppMessage",
 ]

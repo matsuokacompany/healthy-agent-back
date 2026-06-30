@@ -145,3 +145,57 @@ def test_sync_blocks_email_conflict_with_another_local_user():
         )
 
     assert exc.value.status_code == 409
+
+
+def test_get_current_user_links_pre_registered_user_by_email(monkeypatch):
+    from app.core import auth
+
+    db = build_session()
+    supabase_user_id = uuid.uuid4()
+    user = User(name="Invited User", email="invited@example.com")
+    db.add(user)
+    db.commit()
+
+    monkeypatch.setattr(
+        auth,
+        "_decode_supabase_token",
+        lambda token: {
+            "sub": str(supabase_user_id),
+            "email": "invited@example.com",
+            "user_metadata": {},
+        },
+    )
+
+    current_user = auth.get_current_user(
+        credentials=type("Credentials", (), {"credentials": "valid-token"})(),
+        db=db,
+    )
+
+    assert current_user.id == user.id
+    assert current_user.supabase_user_id == supabase_user_id
+    assert db.query(User).count() == 1
+
+
+def test_get_current_user_rejects_unprovisioned_supabase_identity(monkeypatch):
+    from app.core import auth
+
+    db = build_session()
+    supabase_user_id = uuid.uuid4()
+    monkeypatch.setattr(
+        auth,
+        "_decode_supabase_token",
+        lambda token: {
+            "sub": str(supabase_user_id),
+            "email": "unknown@example.com",
+            "user_metadata": {"name": "Unknown"},
+        },
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        auth.get_current_user(
+            credentials=type("Credentials", (), {"credentials": "valid-token"})(),
+            db=db,
+        )
+
+    assert exc.value.status_code == 403
+    assert db.query(User).count() == 0

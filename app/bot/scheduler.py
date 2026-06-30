@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 
 from app.core.config import settings
 from app.db.session import SessionLocal
@@ -14,6 +14,46 @@ from app.services.daily_report_service import DailyReportService
 logger = logging.getLogger(__name__)
 
 _scheduler: AsyncIOScheduler | None = None
+SCHEDULER_ADVISORY_LOCK_ID = 2026063001
+
+
+def _mask_identifier(value: str | None) -> str | None:
+    if not value:
+        return None
+    digits = "".join(ch for ch in value if ch.isdigit())
+    if len(digits) <= 4:
+        return "*" * len(digits)
+    return f"***{digits[-4:]}"
+
+
+def _is_postgresql_session(db) -> bool:
+    return db.get_bind().dialect.name == "postgresql"
+
+
+def _try_acquire_scheduler_lock(db, lock_id: int = SCHEDULER_ADVISORY_LOCK_ID) -> bool:
+    if not _is_postgresql_session(db):
+        logger.warning(
+            "Scheduler advisory lock skipped because database dialect is not PostgreSQL | dialect=%s",
+            db.get_bind().dialect.name,
+        )
+        return True
+
+    return bool(
+        db.execute(
+            text("SELECT pg_try_advisory_lock(:lock_id)"),
+            {"lock_id": lock_id},
+        ).scalar()
+    )
+
+
+def _release_scheduler_lock(db, lock_id: int = SCHEDULER_ADVISORY_LOCK_ID) -> None:
+    if not _is_postgresql_session(db):
+        return
+
+    db.execute(
+        text("SELECT pg_advisory_unlock(:lock_id)"),
+        {"lock_id": lock_id},
+    )
 
 
 async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
@@ -23,8 +63,14 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
     plans_processed = 0
     plans_skipped = 0
     plans_failed = 0
+    lock_acquired = False
 
     try:
+        lock_acquired = _try_acquire_scheduler_lock(db)
+        if not lock_acquired:
+            logger.info("SEND_PROMPT SKIPPED | type=%s reason=advisory_lock_busy", check_type.value)
+            return
+
         tz = ZoneInfo(settings.SCHEDULER_TIMEZONE)
         now = datetime.now(tz)
         today = now.date()
@@ -65,11 +111,20 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
                 db.commit()
                 db.refresh(report)
 
-                await channel.send_template(
+                wa_id = await channel.send_template(
                     user=user,
                     check_type=check_type,
                     report_date=report.report_date,
                 )
+
+                if wa_id and user.whatsapp_wa_id != wa_id:
+                    user.whatsapp_wa_id = wa_id
+                    db.commit()
+                    logger.info(
+                        "WhatsApp wa_id stored from send_template response | user_id=%s wa_id=%s",
+                        user.id,
+                        _mask_identifier(wa_id),
+                    )
 
                 plans_processed += 1
 
@@ -83,6 +138,11 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
         logger.exception("FATAL ERROR send_prompt")
 
     finally:
+        if lock_acquired:
+            try:
+                _release_scheduler_lock(db)
+            except Exception:
+                logger.exception("Failed to release scheduler advisory lock")
         db.close()
 
     logger.info(
