@@ -85,6 +85,14 @@ class BotService:
                 message_id,
             )
 
+            logger.info(
+                "WhatsApp user linked | user_id=%s external_user_id=%s normalized_user_id=%s stored_phone=%s",
+                user.id,
+                self._mask_phone(external_user_id),
+                self._mask_phone(normalized_user_id),
+                self._mask_phone(user.phone),
+            )
+
             status = self.daily_report_service.process_response(
                 db,
                 user,
