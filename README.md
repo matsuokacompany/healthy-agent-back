@@ -74,6 +74,7 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `WHATSAPP_PHONE_NUMBER_ID` | sim | `123456789` | Phone Number ID da Meta. |
 | `WHATSAPP_ACCESS_TOKEN` | sim | `EAA...` | Token WhatsApp Cloud API. |
 | `WHATSAPP_DAILY_TEMPLATE_NAME` | sim | `daily_symptom_checkin` | Template de check-in aprovado na Meta. |
+| `APP_SECRET` | sim | `abc123...` | App Secret da Meta usado para validar `X-Hub-Signature-256` nos webhooks do WhatsApp. |
 | `SCHEDULER_TIMEZONE` | não | `America/Sao_Paulo` | Timezone dos jobs. |
 | `SCHEDULER_MORNING_HOUR` | não | `8` | Hora do check-in diário da manhã. |
 | `SCHEDULER_MORNING_MINUTE` | não | `0` | Minuto do check-in diário da manhã. |
