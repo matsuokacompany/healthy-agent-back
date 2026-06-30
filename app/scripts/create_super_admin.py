@@ -10,6 +10,7 @@ import traceback
 import uuid
 
 from app.core.auth import assign_role
+from app.core.user_identity import is_email_like, validate_user_name
 from app.db.session import SessionLocal
 from app.models.models import RoleNameEnum, User
 
@@ -26,6 +27,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    try:
+        requested_name = validate_user_name(args.name)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
     supabase_user_id = uuid.UUID(args.supabase_user_id)
 
     db = SessionLocal()
@@ -40,14 +45,14 @@ def main() -> None:
             user = User(
                 supabase_user_id=supabase_user_id,
                 email=args.email,
-                name=args.name,
+                name=requested_name,
                 is_admin=True,
             )
             db.add(user)
             db.flush()
             action = "created"
         else:
-            next_name = user.name or args.name
+            next_name = user.name if user.name and not is_email_like(user.name) else requested_name
             if (
                 user.supabase_user_id != supabase_user_id
                 or user.email != args.email

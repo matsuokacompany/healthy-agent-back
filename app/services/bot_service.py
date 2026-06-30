@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from typing import Literal
 
@@ -21,6 +21,8 @@ class BotResponse:
 
 
 class BotService:
+    PROCESSING_TIMEOUT_MINUTES = 30
+
     """
     Camada de orquestração leve:
     - resolve usuário
@@ -46,20 +48,18 @@ class BotService:
         if not message_text:
             return BotResponse(text="")
 
+        normalized_user_id = self._normalize_wa_id(external_user_id)
+        if not self._reserve_message(
+            message_id=message_id,
+            channel=channel,
+            external_user_id=external_user_id,
+            normalized_user_id=normalized_user_id,
+        ):
+            return BotResponse(text="", duplicate=True)
+
         db = SessionLocal()
 
         try:
-            normalized_user_id = self._normalize_wa_id(external_user_id)
-            webhook_message = self._reserve_message(
-                db,
-                message_id=message_id,
-                channel=channel,
-                external_user_id=external_user_id,
-                normalized_user_id=normalized_user_id,
-            )
-            if webhook_message is None:
-                return BotResponse(text="", duplicate=True)
-
             user = self._find_user_by_whatsapp_identity(db, external_user_id, normalized_user_id)
 
             if not user:
@@ -72,10 +72,9 @@ class BotService:
                 response = BotResponse(
                     text="Conta não vinculada. Acesse o sistema para ativar seu acesso."
                 )
-                self._mark_message_processed(db, webhook_message, response)
+                self._mark_message_finished(message_id=message_id, response=response, user_id=None, status="PROCESSED")
                 return response
 
-            webhook_message.user_id = user.id
             logger.info(
                 "WhatsApp user linked | user_id=%s wa_id=%s stored_wa_id=%s stored_phone=%s message_id=%s",
                 user.id,
@@ -92,22 +91,26 @@ class BotService:
             )
 
             response = self._translate(status)
-            self._mark_message_processed(db, webhook_message, response)
+            self._mark_message_finished(message_id=message_id, response=response, user_id=user.id, status="PROCESSED")
             return response
 
         except SQLAlchemyError:
             db.rollback()
             logger.exception("DB error no BotService")
-            return BotResponse(
+            response = BotResponse(
                 text="Não consegui processar sua resposta agora. Tente novamente."
             )
+            self._mark_message_finished(message_id=message_id, response=response, user_id=None, status="FAILED")
+            return response
 
         except Exception:
             db.rollback()
             logger.exception("Erro inesperado no BotService")
-            return BotResponse(
+            response = BotResponse(
                 text="Erro ao processar mensagem. Tente novamente."
             )
+            self._mark_message_finished(message_id=message_id, response=response, user_id=None, status="FAILED")
+            return response
 
         finally:
             db.close()
@@ -116,43 +119,87 @@ class BotService:
     @classmethod
     def _reserve_message(
         cls,
-        db,
         *,
         message_id: str,
         channel: str,
         external_user_id: str,
         normalized_user_id: str | None,
-    ) -> WhatsAppMessage | None:
+    ) -> bool:
         if not message_id:
             raise ValueError("WhatsApp message missing id")
 
-        existing = db.query(WhatsAppMessage).filter(WhatsAppMessage.message_id == message_id).first()
-        if existing:
-            logger.info("Duplicate WhatsApp message ignored | message_id=%s", message_id)
-            return None
+        cls._recover_stale_processing_messages()
 
-        webhook_message = WhatsAppMessage(
-            message_id=message_id,
-            channel=channel,
-            external_user_id=external_user_id,
-            normalized_user_id=normalized_user_id,
-            status="PROCESSING",
-        )
-        db.add(webhook_message)
+        db = SessionLocal()
         try:
-            db.flush()
+            existing = db.query(WhatsAppMessage).filter(WhatsAppMessage.message_id == message_id).first()
+            if existing:
+                logger.info(
+                    "Duplicate WhatsApp message ignored | message_id=%s status=%s",
+                    message_id,
+                    existing.status,
+                )
+                return False
+
+            webhook_message = WhatsAppMessage(
+                message_id=message_id,
+                channel=channel,
+                external_user_id=external_user_id,
+                normalized_user_id=normalized_user_id,
+                status="PROCESSING",
+            )
+            db.add(webhook_message)
+            db.commit()
+            return True
         except IntegrityError:
             db.rollback()
             logger.info("Duplicate WhatsApp message ignored after unique constraint | message_id=%s", message_id)
-            return None
-        return webhook_message
+            return False
+        finally:
+            db.close()
+
+    @classmethod
+    def _recover_stale_processing_messages(cls) -> None:
+        db = SessionLocal()
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=cls.PROCESSING_TIMEOUT_MINUTES)
+            stale_messages = (
+                db.query(WhatsAppMessage)
+                .filter(WhatsAppMessage.status == "PROCESSING")
+                .filter(WhatsAppMessage.created_at < cutoff)
+                .all()
+            )
+            for message in stale_messages:
+                message.status = "FAILED"
+                message.response_text = "Processing timed out before completion"
+                message.processed_at = datetime.now(timezone.utc)
+            if stale_messages:
+                db.commit()
+        except SQLAlchemyError:
+            db.rollback()
+            logger.exception("Failed to recover stale WhatsApp messages")
+        finally:
+            db.close()
 
     @staticmethod
-    def _mark_message_processed(db, webhook_message: WhatsAppMessage, response: BotResponse) -> None:
-        webhook_message.status = "PROCESSED"
-        webhook_message.response_text = response.text
-        webhook_message.processed_at = datetime.now(timezone.utc)
-        db.commit()
+    def _mark_message_finished(*, message_id: str, response: BotResponse, user_id: int | None, status: str) -> None:
+        db = SessionLocal()
+        try:
+            webhook_message = db.query(WhatsAppMessage).filter(WhatsAppMessage.message_id == message_id).first()
+            if not webhook_message:
+                logger.error("WhatsApp idempotency record missing while marking finished | message_id=%s", message_id)
+                return
+            if user_id is not None:
+                webhook_message.user_id = user_id
+            webhook_message.status = status
+            webhook_message.response_text = response.text
+            webhook_message.processed_at = datetime.now(timezone.utc)
+            db.commit()
+        except SQLAlchemyError:
+            db.rollback()
+            logger.exception("Failed to mark WhatsApp message as %s | message_id=%s", status, message_id)
+        finally:
+            db.close()
 
     @classmethod
     def _find_user_by_whatsapp_identity(

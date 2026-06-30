@@ -137,9 +137,6 @@ def test_bot_service_matches_normalized_phone(monkeypatch):
         message_id="msg-normalized-1",
     )
 
-    db.refresh(user)
-    assert user.phone == "5543991266196"
-    assert user.whatsapp_wa_id == "554391266196"
     assert "Obrigado por informar" in response.text
     assert response.ask_followup is False
 
@@ -197,6 +194,9 @@ def test_bot_service_uses_persisted_whatsapp_wa_id_as_primary_identity(monkeypat
         message_id="msg-primary-wa-id-1",
     )
 
+    db.refresh(user)
+    assert user.phone == "5543991266196"
+    assert user.whatsapp_wa_id == "554391266196"
     assert "Obrigado por informar" in response.text
     assert response.ask_followup is False
 
@@ -356,3 +356,57 @@ def test_wa_id_link_conflict_uses_savepoint_without_global_rollback():
     assert user is None
     assert db.expired is True
     assert db.rolled_back is False
+
+
+def test_bot_service_marks_message_failed_when_clinical_processing_errors(monkeypatch):
+    db = build_session()
+    user, _ = create_pending_report(db, phone="5543991266196")
+    monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
+
+    class FailingDailyReportService:
+        def process_response(self, db, user, message_text):
+            from sqlalchemy.exc import SQLAlchemyError
+            raise SQLAlchemyError("boom")
+
+    service = BotService(daily_report_service=FailingDailyReportService())
+    response = service.process_incoming(
+        channel="whatsapp",
+        external_user_id=user.phone,
+        message_text="Não tive sintomas",
+        message_id="wamid.failed-processing",
+    )
+
+    message = db.query(WhatsAppMessage).filter(WhatsAppMessage.message_id == "wamid.failed-processing").first()
+    assert "Não consegui processar" in response.text
+    assert message is not None
+    assert message.status == "FAILED"
+    assert message.response_text == response.text
+
+
+def test_bot_service_recovers_stale_processing_messages(monkeypatch):
+    db = build_session()
+    stale_created_at = datetime.now(timezone.utc) - timedelta(minutes=BotService.PROCESSING_TIMEOUT_MINUTES + 1)
+    message = WhatsAppMessage(
+        message_id="wamid.stale-processing",
+        channel="whatsapp",
+        external_user_id="5543991266196",
+        normalized_user_id="5543991266196",
+        status="PROCESSING",
+        created_at=stale_created_at,
+    )
+    db.add(message)
+    db.commit()
+    monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
+
+    reserved = BotService._reserve_message(
+        message_id="wamid.stale-processing",
+        channel="whatsapp",
+        external_user_id="5543991266196",
+        normalized_user_id="5543991266196",
+    )
+
+    db.refresh(message)
+    assert reserved is False
+    assert message.status == "FAILED"
+    assert message.response_text == "Processing timed out before completion"
+    assert message.processed_at is not None

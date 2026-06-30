@@ -3,7 +3,9 @@ from enum import Enum
 from uuid import UUID
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from app.core.user_identity import validate_user_name
 
 
 class CheckTypeEnum(str, Enum):
@@ -58,10 +60,23 @@ class UserCreate(UserBase):
     supabase_user_id: Optional[str] = None
     roles: List[RoleNameEnum] = Field(default_factory=lambda: [RoleNameEnum.PATIENT])
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return validate_user_name(value)
+
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        return validate_user_name(value)
+
     phone: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None

@@ -257,3 +257,12 @@ def test_sync_still_updates_name_with_valid_non_email_metadata():
     db.refresh(user)
 
     assert user.name == "Maria Silva"
+
+
+def test_shared_name_validator_rejects_email_like_values():
+    from app.core.user_identity import validate_user_name
+
+    with pytest.raises(ValueError):
+        validate_user_name("user@example.com")
+
+    assert validate_user_name("  Nome Válido  ") == "Nome Válido"
