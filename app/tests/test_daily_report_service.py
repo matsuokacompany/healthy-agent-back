@@ -8,6 +8,12 @@ from app.models.models import CheckTypeEnum, DailyReport, DailyReportStatusEnum,
 from app.services.daily_report_service import DailyReportService
 
 
+def as_utc(value):
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
 def build_session():
     engine = create_engine("sqlite:///:memory:")
     TestingSessionLocal = sessionmaker(bind=engine)
@@ -134,3 +140,79 @@ def test_create_pending_report_accepts_explicit_report_date():
     db.commit()
 
     assert report.report_date == yesterday
+
+
+def test_create_pending_report_does_not_reset_pending_report_in_progress():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    report.had_symptoms = True
+    report.symptom_description = "Dor de cabeça"
+    report.status = DailyReportStatusEnum.AWAITING_CAUSE
+    report.awaiting_response = False
+    report.awaiting_cause = True
+    original_prompt_sent_at = report.prompt_sent_at
+    db.commit()
+
+    reused = DailyReportService.create_pending_report(
+        db,
+        user=user,
+        monitoring_plan=plan,
+        check_type=CheckTypeEnum.MORNING,
+        now=original_prompt_sent_at + timedelta(hours=2),
+    )
+    db.commit()
+    db.refresh(report)
+
+    assert reused.id == report.id
+    assert report.had_symptoms is True
+    assert report.symptom_description == "Dor de cabeça"
+    assert report.status == DailyReportStatusEnum.AWAITING_CAUSE
+    assert report.awaiting_response is False
+    assert report.awaiting_cause is True
+    assert as_utc(report.prompt_sent_at) == as_utc(original_prompt_sent_at)
+
+
+def test_create_pending_report_reopens_expired_report():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    expired_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    report = DailyReport(
+        user_id=user.id,
+        monitoring_plan_id=plan.id,
+        report_date=date.today(),
+        check_type=CheckTypeEnum.MORNING,
+        status=DailyReportStatusEnum.EXPIRED,
+        completed=False,
+        awaiting_response=False,
+        awaiting_cause=False,
+        had_symptoms=True,
+        symptom_description="Dor antiga",
+        suspected_cause="Causa antiga",
+        prompt_sent_at=expired_at - timedelta(hours=24),
+        expires_at=expired_at,
+    )
+    db.add(report)
+    db.commit()
+
+    now = datetime.now(timezone.utc)
+    reopened = DailyReportService.create_pending_report(
+        db,
+        user=user,
+        monitoring_plan=plan,
+        check_type=CheckTypeEnum.MORNING,
+        now=now,
+    )
+    db.commit()
+    db.refresh(report)
+
+    assert reopened.id == report.id
+    assert report.status == DailyReportStatusEnum.PENDING
+    assert report.completed is False
+    assert report.awaiting_response is True
+    assert report.awaiting_cause is False
+    assert report.had_symptoms is None
+    assert report.symptom_description is None
+    assert report.suspected_cause is None
+    assert as_utc(report.prompt_sent_at) == now
+    assert as_utc(report.expires_at) == now + timedelta(hours=DailyReportService.RESPONSE_WINDOW_HOURS)

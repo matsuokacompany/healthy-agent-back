@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.models.models import Anamnese, User
 from app.models.schemas import AnamneseCreate, AnamneseRead, AnamneseUpdate
@@ -32,7 +33,21 @@ def create_anamnese(
 
     db_item = Anamnese(**anamnese.dict())
     db.add(db_item)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.query(Anamnese).filter(Anamnese.user_id == anamnese.user_id).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This user already has an anamnese",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not create anamnese due to data integrity violation",
+        )
+
     db.refresh(db_item)
     return db_item
 
