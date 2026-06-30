@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 from functools import lru_cache
+import logging
+import traceback
 from typing import Any
 from urllib.request import urlopen
 import json
@@ -19,6 +21,7 @@ ALGORITHMS = ["HS256", "RS256", "ES256"]
 
 bearer_scheme = HTTPBearer()
 bearer_scheme_optional = HTTPBearer(auto_error=False)
+logger = logging.getLogger(__name__)
 
 
 def _supabase_project_url() -> str | None:
@@ -126,15 +129,34 @@ def assign_role(db: Session, user: User, role_name: RoleNameEnum) -> None:
         db.add(UserRole(user_id=user.id, role_id=role.id))
 
 
-def _default_name(payload: dict[str, Any]) -> str:
+def _metadata_name(payload: dict[str, Any]) -> str | None:
     metadata = payload.get("user_metadata") or {}
-    return metadata.get("name") or metadata.get("full_name") or payload.get("email") or "Supabase user"
+    name = metadata.get("name") or metadata.get("full_name")
+    if not isinstance(name, str):
+        return None
+    name = name.strip()
+    return name or None
+
+
+def _default_name(payload: dict[str, Any]) -> str:
+    return _metadata_name(payload) or "Supabase user"
+
+
+def _log_user_update(user: User, *, previous_name: str | None, new_name: str | None, origin: str) -> None:
+    logger.warning(
+        "Updating public.users user_id=%s previous_name=%r new_name=%r origin=%s stack=%s",
+        user.id,
+        previous_name,
+        new_name,
+        origin,
+        "".join(traceback.format_stack(limit=8)),
+    )
 
 
 def _sync_supabase_profile(db: Session, user: User, payload: dict[str, Any]) -> None:
     """Keep local profile data aligned after identity is linked by Supabase UUID."""
     email = payload.get("email")
-    name = _default_name(payload)
+    metadata_name = _metadata_name(payload)
 
     if email and email != user.email:
         conflicting_user = (
@@ -147,10 +169,22 @@ def _sync_supabase_profile(db: Session, user: User, payload: dict[str, Any]) -> 
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Supabase email is already used by another local user",
             )
+        _log_user_update(
+            user,
+            previous_name=user.name,
+            new_name=user.name,
+            origin="auth._sync_supabase_profile.email",
+        )
         user.email = email
 
-    if name and name != user.name:
-        user.name = name
+    if metadata_name and metadata_name != email and metadata_name != user.name:
+        _log_user_update(
+            user,
+            previous_name=user.name,
+            new_name=metadata_name,
+            origin="auth._sync_supabase_profile.name",
+        )
+        user.name = metadata_name
 
 
 def get_current_user(
@@ -165,6 +199,12 @@ def get_current_user(
     if not user and email:
         user = db.query(User).filter(User.email == email).first()
         if user and user.supabase_user_id is None:
+            _log_user_update(
+                user,
+                previous_name=user.name,
+                new_name=user.name,
+                origin="auth.get_current_user.link_supabase_identity",
+            )
             user.supabase_user_id = supabase_user_id
 
     if user:
