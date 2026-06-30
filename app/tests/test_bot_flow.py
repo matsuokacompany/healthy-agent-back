@@ -194,6 +194,9 @@ def test_bot_service_uses_persisted_whatsapp_wa_id_as_primary_identity(monkeypat
         message_id="msg-primary-wa-id-1",
     )
 
+    db.refresh(user)
+    assert user.phone == "5543991266196"
+    assert user.whatsapp_wa_id == "554391266196"
     assert "Obrigado por informar" in response.text
     assert response.ask_followup is False
 
