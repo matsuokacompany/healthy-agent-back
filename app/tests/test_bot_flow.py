@@ -118,3 +118,37 @@ def test_bot_service_matches_normalized_phone(monkeypatch):
 
     assert "Obrigado por informar" in response.text
     assert response.ask_followup is False
+
+
+def test_bot_service_matches_stored_phone_after_normalizing_database_value(monkeypatch):
+    db = build_session()
+    user, _ = create_pending_report(db, phone="+55 (43) 99126-6196")
+    monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
+
+    service = BotService()
+    response = service.process_incoming(
+        channel="whatsapp",
+        external_user_id="5543991266196",
+        message_text="Não tive sintomas",
+    )
+
+    assert user.phone == "+55 (43) 99126-6196"
+    assert "Obrigado por informar" in response.text
+    assert response.ask_followup is False
+
+
+def test_bot_service_matches_brazilian_whatsapp_id_without_extra_ninth_digit(monkeypatch):
+    db = build_session()
+    user, _ = create_pending_report(db, phone="5543991266196")
+    monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
+
+    service = BotService()
+    response = service.process_incoming(
+        channel="whatsapp",
+        external_user_id="554391266196",
+        message_text="Não tive sintomas",
+    )
+
+    assert user.phone == "5543991266196"
+    assert "Obrigado por informar" in response.text
+    assert response.ask_followup is False
