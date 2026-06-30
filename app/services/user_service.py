@@ -1,3 +1,5 @@
+import logging
+import traceback
 import uuid
 
 from fastapi import HTTPException, status
@@ -7,6 +9,8 @@ from app.core.auth import assign_role
 from app.core.permissions import is_super_admin
 from app.models.models import RoleNameEnum, User, UserRole
 from app.models.schemas import UserCreate, UserRoleUpdate, UserUpdate
+
+logger = logging.getLogger(__name__)
 
 
 class UserService:
@@ -76,7 +80,18 @@ class UserService:
             if value is not None:
                 if field == "phone":
                     value = self._normalize_phone(value)
-                setattr(user, field, value)
+                current_value = getattr(user, field)
+                if value != current_value:
+                    logger.warning(
+                        "Updating public.users user_id=%s previous_name=%r new_name=%r origin=%s field=%s stack=%s",
+                        user.id,
+                        user.name,
+                        value if field == "name" else user.name,
+                        "UserService.update_user",
+                        field,
+                        "".join(traceback.format_stack(limit=8)),
+                    )
+                    setattr(user, field, value)
 
         self.db.commit()
         self.db.refresh(user)
@@ -89,11 +104,29 @@ class UserService:
                 detail="Only super admins can change user roles",
             )
         user = self.get_user(user_id)
+        logger.warning(
+            "Updating public.users user_id=%s previous_name=%r new_name=%r origin=%s field=roles stack=%s",
+            user.id,
+            user.name,
+            user.name,
+            "UserService.update_roles",
+            "".join(traceback.format_stack(limit=8)),
+        )
         self.db.query(UserRole).filter(UserRole.user_id == user.id).delete()
         self.db.flush()
         for role in payload.roles:
             assign_role(self.db, user, RoleNameEnum(role.value))
-        user.is_admin = any(role.value in {RoleNameEnum.ADMIN.value, RoleNameEnum.SUPER_ADMIN.value} for role in payload.roles)
+        new_is_admin = any(role.value in {RoleNameEnum.ADMIN.value, RoleNameEnum.SUPER_ADMIN.value} for role in payload.roles)
+        if user.is_admin != new_is_admin:
+            logger.warning(
+                "Updating public.users user_id=%s previous_name=%r new_name=%r origin=%s field=is_admin stack=%s",
+                user.id,
+                user.name,
+                user.name,
+                "UserService.update_roles",
+                "".join(traceback.format_stack(limit=8)),
+            )
+        user.is_admin = new_is_admin
         self.db.commit()
         self.db.refresh(user)
         return user
