@@ -137,6 +137,9 @@ def test_bot_service_matches_normalized_phone(monkeypatch):
         message_id="msg-normalized-1",
     )
 
+    db.refresh(user)
+    assert user.phone == "5543991266196"
+    assert user.whatsapp_wa_id == "554391266196"
     assert "Obrigado por informar" in response.text
     assert response.ask_followup is False
 
