@@ -188,7 +188,9 @@ class DailyReportCreate(BaseModel):
 class DailyReportUpdate(BaseModel):
     symptom_description: Optional[str] = Field(None, max_length=280)
     suspected_cause: Optional[str] = Field(None, max_length=280)
-    completed: Optional[bool] = None
+
+    class Config:
+        extra = "forbid"
 
 
 class DailyReportRead(DailyReportBase, ORMModel):
@@ -198,7 +200,6 @@ class DailyReportRead(DailyReportBase, ORMModel):
     report_date: date
     had_symptoms: Optional[bool] = None
     status: DailyReportStatusEnum
-    completed: bool
     awaiting_response: bool
     awaiting_cause: bool
     prompt_sent_at: datetime

@@ -11,12 +11,15 @@ class ReportService:
     def gerar_relatorio(self, user_id: int, periodo: str = "semanal"):
         agora = datetime.now(timezone.utc)
 
-        if periodo == "semanal":
-            dias = 7
-        elif periodo == "mensal":
-            dias = 30
-        else:
-            raise ValueError("Período inválido. Use 'semanal' ou 'mensal'.")
+        dias_por_periodo = {
+            "diario": 1,
+            "semanal": 7,
+            "mensal": 30,
+        }
+        try:
+            dias = dias_por_periodo[periodo]
+        except KeyError:
+            raise ValueError("Período inválido. Use 'diario', 'semanal' ou 'mensal'.")
 
         inicio_atual = agora - timedelta(days=dias)
         inicio_anterior = inicio_atual - timedelta(days=dias)

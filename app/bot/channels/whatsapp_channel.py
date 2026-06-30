@@ -41,7 +41,7 @@ class WhatsAppBotChannel(BaseBotChannel):
         user: User,
         check_type: CheckTypeEnum,
         report_date: date | None = None,
-    ) -> None:
+    ) -> str | None:
         """
         Template oficial do WhatsApp (Meta API).
         Aqui começa o fluxo real do sistema.
@@ -86,7 +86,13 @@ class WhatsAppBotChannel(BaseBotChannel):
             }
         }
 
-        await self._post(payload)
+        response_payload = await self._post(payload)
+        contacts = (response_payload or {}).get("contacts") or []
+        if not contacts:
+            return None
+
+        wa_id = str((contacts[0] or {}).get("wa_id") or "").strip()
+        return wa_id or None
 
     @staticmethod
     def _format_report_date(report_date: date | None) -> str:
@@ -108,7 +114,7 @@ class WhatsAppBotChannel(BaseBotChannel):
     # =========================================================
     # HTTP CORE
     # =========================================================
-    async def _post(self, payload: dict) -> None:
+    async def _post(self, payload: dict) -> dict:
         headers = {
             "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
             "Content-Type": "application/json",
@@ -135,6 +141,10 @@ class WhatsAppBotChannel(BaseBotChannel):
             )
 
         response.raise_for_status()
+        try:
+            return response.json()
+        except ValueError:
+            return {}
 
     # =========================================================
     # WEBHOOK (INBOUND)
@@ -166,6 +176,7 @@ class WhatsAppBotChannel(BaseBotChannel):
             return
 
         for message in messages:
+            message_id = str(message.get("id", "")).strip()
             external_user_id = str(message.get("from", "")).strip()
             message_type = message.get("type")
 
@@ -193,7 +204,7 @@ class WhatsAppBotChannel(BaseBotChannel):
                 logger.warning("Tipo não suportado: %s", message_type)
                 continue
 
-            if not external_user_id or not text:
+            if not message_id or not external_user_id or not text:
                 logger.warning("Mensagem inválida: %s", message)
                 continue
 
@@ -201,6 +212,7 @@ class WhatsAppBotChannel(BaseBotChannel):
                 channel="whatsapp",
                 external_user_id=external_user_id,
                 message_text=text,
+                message_id=message_id,
             )
 
             if response.text:

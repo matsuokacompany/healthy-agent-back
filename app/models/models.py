@@ -89,6 +89,7 @@ class User(Base):
     email = Column(String, nullable=False, unique=True)
     supabase_user_id = Column(UUID(as_uuid=True), nullable=True, unique=True, index=True)
     phone = Column(String, nullable=True, unique=True, index=True)
+    whatsapp_wa_id = Column(String, nullable=True, unique=True, index=True)
     city = Column(String, nullable=True)
     state = Column(String, nullable=True)
     gender = Column(String, nullable=True)
@@ -123,6 +124,28 @@ class User(Base):
     @property
     def roles(self) -> list[str]:
         return [role.name for role in self.role_records]
+
+
+class WhatsAppMessage(Base):
+    __tablename__ = "whatsapp_messages"
+    __table_args__ = (
+        UniqueConstraint("message_id", name="uq_whatsapp_messages_message_id"),
+        Index("ix_whatsapp_messages_user_id", "user_id"),
+        Index("ix_whatsapp_messages_status", "status"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    message_id = Column(String, nullable=False)
+    channel = Column(String, nullable=False, default="whatsapp")
+    external_user_id = Column(String, nullable=False)
+    normalized_user_id = Column(String, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    status = Column(String, nullable=False, default="PROCESSING")
+    response_text = Column(Text, nullable=True)
+    processed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    user = relationship("User")
 
 
 class ProfessionalProfile(Base):

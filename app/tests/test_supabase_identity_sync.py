@@ -50,6 +50,44 @@ def test_sync_updates_email_from_supabase_without_changing_identity_link():
     assert user.email == "new@example.com"
 
 
+def test_sync_does_not_replace_name_when_supabase_metadata_is_missing():
+    db = build_session()
+    user = create_user(db, name="Igor", email="igor@email.com")
+
+    _sync_supabase_profile(
+        db,
+        user,
+        {
+            "sub": str(user.supabase_user_id),
+            "email": user.email,
+            "user_metadata": {},
+        },
+    )
+    db.commit()
+    db.refresh(user)
+
+    assert user.name == "Igor"
+
+
+def test_sync_does_not_replace_name_with_email_from_supabase_metadata():
+    db = build_session()
+    user = create_user(db, name="Igor", email="igor@email.com")
+
+    _sync_supabase_profile(
+        db,
+        user,
+        {
+            "sub": str(user.supabase_user_id),
+            "email": user.email,
+            "user_metadata": {"name": user.email},
+        },
+    )
+    db.commit()
+    db.refresh(user)
+
+    assert user.name == "Igor"
+
+
 def test_sync_updates_name_from_supabase_metadata():
     db = build_session()
     user = create_user(db, name="Old Name")
@@ -107,3 +145,115 @@ def test_sync_blocks_email_conflict_with_another_local_user():
         )
 
     assert exc.value.status_code == 409
+
+
+def test_get_current_user_links_pre_registered_user_by_email(monkeypatch):
+    from app.core import auth
+
+    db = build_session()
+    supabase_user_id = uuid.uuid4()
+    user = User(name="Invited User", email="invited@example.com")
+    db.add(user)
+    db.commit()
+
+    monkeypatch.setattr(
+        auth,
+        "_decode_supabase_token",
+        lambda token: {
+            "sub": str(supabase_user_id),
+            "email": "invited@example.com",
+            "user_metadata": {},
+        },
+    )
+
+    current_user = auth.get_current_user(
+        credentials=type("Credentials", (), {"credentials": "valid-token"})(),
+        db=db,
+    )
+
+    assert current_user.id == user.id
+    assert current_user.supabase_user_id == supabase_user_id
+    assert db.query(User).count() == 1
+
+
+def test_get_current_user_rejects_unprovisioned_supabase_identity(monkeypatch):
+    from app.core import auth
+
+    db = build_session()
+    supabase_user_id = uuid.uuid4()
+    monkeypatch.setattr(
+        auth,
+        "_decode_supabase_token",
+        lambda token: {
+            "sub": str(supabase_user_id),
+            "email": "unknown@example.com",
+            "user_metadata": {"name": "Unknown"},
+        },
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        auth.get_current_user(
+            credentials=type("Credentials", (), {"credentials": "valid-token"})(),
+            db=db,
+        )
+
+    assert exc.value.status_code == 403
+    assert db.query(User).count() == 0
+
+
+def test_sync_does_not_replace_name_with_email_like_metadata_different_from_payload_email():
+    db = build_session()
+    user = create_user(db, name="Igor", email="old@example.com")
+
+    _sync_supabase_profile(
+        db,
+        user,
+        {
+            "sub": str(user.supabase_user_id),
+            "email": "novo@email.com",
+            "user_metadata": {"name": "antigo@email.com"},
+        },
+    )
+    db.commit()
+    db.refresh(user)
+
+    assert user.email == "novo@email.com"
+    assert user.name == "Igor"
+
+
+def test_sync_does_not_replace_name_with_email_like_full_name_metadata():
+    db = build_session()
+    user = create_user(db, name="Maria", email="maria@example.com")
+
+    _sync_supabase_profile(
+        db,
+        user,
+        {
+            "sub": str(user.supabase_user_id),
+            "email": user.email,
+            "user_metadata": {"full_name": "maria.alias@example.org"},
+        },
+    )
+    db.commit()
+    db.refresh(user)
+
+    assert user.name == "Maria"
+
+
+def test_sync_still_updates_name_with_valid_non_email_metadata():
+    db = build_session()
+    user = create_user(db, name="Maria", email="maria@example.com")
+
+    _sync_supabase_profile(
+        db,
+        user,
+        {
+            "sub": str(user.supabase_user_id),
+            "email": user.email,
+            "user_metadata": {"name": "Maria Silva"},
+        },
+    )
+    db.commit()
+    db.refresh(user)
+
+    assert user.name == "Maria Silva"

@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     WHATSAPP_PHONE_NUMBER_ID: str
     WHATSAPP_ACCESS_TOKEN: str
     WHATSAPP_DAILY_TEMPLATE_NAME: str
+    APP_SECRET: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
