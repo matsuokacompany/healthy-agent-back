@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from functools import lru_cache
 import logging
+import re
 import traceback
 from typing import Any
 from urllib.request import urlopen
@@ -22,6 +23,7 @@ ALGORITHMS = ["HS256", "RS256", "ES256"]
 bearer_scheme = HTTPBearer()
 bearer_scheme_optional = HTTPBearer(auto_error=False)
 logger = logging.getLogger(__name__)
+EMAIL_LIKE_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
 def _supabase_project_url() -> str | None:
@@ -129,13 +131,21 @@ def assign_role(db: Session, user: User, role_name: RoleNameEnum) -> None:
         db.add(UserRole(user_id=user.id, role_id=role.id))
 
 
+def _is_email_like(value: str | None) -> bool:
+    if not isinstance(value, str):
+        return False
+    return bool(EMAIL_LIKE_RE.fullmatch(value.strip()))
+
+
 def _metadata_name(payload: dict[str, Any]) -> str | None:
     metadata = payload.get("user_metadata") or {}
     name = metadata.get("name") or metadata.get("full_name")
     if not isinstance(name, str):
         return None
     name = name.strip()
-    return name or None
+    if not name or _is_email_like(name):
+        return None
+    return name
 
 
 def _log_user_update(user: User, *, previous_name: str | None, new_name: str | None, origin: str) -> None:
@@ -173,7 +183,7 @@ def _sync_supabase_profile(db: Session, user: User, payload: dict[str, Any]) -> 
         )
         user.email = email
 
-    if metadata_name and metadata_name != email and metadata_name != user.name:
+    if metadata_name and metadata_name != user.name:
         _log_user_update(
             user,
             previous_name=user.name,

@@ -137,6 +137,9 @@ def test_bot_service_matches_normalized_phone(monkeypatch):
         message_id="msg-normalized-1",
     )
 
+    db.refresh(user)
+    assert user.phone == "5543991266196"
+    assert user.whatsapp_wa_id == "554391266196"
     assert "Obrigado por informar" in response.text
     assert response.ask_followup is False
 
@@ -288,3 +291,68 @@ async def test_whatsapp_channel_does_not_send_response_for_duplicate_message_id(
 
     assert len(sent_payloads) == 1
     assert "Obrigado por informar" in sent_payloads[0]["text"]["body"]
+
+
+def test_wa_id_link_conflict_uses_savepoint_without_global_rollback():
+    class FakeQuery:
+        def __init__(self, result=None, results=None):
+            self.result = result
+            self.results = results or []
+
+        def filter(self, *args, **kwargs):
+            return self
+
+        def limit(self, value):
+            return self
+
+        def first(self):
+            return self.result
+
+        def all(self):
+            return self.results
+
+    class FakeNestedTransaction:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    class FakeDb:
+        def __init__(self, candidate):
+            self.candidate = candidate
+            self.rolled_back = False
+            self.expired = False
+            self.query_count = 0
+
+        def query(self, model):
+            self.query_count += 1
+            if self.query_count == 1:
+                return FakeQuery(result=None)
+            return FakeQuery(results=[self.candidate])
+
+        def begin_nested(self):
+            return FakeNestedTransaction()
+
+        def flush(self):
+            from sqlalchemy.exc import IntegrityError
+            raise IntegrityError("update", {}, Exception("unique violation"))
+
+        def rollback(self):
+            self.rolled_back = True
+
+        def expire(self, instance, attrs):
+            self.expired = True
+
+    candidate = User(id=123, name="Paciente", email="paciente@example.com", phone="5543991266196")
+    db = FakeDb(candidate)
+
+    user = BotService._find_user_by_whatsapp_identity(
+        db,
+        external_user_id="554391266196",
+        normalized_wa_id="554391266196",
+    )
+
+    assert user is None
+    assert db.expired is True
+    assert db.rolled_back is False

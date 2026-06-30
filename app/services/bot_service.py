@@ -85,14 +85,6 @@ class BotService:
                 message_id,
             )
 
-            logger.info(
-                "WhatsApp user linked | user_id=%s external_user_id=%s normalized_user_id=%s stored_phone=%s",
-                user.id,
-                self._mask_phone(external_user_id),
-                self._mask_phone(normalized_user_id),
-                self._mask_phone(user.phone),
-            )
-
             status = self.daily_report_service.process_response(
                 db,
                 user,
@@ -203,11 +195,12 @@ class BotService:
             return None
 
         user = candidates[0]
-        user.whatsapp_wa_id = normalized_wa_id
         try:
-            db.flush()
+            with db.begin_nested():
+                user.whatsapp_wa_id = normalized_wa_id
+                db.flush()
         except IntegrityError:
-            db.rollback()
+            db.expire(user, ["whatsapp_wa_id"])
             logger.warning(
                 "WhatsApp wa_id already linked to another user | user_id=%s wa_id=%s",
                 user.id,

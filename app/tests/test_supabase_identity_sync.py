@@ -199,3 +199,61 @@ def test_get_current_user_rejects_unprovisioned_supabase_identity(monkeypatch):
 
     assert exc.value.status_code == 403
     assert db.query(User).count() == 0
+
+
+def test_sync_does_not_replace_name_with_email_like_metadata_different_from_payload_email():
+    db = build_session()
+    user = create_user(db, name="Igor", email="old@example.com")
+
+    _sync_supabase_profile(
+        db,
+        user,
+        {
+            "sub": str(user.supabase_user_id),
+            "email": "novo@email.com",
+            "user_metadata": {"name": "antigo@email.com"},
+        },
+    )
+    db.commit()
+    db.refresh(user)
+
+    assert user.email == "novo@email.com"
+    assert user.name == "Igor"
+
+
+def test_sync_does_not_replace_name_with_email_like_full_name_metadata():
+    db = build_session()
+    user = create_user(db, name="Maria", email="maria@example.com")
+
+    _sync_supabase_profile(
+        db,
+        user,
+        {
+            "sub": str(user.supabase_user_id),
+            "email": user.email,
+            "user_metadata": {"full_name": "maria.alias@example.org"},
+        },
+    )
+    db.commit()
+    db.refresh(user)
+
+    assert user.name == "Maria"
+
+
+def test_sync_still_updates_name_with_valid_non_email_metadata():
+    db = build_session()
+    user = create_user(db, name="Maria", email="maria@example.com")
+
+    _sync_supabase_profile(
+        db,
+        user,
+        {
+            "sub": str(user.supabase_user_id),
+            "email": user.email,
+            "user_metadata": {"name": "Maria Silva"},
+        },
+    )
+    db.commit()
+    db.refresh(user)
+
+    assert user.name == "Maria Silva"
