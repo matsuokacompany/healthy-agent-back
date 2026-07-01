@@ -259,3 +259,81 @@ class InsightClinicalResponse(BaseModel):
     exames_prioritarios: List[str]
     urgencia: UrgenciaEnum
     alerta_legal: str
+
+
+class PatientDashboardUser(BaseModel):
+    id: int
+    name: str
+    first_name: str
+    avatar: Optional[str] = None
+
+
+class PatientMonitoringSummary(BaseModel):
+    id: Optional[int] = None
+    active: bool
+    title: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    days_active: Optional[int] = None
+    days_remaining: Optional[int] = None
+
+
+class PatientDashboardToday(BaseModel):
+    has_checkin: bool
+    completed: bool = False
+    status: Optional[DailyReportStatusEnum] = None
+    prompt_sent_at: Optional[datetime] = None
+    answered_at: Optional[datetime] = None
+
+
+class PatientDashboardStatistics(BaseModel):
+    total: int
+    answered: int
+    missed: int
+    with_symptoms: int
+    without_symptoms: int
+    adherence: float
+
+    @classmethod
+    def empty(cls) -> "PatientDashboardStatistics":
+        return cls(
+            total=0,
+            answered=0,
+            missed=0,
+            with_symptoms=0,
+            without_symptoms=0,
+            adherence=0.0,
+        )
+
+
+class PatientLastResponse(BaseModel):
+    date: date
+    status: DailyReportStatusEnum
+    had_symptoms: Optional[bool] = None
+
+
+class PatientNextCheckin(BaseModel):
+    scheduled_at: datetime
+
+
+class PatientResponsibleProfessional(BaseModel):
+    id: int
+    name: str
+    specialty: Optional[str] = None
+
+
+class PatientAnamnesisSummary(BaseModel):
+    has_anamnesis: bool
+    conditions_count: Optional[int] = None
+    preview: Optional[List[str]] = None
+
+
+class PatientDashboardResponse(BaseModel):
+    user: PatientDashboardUser
+    monitoring: PatientMonitoringSummary
+    today: PatientDashboardToday
+    statistics: PatientDashboardStatistics
+    last_response: Optional[PatientLastResponse] = None
+    next_checkin: Optional[PatientNextCheckin] = None
+    professionals: List[PatientResponsibleProfessional] = Field(default_factory=list)
+    anamnesis_summary: PatientAnamnesisSummary

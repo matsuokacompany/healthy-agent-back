@@ -17,6 +17,7 @@ from app.routes import (
     daily_reports_routes,
     insight_routes,
     monitoring_routes,
+    patient_dashboard_routes,
     report_routes,
     user_routes,
 )
@@ -124,6 +125,7 @@ app.include_router(anamnese_routes.router, prefix=f"{API_PREFIX}/anamneses")
 app.include_router(daily_reports_routes.router, prefix=f"{API_PREFIX}/daily-reports")
 app.include_router(insight_routes.router, prefix=f"{API_PREFIX}/insights")
 app.include_router(monitoring_routes.router, prefix=f"{API_PREFIX}/monitoring")
+app.include_router(patient_dashboard_routes.router, prefix="/patient")
 app.include_router(report_routes.router, prefix=f"{API_PREFIX}/reports")
 app.include_router(user_routes.router, prefix=f"{API_PREFIX}/users")
 app.include_router(bot_webhook_routes.router)
