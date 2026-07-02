@@ -259,3 +259,164 @@ class InsightClinicalResponse(BaseModel):
     exames_prioritarios: List[str]
     urgencia: UrgenciaEnum
     alerta_legal: str
+
+
+class PatientDashboardUser(BaseModel):
+    id: int
+    name: str
+    first_name: str
+    avatar: Optional[str] = None
+
+
+class PatientMonitoringSummary(BaseModel):
+    id: Optional[int] = None
+    active: bool
+    title: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    days_active: Optional[int] = None
+    days_remaining: Optional[int] = None
+
+
+class PatientDashboardToday(BaseModel):
+    has_checkin: bool
+    completed: bool = False
+    status: Optional[DailyReportStatusEnum] = None
+    prompt_sent_at: Optional[datetime] = None
+    answered_at: Optional[datetime] = None
+
+
+class PatientDashboardStatistics(BaseModel):
+    total: int
+    answered: int
+    missed: int
+    with_symptoms: int
+    without_symptoms: int
+    adherence: float
+
+    @classmethod
+    def empty(cls) -> "PatientDashboardStatistics":
+        return cls(
+            total=0,
+            answered=0,
+            missed=0,
+            with_symptoms=0,
+            without_symptoms=0,
+            adherence=0.0,
+        )
+
+
+class PatientLastResponse(BaseModel):
+    date: date
+    status: DailyReportStatusEnum
+    had_symptoms: Optional[bool] = None
+
+
+class PatientNextCheckin(BaseModel):
+    scheduled_at: datetime
+
+
+class PatientResponsibleProfessional(BaseModel):
+    id: int
+    name: str
+    specialty: Optional[str] = None
+
+
+class PatientAnamnesisSummary(BaseModel):
+    has_anamnesis: bool
+    conditions_count: Optional[int] = None
+    preview: Optional[List[str]] = None
+
+
+class PatientDashboardResponse(BaseModel):
+    user: PatientDashboardUser
+    monitoring: PatientMonitoringSummary
+    today: PatientDashboardToday
+    statistics: PatientDashboardStatistics
+    last_response: Optional[PatientLastResponse] = None
+    next_checkin: Optional[PatientNextCheckin] = None
+    professionals: List[PatientResponsibleProfessional] = Field(default_factory=list)
+    anamnesis_summary: PatientAnamnesisSummary
+
+
+class PatientDashboardAlert(BaseModel):
+    type: str
+    severity: Literal["info", "warning", "critical"]
+    message: str
+
+
+class PatientDashboardResponseV2(BaseModel):
+    user: PatientDashboardUser
+    monitoring: PatientMonitoringSummary
+    today: PatientDashboardToday
+    next_checkin: Optional[PatientNextCheckin] = None
+    anamnesis_summary: PatientAnamnesisSummary
+    statistics: PatientDashboardStatistics
+    last_response: Optional[PatientLastResponse] = None
+    professionals: List[PatientResponsibleProfessional] = Field(default_factory=list)
+    alerts: List[PatientDashboardAlert] = Field(default_factory=list)
+
+
+class PatientDashboardPagination(BaseModel):
+    page: int
+    per_page: int
+    total: int
+    total_pages: int
+
+
+class PatientDashboardReportItem(BaseModel):
+    id: int
+    monitoring_plan_id: int
+    report_date: date
+    check_type: CheckTypeEnum
+    status: DailyReportStatusEnum
+    completed: bool
+    had_symptoms: Optional[bool] = None
+    symptom_description: Optional[str] = None
+    suspected_cause: Optional[str] = None
+    prompt_sent_at: datetime
+    answered_at: Optional[datetime] = None
+    expires_at: datetime
+
+
+class PatientDashboardHistoryResponse(BaseModel):
+    items: List[PatientDashboardReportItem]
+    pagination: PatientDashboardPagination
+
+
+class PatientDashboardCalendarCheckin(BaseModel):
+    id: int
+    check_type: CheckTypeEnum
+    status: DailyReportStatusEnum
+    completed: bool
+    had_symptoms: Optional[bool] = None
+    prompt_sent_at: datetime
+    answered_at: Optional[datetime] = None
+
+
+class PatientDashboardCalendarDay(BaseModel):
+    date: date
+    has_checkin: bool
+    completed: bool
+    pending: bool
+    has_symptoms: bool
+    statuses: List[DailyReportStatusEnum] = Field(default_factory=list)
+    checkins: List[PatientDashboardCalendarCheckin] = Field(default_factory=list)
+
+
+class PatientDashboardCalendarResponse(BaseModel):
+    year: int
+    month: int
+    days: List[PatientDashboardCalendarDay]
+
+
+class PatientDashboardStatisticsResponse(BaseModel):
+    period: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    statistics: PatientDashboardStatistics
+
+
+class PatientDashboardCheckinsResponse(BaseModel):
+    items: List[PatientDashboardReportItem]
+    pagination: PatientDashboardPagination
