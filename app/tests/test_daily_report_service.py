@@ -216,3 +216,79 @@ def test_create_pending_report_reopens_expired_report():
     assert report.suspected_cause is None
     assert as_utc(report.prompt_sent_at) == now
     assert as_utc(report.expires_at) == now + timedelta(hours=DailyReportService.RESPONSE_WINDOW_HOURS)
+
+
+def test_update_patient_response_marks_report_completed():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    db.commit()
+
+    DailyReportService.update_patient_response(
+        db,
+        report,
+        had_symptoms=True,
+        symptom_description="Dor de cabeça corrigida",
+        suspected_cause="Dormi mal",
+    )
+
+    assert report.completed is True
+    assert report.status == DailyReportStatusEnum.COMPLETED
+    assert report.awaiting_response is False
+    assert report.awaiting_cause is False
+    assert report.had_symptoms is True
+    assert report.symptom_description == "Dor de cabeça corrigida"
+    assert report.suspected_cause == "Dormi mal"
+
+
+def test_update_patient_response_clears_text_when_marked_without_symptoms():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    db.commit()
+
+    DailyReportService.update_patient_response(
+        db,
+        report,
+        had_symptoms=False,
+        symptom_description="Texto que deve ser removido",
+        suspected_cause="Causa que deve ser removida",
+    )
+
+    assert report.completed is True
+    assert report.status == DailyReportStatusEnum.COMPLETED
+    assert report.had_symptoms is False
+    assert report.symptom_description is None
+    assert report.suspected_cause is None
+
+
+def test_delete_patient_response_reopens_report_for_answering():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    report = DailyReport(
+        user_id=user.id,
+        monitoring_plan_id=plan.id,
+        report_date=date.today(),
+        check_type=CheckTypeEnum.MORNING,
+        status=DailyReportStatusEnum.COMPLETED,
+        completed=True,
+        awaiting_response=False,
+        awaiting_cause=False,
+        had_symptoms=True,
+        symptom_description="Dor antiga",
+        suspected_cause="Causa antiga",
+        prompt_sent_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+    )
+    db.add(report)
+    db.commit()
+
+    DailyReportService.delete_patient_response(db, report)
+
+    assert report.completed is False
+    assert report.status == DailyReportStatusEnum.PENDING
+    assert report.awaiting_response is True
+    assert report.awaiting_cause is False
+    assert report.had_symptoms is None
+    assert report.symptom_description is None
+    assert report.suspected_cause is None

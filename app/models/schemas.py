@@ -201,6 +201,7 @@ class DailyReportCreate(BaseModel):
 
 
 class DailyReportUpdate(BaseModel):
+    had_symptoms: Optional[bool] = None
     symptom_description: Optional[str] = Field(None, max_length=280)
     suspected_cause: Optional[str] = Field(None, max_length=280)
 

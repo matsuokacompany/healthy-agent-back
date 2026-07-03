@@ -129,6 +129,40 @@ class DailyReportService:
         return "ASK_CAUSE"
 
     @classmethod
+    def update_patient_response(
+        cls,
+        db: Session,
+        report: DailyReport,
+        *,
+        had_symptoms: bool | None = None,
+        symptom_description: str | None = None,
+        suspected_cause: str | None = None,
+    ) -> DailyReport:
+        report.had_symptoms = had_symptoms
+        report.symptom_description = symptom_description if had_symptoms is not False else None
+        report.suspected_cause = suspected_cause if had_symptoms is not False else None
+        report.completed = True
+        report.awaiting_response = False
+        report.awaiting_cause = False
+        report.status = DailyReportStatusEnum.COMPLETED
+        db.commit()
+        db.refresh(report)
+        return report
+
+    @classmethod
+    def delete_patient_response(cls, db: Session, report: DailyReport) -> DailyReport:
+        report.had_symptoms = None
+        report.symptom_description = None
+        report.suspected_cause = None
+        report.completed = False
+        report.awaiting_response = True
+        report.awaiting_cause = False
+        report.status = DailyReportStatusEnum.PENDING
+        db.commit()
+        db.refresh(report)
+        return report
+
+    @classmethod
     def _get_open_report(cls, db: Session, user: User) -> DailyReport | None:
         return (
             db.query(DailyReport)
