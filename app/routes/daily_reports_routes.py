@@ -5,6 +5,7 @@ from app.core.auth import get_current_user
 from app.core.dependencies import get_db
 from app.models.models import DailyReport, User
 from app.models.schemas import DailyReportRead, DailyReportUpdate
+from app.services.daily_report_service import DailyReportService
 
 router = APIRouter(tags=["Daily Reports"])
 
@@ -58,9 +59,31 @@ def update_report(
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(report, field, value)
+    payload = data.model_dump(exclude_unset=True)
+    return DailyReportService.update_patient_response(
+        db,
+        report,
+        had_symptoms=payload.get("had_symptoms", report.had_symptoms),
+        symptom_description=payload.get("symptom_description", report.symptom_description),
+        suspected_cause=payload.get("suspected_cause", report.suspected_cause),
+    )
 
-    db.commit()
-    db.refresh(report)
-    return report
+
+@router.delete("/{report_id}/response", response_model=DailyReportRead)
+def delete_report_response(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    report = (
+        db.query(DailyReport)
+        .filter(
+            DailyReport.id == report_id,
+            DailyReport.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    return DailyReportService.delete_patient_response(db, report)
