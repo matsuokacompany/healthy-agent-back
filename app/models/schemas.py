@@ -421,3 +421,31 @@ class PatientDashboardStatisticsResponse(BaseModel):
 class PatientDashboardCheckinsResponse(BaseModel):
     items: List[PatientDashboardReportItem]
     pagination: PatientDashboardPagination
+
+
+class ProfessionalPatientRead(BaseModel):
+    patient_id: int
+    name: str
+    email: EmailStr
+    phone: Optional[str] = None
+    monitoring_plan_id: int
+    plan_title: str
+    active: bool
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    last_checkin_at: Optional[datetime] = None
+    last_status: Optional[DailyReportStatusEnum] = None
+    symptom_reports_count: int = 0
+
+
+class ProfessionalAiReportRequest(BaseModel):
+    periodo: Literal["diario", "semanal", "mensal"] = "semanal"
+    modo: Literal["preventivo", "avaliacao_clinica"] = "avaliacao_clinica"
+
+
+class ProfessionalAiReportResponse(BaseModel):
+    patient_id: int
+    periodo: Literal["diario", "semanal", "mensal"]
+    modo: Literal["preventivo", "avaliacao_clinica"]
+    clinical_summary: str
+    ai: dict
