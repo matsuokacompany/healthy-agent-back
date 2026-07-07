@@ -51,6 +51,30 @@ def create_completed_report(db, *, user, plan, symptom, created_at):
     return report
 
 
+def create_negative_report(db, *, user, plan, report_date):
+    prompt_sent_at = datetime.combine(report_date, datetime.min.time(), tzinfo=timezone.utc)
+    report = DailyReport(
+        user_id=user.id,
+        monitoring_plan_id=plan.id,
+        report_date=report_date,
+        check_type=CheckTypeEnum.NIGHT,
+        status=DailyReportStatusEnum.COMPLETED,
+        symptom_description=None,
+        suspected_cause=None,
+        had_symptoms=False,
+        completed=True,
+        awaiting_response=False,
+        awaiting_cause=False,
+        prompt_sent_at=prompt_sent_at,
+        expires_at=prompt_sent_at + timedelta(hours=24),
+        created_at=prompt_sent_at,
+        updated_at=prompt_sent_at,
+    )
+    db.add(report)
+    db.commit()
+    return report
+
+
 def test_report_service_supports_diario_period():
     db = build_session()
     user, plan = create_user_and_plan(db)
@@ -66,3 +90,25 @@ def test_report_service_supports_diario_period():
     assert "Dor anterior".lower() in relatorio
     assert "Dor antiga".lower() not in relatorio
     assert "Período analisado" in relatorio
+
+
+def test_report_service_includes_adherence_and_negative_checkins():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    today = datetime.now(timezone.utc).date()
+
+    create_completed_report(
+        db,
+        user=user,
+        plan=plan,
+        symptom="Tontura",
+        created_at=datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc),
+    )
+    create_negative_report(db, user=user, plan=plan, report_date=today)
+
+    relatorio = ReportService(db).gerar_relatorio(user.id, "semanal")
+
+    assert "Check-ins respondidos: 2" in relatorio
+    assert "Dias/check-ins com sintomas: 1" in relatorio
+    assert "Dias/check-ins sem sintomas: 1" in relatorio
+    assert "Taxa de adesão: 100.0%" in relatorio

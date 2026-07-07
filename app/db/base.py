@@ -1,6 +1,7 @@
 from app.db.base_class import Base
 from app.models.models import (
     Anamnese,
+    AiReportCache,
     DailyReport,
     DailyReportStatusEnum,
     MonitoringPlan,
@@ -22,6 +23,7 @@ __all__ = [
     "DailyReport",
     "DailyReportStatusEnum",
     "Anamnese",
+    "AiReportCache",
     "Role",
     "RoleNameEnum",
     "UserRole",

@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
@@ -6,6 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.models import (
+    AiReportCache,
     Anamnese,
     DailyReport,
     MonitoringPlan,
@@ -123,9 +125,39 @@ class ProfessionalService:
         modo: Literal["preventivo", "avaliacao_clinica"],
         api_key: str | None,
     ) -> ProfessionalAiReportResponse:
+        require_role(current_user, RoleNameEnum.PROFESSIONAL)
         self._require_patient_access(current_user, patient_id)
         clinical_summary = self._build_clinical_summary(patient_id, periodo)
+        week_start = self._current_week_start()
+        cached_report = (
+            self.db.query(AiReportCache)
+            .filter(AiReportCache.patient_id == patient_id)
+            .filter(AiReportCache.created_at >= week_start)
+            .order_by(AiReportCache.created_at.desc(), AiReportCache.id.desc())
+            .first()
+        )
+        if cached_report:
+            return ProfessionalAiReportResponse(
+                patient_id=patient_id,
+                periodo=cached_report.periodo,
+                modo=cached_report.modo,
+                clinical_summary=cached_report.clinical_summary,
+                ai=cached_report.ai_response,
+            )
+
         ai = InsightService(api_key=api_key or "", modo=modo).gerar_interpretacao(clinical_summary)
+        self.db.add(
+            AiReportCache(
+                patient_id=patient_id,
+                professional_user_id=current_user.id,
+                periodo=periodo,
+                modo=modo,
+                clinical_summary_hash=self._hash_text(clinical_summary),
+                clinical_summary=clinical_summary,
+                ai_response=ai,
+            )
+        )
+        self.db.commit()
         return ProfessionalAiReportResponse(
             patient_id=patient_id,
             periodo=periodo,
@@ -133,6 +165,16 @@ class ProfessionalService:
             clinical_summary=clinical_summary,
             ai=ai,
         )
+
+    @staticmethod
+    def _current_week_start(now: datetime | None = None) -> datetime:
+        now = now or datetime.now(timezone.utc)
+        start = now - timedelta(days=now.weekday())
+        return start.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    @staticmethod
+    def _hash_text(text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def _get_access_profile(self, current_user: User) -> ProfessionalProfile | None:
         if is_admin(current_user):

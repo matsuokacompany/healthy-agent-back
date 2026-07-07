@@ -319,22 +319,16 @@ class BotService:
         if status == "ASK_SYMPTOM_DESCRIPTION":
             return BotResponse(
                 text=(
-                    "Entendi. Quais sintomas você teve ontem?\n\n"
-                    "Descreva em poucas palavras. Máx: 280 caracteres."
+                    "Entendi. Para concluir, descreva em uma única resposta quais sintomas você teve.\n\n"
+                    "Exemplo: dor de cabeça e tontura.\n"
+                    "Máx: 280 caracteres."
                 ),
                 ask_followup=True,
             )
 
         if status == "ASK_CAUSE":
-            return BotResponse(
-                text=(
-                    "Entendi.\n\n"
-                    "Agora me diga o que você acha que pode ter causado isso.\n"
-                    "Exemplo: alimentação, estresse, sono, atividade física...\n\n"
-                    "Máx: 280 caracteres."
-                ),
-                ask_followup=True,
-            )
+            logger.info("Suppressing deprecated WhatsApp cause prompt to avoid extra message costs")
+            return BotResponse(text="")
 
         if status == "COMPLETED":
             return BotResponse(
@@ -342,14 +336,16 @@ class BotService:
             )
 
         if status == "NOT_AWAITING":
-            return BotResponse(
-                text="Essa solicitação já foi encerrada ou expirou. Aguarde o próximo check-in."
-            )
+            logger.info("Suppressing WhatsApp reply for status=%s to avoid post-check-in message costs", status)
+            return BotResponse(text="")
+
+        if status == "EXPIRED":
+            logger.info("Suppressing WhatsApp reply for status=%s to avoid post-check-in message costs", status)
+            return BotResponse(text="")
 
         if status == "TOO_LONG":
-            return BotResponse(
-                text="Mensagem muito longa. Tente resumir em até 280 caracteres."
-            )
+            logger.info("Suppressing WhatsApp reply for status=%s to avoid repeated invalid-message costs", status)
+            return BotResponse(text="")
 
         if status == "INVALID_STATE":
             return BotResponse(
@@ -357,9 +353,8 @@ class BotService:
             )
 
         if status == "ALREADY_COMPLETED":
-            return BotResponse(
-                text="Esse registro já foi finalizado 👍"
-            )
+            logger.info("Suppressing WhatsApp reply for status=%s to avoid post-check-in message costs", status)
+            return BotResponse(text="")
 
         return BotResponse(
             text="Entendi. Obrigado pela resposta."

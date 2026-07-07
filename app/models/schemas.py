@@ -238,6 +238,7 @@ class InsightScenarios(BaseModel):
 
 class AvaliacaoClinica(BaseModel):
     hipotese_principal: str
+    possiveis_doencas: List[str] = Field(default_factory=list)
     nivel_de_suspeicao: NivelSuspeicaoEnum
     justificativa: List[str]
 
