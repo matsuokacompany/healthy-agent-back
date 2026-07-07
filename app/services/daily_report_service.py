@@ -81,7 +81,7 @@ class DailyReportService:
             return "ALREADY_COMPLETED"
 
         if report.awaiting_cause or report.status == DailyReportStatusEnum.AWAITING_CAUSE:
-            report.suspected_cause = message_text
+            report.suspected_cause = None
             report.awaiting_cause = False
             report.awaiting_response = False
             report.completed = True
@@ -91,11 +91,13 @@ class DailyReportService:
 
         if report.status == DailyReportStatusEnum.AWAITING_SYMPTOM_DESCRIPTION:
             report.symptom_description = message_text
+            report.suspected_cause = None
             report.awaiting_response = False
-            report.awaiting_cause = True
-            report.status = DailyReportStatusEnum.AWAITING_CAUSE
+            report.awaiting_cause = False
+            report.completed = True
+            report.status = DailyReportStatusEnum.COMPLETED
             db.commit()
-            return "ASK_CAUSE"
+            return "COMPLETED"
 
         if not report.awaiting_response:
             return "NOT_AWAITING"
@@ -123,10 +125,12 @@ class DailyReportService:
         report.had_symptoms = True
         report.symptom_description = message_text
         report.awaiting_response = False
-        report.awaiting_cause = True
-        report.status = DailyReportStatusEnum.AWAITING_CAUSE
+        report.awaiting_cause = False
+        report.status = DailyReportStatusEnum.COMPLETED
+        report.completed = True
+        report.suspected_cause = None
         db.commit()
-        return "ASK_CAUSE"
+        return "COMPLETED"
 
     @classmethod
     def update_patient_response(

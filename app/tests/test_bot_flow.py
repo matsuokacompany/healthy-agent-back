@@ -51,13 +51,17 @@ def test_bot_service_response_flow(monkeypatch):
     service = BotService()
     first = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Tive sintomas", message_id="msg-flow-1")
     assert first.ask_followup is True
-    assert "Quais sintomas" in first.text
+    assert "quais sintomas" in first.text
+    assert "Causa" not in first.text
 
-    second = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Tive tontura", message_id="msg-flow-2")
-    assert second.ask_followup is True
-
-    third = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Comi algo diferente", message_id="msg-flow-3")
-    assert "concluído" in third.text
+    second = service.process_incoming(
+        channel="whatsapp",
+        external_user_id=user.phone,
+        message_text="Tive tontura",
+        message_id="msg-flow-2",
+    )
+    assert second.ask_followup is False
+    assert "concluído" in second.text
 
 
 def test_bot_service_negative_flow(monkeypatch):
@@ -70,6 +74,45 @@ def test_bot_service_negative_flow(monkeypatch):
 
     assert "Obrigado por informar" in response.text
     assert response.ask_followup is False
+
+
+def test_bot_service_does_not_reply_after_report_is_completed(monkeypatch):
+    db = build_session()
+    user, _ = create_pending_report(db, phone="778")
+    monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
+
+    service = BotService()
+    completed = service.process_incoming(
+        channel="whatsapp",
+        external_user_id=user.phone,
+        message_text="Não tive sintomas",
+        message_id="msg-completed-1",
+    )
+    assert "Obrigado por informar" in completed.text
+
+    extra = service.process_incoming(
+        channel="whatsapp",
+        external_user_id=user.phone,
+        message_text="ok obrigado",
+        message_id="msg-completed-2",
+    )
+    assert extra.text == ""
+
+
+def test_bot_service_does_not_reply_to_too_long_message(monkeypatch):
+    db = build_session()
+    user, _ = create_pending_report(db, phone="779")
+    monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
+
+    service = BotService()
+    response = service.process_incoming(
+        channel="whatsapp",
+        external_user_id=user.phone,
+        message_text="x" * 281,
+        message_id="msg-too-long-1",
+    )
+
+    assert response.text == ""
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,8 @@ from langchain_core.output_parsers import JsonOutputParser
 
 
 class InsightService:
+    MAX_REPORT_CHARS = 6000
+
     def __init__(self, api_key: str, modo: str):
         if not api_key:
             raise ValueError("OPENAI_API_KEY não configurada")
@@ -15,7 +17,8 @@ class InsightService:
 
         self.llm = ChatOpenAI(
             model="gpt-4o-mini",
-            temperature=0.3,
+            temperature=0.1,
+            max_tokens=500,
             api_key=api_key,
         )
 
@@ -36,47 +39,18 @@ class InsightService:
             [
                 (
                     "system",
-                    """
-You are a preventive health AI assistant.
-You do NOT provide medical diagnoses.
-All responses MUST be written in Brazilian Portuguese.
-Output ONLY valid JSON.
-"""
+                    "PT-BR. Sem diagnóstico. Responda só JSON válido, curto e objetivo."
                 ),
                 (
                     "human",
-                    """
-Analyze the preventive health report below.
-
-Report:
-{relatorio}
-
-Return ONLY the following JSON structure:
-
-{{
-  "cenarios": {{
-    "otimista": {{
-      "descricao": "",
-      "condicoes_para_ocorrer": "",
-      "probabilidade": "baixa | media | alta"
-    }},
-    "intermediario": {{
-      "descricao": "",
-      "condicoes_para_ocorrer": "",
-      "probabilidade": "baixa | media | alta"
-    }},
-    "grave": {{
-      "descricao": "",
-      "condicoes_para_ocorrer": "",
-      "probabilidade": "baixa | media | alta"
-    }}
-  }},
-  "cenario_mais_provavel": "",
-  "especialista_recomendado": "",
-  "exames_sugeridos": [],
-  "alerta_importante": ""
-}}
-"""
+                    (
+                        "Analise o relatório preventivo e retorne JSON compacto:\n"
+                        "{{\"cenarios\":{{\"otimista\":{{\"descricao\":\"\",\"condicoes_para_ocorrer\":\"\",\"probabilidade\":\"baixa|media|alta\"}},"
+                        "\"intermediario\":{{\"descricao\":\"\",\"condicoes_para_ocorrer\":\"\",\"probabilidade\":\"baixa|media|alta\"}},"
+                        "\"grave\":{{\"descricao\":\"\",\"condicoes_para_ocorrer\":\"\",\"probabilidade\":\"baixa|media|alta\"}}}},"
+                        "\"cenario_mais_provavel\":\"\",\"especialista_recomendado\":\"\",\"exames_sugeridos\":[],\"alerta_importante\":\"\"}}\n"
+                        "Relatório:\n{relatorio}"
+                    )
                 ),
             ]
         )
@@ -87,42 +61,22 @@ Return ONLY the following JSON structure:
             [
                 (
                     "system",
-                    """
-You are a clinical risk assessment AI.
-
-You do NOT confirm medical diagnoses.
-You MAY provide diagnostic hypotheses and risk stratification.
-All responses MUST be written in Brazilian Portuguese.
-Output ONLY valid JSON.
-"""
+                    "PT-BR. Não confirme diagnóstico. Liste possíveis doenças só como hipóteses, se necessário. Responda só JSON válido e compacto."
                 ),
                 (
                     "human",
-                    """
-Analyze the clinical report below.
-
-Report:
-{relatorio}
-
-Return ONLY the following JSON:
-
-{{
-  "avaliacao_clinica": {{
-    "hipotese_principal": "",
-    "nivel_de_suspeicao": "baixo | moderado | alto",
-    "justificativa": []
-  }},
-  "especialista_recomendado": "",
-  "exames_prioritarios": [],
-  "urgencia": "baixa | media | alta",
-  "alerta_legal": ""
-}}
-"""
+                    (
+                        "Analise o relatório clínico e retorne JSON compacto:\n"
+                        "{{\"avaliacao_clinica\":{{\"hipotese_principal\":\"\",\"possiveis_doencas\":[],\"nivel_de_suspeicao\":\"baixo|moderado|alto\",\"justificativa\":[]}},"
+                        "\"especialista_recomendado\":\"\",\"exames_prioritarios\":[],\"urgencia\":\"baixa|media|alta\",\"alerta_legal\":\"\"}}\n"
+                        "Relatório:\n{relatorio}"
+                    )
                 ),
             ]
         )
 
     def gerar_interpretacao(self, relatorio_texto: str) -> dict:
+        relatorio_texto = (relatorio_texto or "").strip()[: self.MAX_REPORT_CHARS]
         resultado = self.chain.invoke({"relatorio": relatorio_texto})
 
         if self.modo == "avaliacao_clinica" and "avaliacao_clinica" not in resultado:

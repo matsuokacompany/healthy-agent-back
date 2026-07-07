@@ -149,8 +149,42 @@ docker compose run --rm api alembic upgrade head
 5. O scheduler cria/reutiliza um `DailyReport` pendente por plano/data/tipo.
 6. O WhatsApp envia o template de check-in.
 7. O webhook recebe resposta do paciente.
-8. O `BotService` localiza o usuário pelo telefone e o `DailyReportService` atualiza o relatório pendente.
-9. Relatórios ficam disponíveis em `/api/daily-reports/`.
+8. Se o paciente informar que teve sintomas pelo botão/atalho positivo, o bot pede apenas a descrição dos sintomas em uma única mensagem para reduzir respostas não-template no WhatsApp.
+9. O `BotService` localiza o usuário pelo telefone e o `DailyReportService` atualiza o relatório pendente.
+10. Relatórios ficam disponíveis em `/api/daily-reports/`.
+
+### Otimização de custo do WhatsApp
+
+O fluxo positivo foi encurtado para manter a experiência intuitiva e reduzir mensagens
+enviadas pela empresa:
+
+- Antes: template inicial, pergunta sobre sintomas, pergunta sobre causa e confirmação final.
+- Agora: template inicial, uma pergunta sobre sintomas e confirmação final.
+
+Com preços baseados em mensagem, isso reduz o caso positivo completo de 4 mensagens
+enviadas pela empresa para 3 mensagens, sem deixar o paciente sem orientação sobre o que
+responder.
+
+Para evitar gasto acima desse pior cenário operacional, o bot não envia respostas
+adicionais quando o check-in já foi encerrado, já foi concluído ou quando a mensagem
+recebida é maior que o limite aceito. Essas entradas continuam sendo registradas pelo
+webhook, mas não geram nova mensagem de texto da empresa.
+
+### Otimização de custo dos relatórios de IA
+
+Os prompts de insights usam instruções compactas, limite de saída e corte do relatório
+de entrada para evitar consumo inesperado de tokens:
+
+- `max_tokens=500` limita o tamanho da resposta do modelo.
+- `temperature=0.1` reduz variação e respostas verbosas.
+- Relatórios enviados à IA são truncados em 6.000 caracteres.
+- Os templates pedem JSON compacto para reduzir tokens de entrada e saída.
+- Na avaliação clínica, a IA pode listar `possiveis_doencas` apenas como hipóteses,
+  sem confirmar diagnóstico.
+- A geração profissional reutiliza o primeiro relatório de IA já emitido na semana
+  para o paciente, evitando múltiplas chamadas pagas para o mesmo usuário.
+- O resumo clínico usa a data clínica do check-in (`report_date`) e inclui adesão,
+  dias/check-ins com sintomas, dias/check-ins sem sintomas e tendência do período.
 
 ## Testes
 

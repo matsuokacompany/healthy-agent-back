@@ -39,8 +39,6 @@ def test_daily_report_button_flow_complete():
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
     db.commit()
     db.refresh(plan)
-    return user, plan
-
 
     assert DailyReportService.process_response(db, user, "Tive sintomas") == "ASK_SYMPTOM_DESCRIPTION"
     db.refresh(report)
@@ -48,14 +46,13 @@ def test_daily_report_button_flow_complete():
     assert report.had_symptoms is True
     assert report.symptom_description is None
 
-    assert DailyReportService.process_response(db, user, "Dor de cabeça") == "ASK_CAUSE"
-    assert DailyReportService.process_response(db, user, "Dormi tarde") == "COMPLETED"
+    assert DailyReportService.process_response(db, user, "Dor de cabeça e tontura") == "COMPLETED"
 
     db.refresh(report)
     assert report.completed is True
     assert report.status == DailyReportStatusEnum.COMPLETED
-    assert report.symptom_description == "Dor de cabeça"
-    assert report.suspected_cause == "Dormi tarde"
+    assert report.symptom_description == "Dor de cabeça e tontura"
+    assert report.suspected_cause is None
 
 
 def test_daily_report_expired():
@@ -97,20 +94,38 @@ def test_daily_report_negative_completes_open_report():
     assert report.awaiting_cause is False
 
 
-def test_daily_report_free_text_symptom_asks_cause():
+def test_daily_report_free_text_symptom_completes_without_cause():
     db = build_session()
     user, plan = create_user_and_plan(db)
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
     db.commit()
 
-    assert DailyReportService.process_response(db, user, "Tive dor de cabeça") == "ASK_CAUSE"
+    assert DailyReportService.process_response(db, user, "Tive dor de cabeça") == "COMPLETED"
 
     db.refresh(report)
-    assert report.completed is False
-    assert report.status == DailyReportStatusEnum.AWAITING_CAUSE
+    assert report.completed is True
+    assert report.status == DailyReportStatusEnum.COMPLETED
     assert report.awaiting_response is False
-    assert report.awaiting_cause is True
+    assert report.awaiting_cause is False
     assert report.had_symptoms is True
+    assert report.symptom_description == "Tive dor de cabeça"
+    assert report.suspected_cause is None
+
+
+def test_daily_report_symptom_details_complete_without_cause():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    db.commit()
+
+    assert DailyReportService.process_response(db, user, "Tive sintomas") == "ASK_SYMPTOM_DESCRIPTION"
+    assert DailyReportService.process_response(db, user, "Dor de cabeça e tontura") == "COMPLETED"
+
+    db.refresh(report)
+    assert report.completed is True
+    assert report.status == DailyReportStatusEnum.COMPLETED
+    assert report.symptom_description == "Dor de cabeça e tontura"
+    assert report.suspected_cause is None
 
 
 def test_create_pending_report_reuses_same_plan_day_check():

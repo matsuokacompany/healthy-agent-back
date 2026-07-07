@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -282,3 +283,24 @@ class DailyReport(Base):
 
     user = relationship("User", back_populates="daily_reports")
     monitoring_plan = relationship("MonitoringPlan", back_populates="daily_reports")
+
+
+class AiReportCache(Base):
+    __tablename__ = "ai_report_cache"
+    __table_args__ = (
+        Index("ix_ai_report_cache_patient_created", "patient_id", "created_at"),
+        Index("ix_ai_report_cache_professional_created", "professional_user_id", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    professional_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    periodo = Column(String, nullable=False)
+    modo = Column(String, nullable=False)
+    clinical_summary_hash = Column(String, nullable=False)
+    clinical_summary = Column(Text, nullable=False)
+    ai_response = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    patient = relationship("User", foreign_keys=[patient_id])
+    professional_user = relationship("User", foreign_keys=[professional_user_id])
