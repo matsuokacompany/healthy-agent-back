@@ -2,7 +2,7 @@ services:
   api:
     build: .
     container_name: fastapi_app_dev
-    command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
     volumes:
       - .:/app
     env_file:
