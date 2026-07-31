@@ -1,5 +1,6 @@
 import hashlib
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Literal
 
 from fastapi import HTTPException, status
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.models import (
     AiReportCache,
+    AiReportStatusEnum,
     Anamnese,
     DailyReport,
     MonitoringPlan,
@@ -22,9 +24,17 @@ from app.models.schemas import (
     PatientDashboardResponseV2,
     ProfessionalAiReportResponse,
     ProfessionalPatientRead,
+    CustomAiReportPreviewRequest,
+    CustomAiReportPreviewResponse,
+    CustomAiReportCreateRequest,
+    CustomAiReportResponse,
+    CustomAiReportListResponse,
 )
 from app.core.permissions import is_admin, require_role
 from app.services.insight_service import InsightService
+from app.services.custom_report_preview_service import CustomReportPreviewService
+from app.services.custom_report_generation_service import CustomReportCostPolicy, CustomReportGenerationService
+from app.services.custom_report_history_service import CustomReportHistoryService
 from app.services.patient_dashboard_service import PaginationParams, PatientDashboardService, ReportFilters
 from app.services.report_service import ReportService
 
@@ -146,6 +156,7 @@ class ProfessionalService:
             )
 
         ai = InsightService(api_key=api_key or "", modo=modo).gerar_interpretacao(clinical_summary)
+        generated_at = datetime.now(timezone.utc)
         self.db.add(
             AiReportCache(
                 patient_id=patient_id,
@@ -155,6 +166,9 @@ class ProfessionalService:
                 clinical_summary_hash=self._hash_text(clinical_summary),
                 clinical_summary=clinical_summary,
                 ai_response=ai,
+                status=AiReportStatusEnum.COMPLETED.value,
+                generated_at=generated_at,
+                next_generation_at=generated_at + timedelta(days=30),
             )
         )
         self.db.commit()
@@ -165,6 +179,105 @@ class ProfessionalService:
             clinical_summary=clinical_summary,
             ai=ai,
         )
+
+    def preview_custom_ai_report(
+        self,
+        current_user: User,
+        patient_id: int,
+        *,
+        payload: CustomAiReportPreviewRequest,
+        token_secret: str | None,
+    ) -> CustomAiReportPreviewResponse:
+        require_role(current_user, RoleNameEnum.PROFESSIONAL)
+        self._require_patient_access(current_user, patient_id)
+        if not token_secret or len(token_secret) < CustomReportPreviewService.MINIMUM_TOKEN_SECRET_LENGTH:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AI report preview is not configured",
+            )
+        return CustomReportPreviewService(self.db, token_secret).preview(
+            patient_id=patient_id,
+            requested_by_user_id=current_user.id,
+            payload=payload,
+        )
+
+    def generate_custom_ai_report(
+        self,
+        current_user: User,
+        patient_id: int,
+        *,
+        payload: CustomAiReportCreateRequest,
+        token_secret: str | None,
+        api_key: str | None,
+        model_name: str,
+        max_input_tokens: int,
+        max_output_tokens: int,
+        max_cost_usd: float,
+        input_cost_per_million_usd: float | None,
+        output_cost_per_million_usd: float | None,
+    ) -> CustomAiReportResponse:
+        require_role(current_user, RoleNameEnum.PROFESSIONAL)
+        self._require_patient_access(current_user, patient_id)
+        if (
+            not token_secret
+            or len(token_secret) < CustomReportPreviewService.MINIMUM_TOKEN_SECRET_LENGTH
+            or not api_key
+            or input_cost_per_million_usd is None
+            or output_cost_per_million_usd is None
+            or max_input_tokens <= 0
+            or max_output_tokens <= 0
+            or max_cost_usd <= 0
+            or input_cost_per_million_usd < 0
+            or output_cost_per_million_usd < 0
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Custom AI report generation is not configured",
+            )
+        policy = CustomReportCostPolicy(
+            model_name=model_name,
+            max_input_tokens=max_input_tokens,
+            max_output_tokens=max_output_tokens,
+            max_cost_usd=Decimal(str(max_cost_usd)),
+            input_cost_per_million_usd=Decimal(str(input_cost_per_million_usd)),
+            output_cost_per_million_usd=Decimal(str(output_cost_per_million_usd)),
+        )
+        return CustomReportGenerationService(
+            self.db,
+            token_secret=token_secret,
+            api_key=api_key,
+            cost_policy=policy,
+        ).generate(
+            patient_id=patient_id,
+            requested_by_user_id=current_user.id,
+            payload=payload,
+        )
+
+    def list_custom_ai_reports(
+        self,
+        current_user: User,
+        patient_id: int,
+        *,
+        pagination: PaginationParams,
+        report_status: str | None,
+    ) -> CustomAiReportListResponse:
+        require_role(current_user, RoleNameEnum.PROFESSIONAL)
+        self._require_patient_access(current_user, patient_id)
+        return CustomReportHistoryService(self.db).list_reports(
+            patient_id,
+            pagination=pagination,
+            report_status=report_status,
+        )
+
+    def get_custom_ai_report(
+        self,
+        current_user: User,
+        patient_id: int,
+        report_id: int,
+    ) -> CustomAiReportResponse:
+        require_role(current_user, RoleNameEnum.PROFESSIONAL)
+        self._require_patient_access(current_user, patient_id)
+        return CustomReportHistoryService(self.db).get_report(patient_id, report_id)
 
     @staticmethod
     def _current_week_start(now: datetime | None = None) -> datetime:

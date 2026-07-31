@@ -6,10 +6,17 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
+from app.core.config import settings
 from app.core.dependencies import get_db
 from app.models.models import User
 from app.models.schemas import (
     AnamneseRead,
+    CustomAiReportPreviewRequest,
+    CustomAiReportPreviewResponse,
+    CustomAiReportCreateRequest,
+    CustomAiReportResponse,
+    CustomAiReportListResponse,
+    AiReportStatusEnum,
     DailyReportStatusEnum,
     PatientDashboardCheckinsResponse,
     PatientDashboardResponseV2,
@@ -89,4 +96,84 @@ def generate_professional_patient_ai_report(
         periodo=payload.periodo,
         modo=payload.modo,
         api_key=os.getenv("OPENAI_API_KEY"),
+    )
+
+
+@router.post(
+    "/patients/{patient_id}/ai-reports/preview",
+    response_model=CustomAiReportPreviewResponse,
+)
+def preview_professional_patient_ai_report(
+    patient_id: int,
+    payload: CustomAiReportPreviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return ProfessionalService(db).preview_custom_ai_report(
+        current_user,
+        patient_id,
+        payload=payload,
+        token_secret=settings.AI_REPORT_PREVIEW_SECRET,
+    )
+
+
+@router.post(
+    "/patients/{patient_id}/ai-reports",
+    response_model=CustomAiReportResponse,
+)
+def generate_custom_professional_patient_ai_report(
+    patient_id: int,
+    payload: CustomAiReportCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return ProfessionalService(db).generate_custom_ai_report(
+        current_user,
+        patient_id,
+        payload=payload,
+        token_secret=settings.AI_REPORT_PREVIEW_SECRET,
+        api_key=settings.OPENAI_API_KEY,
+        model_name=settings.AI_REPORT_MODEL,
+        max_input_tokens=settings.AI_REPORT_MAX_INPUT_TOKENS,
+        max_output_tokens=settings.AI_REPORT_MAX_OUTPUT_TOKENS,
+        max_cost_usd=settings.AI_REPORT_MAX_COST_USD,
+        input_cost_per_million_usd=settings.AI_REPORT_INPUT_COST_PER_MILLION_USD,
+        output_cost_per_million_usd=settings.AI_REPORT_OUTPUT_COST_PER_MILLION_USD,
+    )
+
+
+@router.get(
+    "/patients/{patient_id}/ai-reports",
+    response_model=CustomAiReportListResponse,
+)
+def list_custom_professional_patient_ai_reports(
+    patient_id: int,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    report_status: AiReportStatusEnum | None = Query(None, alias="status"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return ProfessionalService(db).list_custom_ai_reports(
+        current_user,
+        patient_id,
+        pagination=PaginationParams(page=page, per_page=per_page),
+        report_status=report_status.value if report_status else None,
+    )
+
+
+@router.get(
+    "/patients/{patient_id}/ai-reports/{report_id}",
+    response_model=CustomAiReportResponse,
+)
+def get_custom_professional_patient_ai_report(
+    patient_id: int,
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return ProfessionalService(db).get_custom_ai_report(
+        current_user,
+        patient_id,
+        report_id,
     )

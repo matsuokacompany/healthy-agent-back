@@ -69,6 +69,13 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `SUPABASE_JWT_AUDIENCE` | não | `authenticated` | Audience exigida nos access tokens do Supabase. |
 | `SUPABASE_JWT_ISSUER` | não | `https://<PROJECT_REF>.supabase.co/auth/v1` | Issuer customizado; por padrão é derivado de `SUPABASE_PROJECT_URL`. |
 | `OPENAI_API_KEY` | não | `sk-...` | Chave OpenAI para insights. |
+| `AI_REPORT_PREVIEW_SECRET` | sim para relatórios personalizados | `change-me-with-a-long-random-secret` | Segredo exclusivo usado para assinar previews de relatórios por 15 minutos. |
+| `AI_REPORT_MODEL` | não | `gpt-4o-mini` | Modelo usado nos relatórios personalizados. |
+| `AI_REPORT_MAX_INPUT_TOKENS` | não | `2000` | Limite estimado de tokens de entrada por relatório. |
+| `AI_REPORT_MAX_OUTPUT_TOKENS` | não | `500` | Limite de tokens de saída por relatório. |
+| `AI_REPORT_MAX_COST_USD` | não | `0.05` | Teto estimado em dólar para uma geração. |
+| `AI_REPORT_INPUT_COST_PER_MILLION_USD` | sim para geração | consulte o provedor | Preço configurável de um milhão de tokens de entrada. |
+| `AI_REPORT_OUTPUT_COST_PER_MILLION_USD` | sim para geração | consulte o provedor | Preço configurável de um milhão de tokens de saída. |
 | `CORS_ORIGINS` | não | `http://localhost:3000,https://app.julha.com.br` | Origens permitidas no CORS, separadas por vírgula. O padrão já inclui `http://localhost:3000` e `https://app.julha.com.br`. |
 | `WHATSAPP_VERIFY_TOKEN` | sim | `verify-token` | Token de verificação do webhook Meta. |
 | `WHATSAPP_PHONE_NUMBER_ID` | sim | `123456789` | Phone Number ID da Meta. |

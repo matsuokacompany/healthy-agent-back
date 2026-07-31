@@ -11,9 +11,11 @@ from sqlalchemy import (
     Index,
     Integer,
     JSON,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
@@ -44,6 +46,13 @@ class UrgenciaEnum(str, enum.Enum):
     BAIXA = "baixa"
     MEDIA = "media"
     ALTA = "alta"
+
+
+class AiReportStatusEnum(str, enum.Enum):
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class RoleNameEnum(str, enum.Enum):
@@ -290,6 +299,16 @@ class AiReportCache(Base):
     __table_args__ = (
         Index("ix_ai_report_cache_patient_created", "patient_id", "created_at"),
         Index("ix_ai_report_cache_professional_created", "professional_user_id", "created_at"),
+        Index("ix_ai_report_cache_patient_status_generated", "patient_id", "status", "generated_at"),
+        Index("ix_ai_report_cache_patient_dates", "patient_id", "start_date", "end_date"),
+        Index("ix_ai_report_cache_idempotency_key", "idempotency_key", unique=True),
+        Index(
+            "uq_ai_report_cache_patient_active",
+            "patient_id",
+            unique=True,
+            postgresql_where=text("status IN ('PENDING', 'PROCESSING')"),
+            sqlite_where=text("status IN ('PENDING', 'PROCESSING')"),
+        ),
     )
 
     id = Column(Integer, primary_key=True)
@@ -297,9 +316,25 @@ class AiReportCache(Base):
     professional_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     periodo = Column(String, nullable=False)
     modo = Column(String, nullable=False)
-    clinical_summary_hash = Column(String, nullable=False)
-    clinical_summary = Column(Text, nullable=False)
-    ai_response = Column(JSON, nullable=False)
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
+    status = Column(String, nullable=False, default=AiReportStatusEnum.COMPLETED.value)
+    clinical_summary_hash = Column(String, nullable=True)
+    clinical_summary = Column(Text, nullable=True)
+    ai_response = Column(JSON, nullable=True)
+    requested_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    processing_started_at = Column(DateTime(timezone=True), nullable=True)
+    generated_at = Column(DateTime(timezone=True), nullable=True)
+    next_generation_at = Column(DateTime(timezone=True), nullable=True)
+    input_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+    estimated_cost = Column(Numeric(12, 8), nullable=True)
+    actual_cost = Column(Numeric(12, 8), nullable=True)
+    model_name = Column(String, nullable=True)
+    prompt_version = Column(String, nullable=True)
+    failure_code = Column(String, nullable=True)
+    failure_message = Column(Text, nullable=True)
+    idempotency_key = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     patient = relationship("User", foreign_keys=[patient_id])
