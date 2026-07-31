@@ -1,12 +1,21 @@
+from dataclasses import dataclass
+
 from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 
 
+@dataclass(frozen=True)
+class InsightGenerationResult:
+    data: dict
+    input_tokens: int
+    output_tokens: int
+
+
 class InsightService:
     MAX_REPORT_CHARS = 6000
 
-    def __init__(self, api_key: str, modo: str):
+    def __init__(self, api_key: str, modo: str, *, model: str = "gpt-4o-mini", max_tokens: int = 500):
         if not api_key:
             raise ValueError("OPENAI_API_KEY não configurada")
 
@@ -16,9 +25,9 @@ class InsightService:
         self.modo = modo
 
         self.llm = ChatOpenAI(
-            model="gpt-4o-mini",
+            model=model,
             temperature=0.1,
-            max_tokens=500,
+            max_tokens=max_tokens,
             api_key=api_key,
         )
 
@@ -76,10 +85,23 @@ class InsightService:
         )
 
     def gerar_interpretacao(self, relatorio_texto: str) -> dict:
+        return self.gerar_interpretacao_com_uso(relatorio_texto).data
+
+    def gerar_interpretacao_com_uso(self, relatorio_texto: str) -> InsightGenerationResult:
         relatorio_texto = (relatorio_texto or "").strip()[: self.MAX_REPORT_CHARS]
-        resultado = self.chain.invoke({"relatorio": relatorio_texto})
+        prompt_value = self.prompt.invoke({"relatorio": relatorio_texto})
+        message = self.llm.invoke(prompt_value)
+        resultado = self.parser.invoke(message)
 
         if self.modo == "avaliacao_clinica" and "avaliacao_clinica" not in resultado:
             raise RuntimeError("Resposta inválida para avaliação clínica")
 
-        return resultado
+        usage = getattr(message, "usage_metadata", None) or {}
+        token_usage = getattr(message, "response_metadata", {}).get("token_usage", {})
+        input_tokens = usage.get("input_tokens", token_usage.get("prompt_tokens", 0))
+        output_tokens = usage.get("output_tokens", token_usage.get("completion_tokens", 0))
+        return InsightGenerationResult(
+            data=resultado,
+            input_tokens=int(input_tokens or 0),
+            output_tokens=int(output_tokens or 0),
+        )

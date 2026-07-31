@@ -321,7 +321,9 @@ class BotService:
                 text=(
                     "Entendi. Para concluir, descreva em uma única resposta quais sintomas você teve.\n\n"
                     "Exemplo: dor de cabeça e tontura.\n"
-                    "Máx: 280 caracteres."
+                    "Máx: 280 caracteres.\n\n"
+                    "Se esquecer de algo ou precisar corrigir as informações, você pode alterá-las "
+                    "acessando app.julha.com.br."
                 ),
                 ask_followup=True,
             )

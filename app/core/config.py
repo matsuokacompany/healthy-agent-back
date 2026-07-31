@@ -7,6 +7,13 @@ class Settings(BaseSettings):
     DATABASE_URL: str
 
     OPENAI_API_KEY: Optional[str] = None
+    AI_REPORT_PREVIEW_SECRET: Optional[str] = None
+    AI_REPORT_MODEL: str = "gpt-4o-mini"
+    AI_REPORT_MAX_INPUT_TOKENS: int = 2000
+    AI_REPORT_MAX_OUTPUT_TOKENS: int = 500
+    AI_REPORT_MAX_COST_USD: float = 0.05
+    AI_REPORT_INPUT_COST_PER_MILLION_USD: Optional[float] = None
+    AI_REPORT_OUTPUT_COST_PER_MILLION_USD: Optional[float] = None
 
     USER_ID: int = 1
     ENV: str = "dev"

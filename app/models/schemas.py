@@ -1,9 +1,9 @@
 from datetime import date, datetime
 from enum import Enum
 from uuid import UUID
-from typing import List, Literal, Optional
+from typing import ClassVar, List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from app.core.user_identity import validate_user_name
 
@@ -31,6 +31,13 @@ class UrgenciaEnum(str, Enum):
     BAIXA = "baixa"
     MEDIA = "media"
     ALTA = "alta"
+
+
+class AiReportStatusEnum(str, Enum):
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class RoleNameEnum(str, Enum):
@@ -450,3 +457,144 @@ class ProfessionalAiReportResponse(BaseModel):
     modo: Literal["preventivo", "avaliacao_clinica"]
     clinical_summary: str
     ai: dict
+
+
+class CustomAiReportPeriod(BaseModel):
+    MIN_PERIOD_DAYS: ClassVar[int] = 30
+    MAX_PERIOD_YEARS: ClassVar[int] = 5
+
+    start_date: date
+    end_date: date
+
+    @model_validator(mode="after")
+    def validate_period(self):
+        if self.end_date < self.start_date:
+            raise ValueError("end_date must be greater than or equal to start_date")
+        if self.end_date > date.today():
+            raise ValueError("end_date cannot be in the future")
+
+        period_days = (self.end_date - self.start_date).days + 1
+        if period_days < self.MIN_PERIOD_DAYS:
+            raise ValueError(f"period must include at least {self.MIN_PERIOD_DAYS} days")
+
+        try:
+            maximum_end_date = self.start_date.replace(year=self.start_date.year + self.MAX_PERIOD_YEARS)
+        except ValueError:
+            maximum_end_date = self.start_date.replace(
+                year=self.start_date.year + self.MAX_PERIOD_YEARS,
+                day=28,
+            )
+        if self.end_date > maximum_end_date:
+            raise ValueError(f"period cannot exceed {self.MAX_PERIOD_YEARS} calendar years")
+        return self
+
+
+class CustomAiReportPreviewRequest(CustomAiReportPeriod):
+    modo: Literal["preventivo", "avaliacao_clinica"] = "avaliacao_clinica"
+
+
+class CustomAiReportCreateRequest(CustomAiReportPreviewRequest):
+    preview_token: str = Field(min_length=1)
+
+
+class CustomAiReportEligibility(BaseModel):
+    can_generate: bool
+    reason: Optional[str] = None
+    next_generation_at: Optional[datetime] = None
+    sufficient_data: bool
+    completed_checkins: int = Field(ge=0)
+    minimum_required: int = Field(default=10, ge=1)
+    latest_report_id: Optional[int] = None
+    last_generated_at: Optional[datetime] = None
+
+
+class CustomClinicalPeriodMetrics(BaseModel):
+    total_checkins: int = Field(ge=0)
+    completed_checkins: int = Field(ge=0)
+    pending_checkins: int = Field(ge=0)
+    checkins_with_symptoms: int = Field(ge=0)
+    checkins_without_symptoms: int = Field(ge=0)
+    days_with_checkins: int = Field(ge=0)
+    adherence_percentage: float = Field(ge=0, le=100)
+    symptom_rate_percentage: float = Field(ge=0, le=100)
+    calendar_coverage_percentage: float = Field(ge=0, le=100)
+
+
+class CustomClinicalSymptomOccurrence(BaseModel):
+    description: str
+    occurrences: int = Field(ge=1)
+    first_reported_at: date
+    last_reported_at: date
+
+
+class CustomClinicalTimelineGroup(BaseModel):
+    start_date: date
+    end_date: date
+    metrics: CustomClinicalPeriodMetrics
+
+
+class CustomClinicalSummary(BaseModel):
+    patient_id: int
+    start_date: date
+    end_date: date
+    period_days: int = Field(ge=1)
+    aggregation: Literal["weekly", "monthly", "yearly"]
+    minimum_completed_checkins: int = Field(default=10, ge=1)
+    sufficient_data: bool
+    metrics: CustomClinicalPeriodMetrics
+    symptom_trend: Literal["increasing", "decreasing", "stable", "insufficient_data"]
+    longest_gap_days: int = Field(ge=0)
+    symptoms: List[CustomClinicalSymptomOccurrence] = Field(default_factory=list)
+    timeline: List[CustomClinicalTimelineGroup] = Field(default_factory=list)
+
+
+class CustomAiReportPreviewResponse(BaseModel):
+    modo: Literal["preventivo", "avaliacao_clinica"]
+    eligibility: CustomAiReportEligibility
+    summary: CustomClinicalSummary
+    preview_token: Optional[str] = None
+    preview_expires_at: Optional[datetime] = None
+
+
+class CustomAiReportResponse(BaseModel):
+    report_id: int
+    patient_id: int
+    start_date: date
+    end_date: date
+    modo: Literal["preventivo", "avaliacao_clinica"]
+    status: AiReportStatusEnum
+    requested_by_user_id: int
+    requested_at: datetime
+    processing_started_at: Optional[datetime] = None
+    generated_at: Optional[datetime] = None
+    next_generation_at: Optional[datetime] = None
+    clinical_summary: Optional[str] = None
+    ai: Optional[dict] = None
+    input_tokens: Optional[int] = Field(default=None, ge=0)
+    output_tokens: Optional[int] = Field(default=None, ge=0)
+    estimated_cost: Optional[float] = Field(default=None, ge=0)
+    actual_cost: Optional[float] = Field(default=None, ge=0)
+    model_name: Optional[str] = None
+    failure_code: Optional[str] = None
+
+
+class CustomAiReportListItem(BaseModel):
+    report_id: int
+    patient_id: int
+    requested_by_user_id: int
+    start_date: date
+    end_date: date
+    modo: Literal["preventivo", "avaliacao_clinica"]
+    status: AiReportStatusEnum
+    requested_at: datetime
+    generated_at: Optional[datetime] = None
+    next_generation_at: Optional[datetime] = None
+    estimated_cost: Optional[float] = Field(default=None, ge=0)
+    actual_cost: Optional[float] = Field(default=None, ge=0)
+    model_name: Optional[str] = None
+    failure_code: Optional[str] = None
+
+
+class CustomAiReportListResponse(BaseModel):
+    items: List[CustomAiReportListItem]
+    pagination: PatientDashboardPagination
