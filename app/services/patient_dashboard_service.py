@@ -9,7 +9,7 @@ from sqlalchemy import Integer, func
 from sqlalchemy.orm import Query, Session, selectinload
 
 from app.core.config import settings
-from app.core.permissions import has_any_role, require_role
+from app.core.permissions import has_any_role, is_super_admin, require_role
 from app.models.models import (
     Anamnese,
     DailyReport,
@@ -76,7 +76,7 @@ class PatientDashboardService:
         self.timezone = ZoneInfo(settings.SCHEDULER_TIMEZONE)
 
     def get_dashboard(self, current_user: User) -> PatientDashboardResponseV2:
-        self._ensure_patient_only(current_user)
+        self._ensure_patient_access(current_user)
 
         today = datetime.now(self.timezone).date()
         active_plan = self._get_active_plan(current_user.id, today)
@@ -116,7 +116,7 @@ class PatientDashboardService:
         filters: ReportFilters,
         order: str,
     ) -> PatientDashboardHistoryResponse:
-        self._ensure_patient_only(current_user)
+        self._ensure_patient_access(current_user)
         query = self._reports_query(current_user.id, filters)
         total = query.count()
         items = (
@@ -138,7 +138,7 @@ class PatientDashboardService:
         filters: ReportFilters,
         order: str,
     ) -> PatientDashboardCheckinsResponse:
-        self._ensure_patient_only(current_user)
+        self._ensure_patient_access(current_user)
         query = self._reports_query(current_user.id, filters)
         total = query.count()
         items = (
@@ -153,7 +153,7 @@ class PatientDashboardService:
         )
 
     def get_calendar(self, current_user: User, *, year: int, month: int) -> PatientDashboardCalendarResponse:
-        self._ensure_patient_only(current_user)
+        self._ensure_patient_access(current_user)
         _, last_day = monthrange(year, month)
         start_date = date(year, month, 1)
         end_date = date(year, month, last_day)
@@ -183,7 +183,7 @@ class PatientDashboardService:
         start_date: date | None,
         end_date: date | None,
     ) -> PatientDashboardStatisticsResponse:
-        self._ensure_patient_only(current_user)
+        self._ensure_patient_access(current_user)
         filters = self._build_period_filters(period=period, start_date=start_date, end_date=end_date)
         return PatientDashboardStatisticsResponse(
             period=period,
@@ -193,9 +193,12 @@ class PatientDashboardService:
         )
 
     @staticmethod
-    def _ensure_patient_only(current_user: User) -> None:
+    def _ensure_patient_access(current_user: User) -> None:
+        if is_super_admin(current_user):
+            return
+
         require_role(current_user, RoleNameEnum.PATIENT)
-        if has_any_role(current_user, {RoleNameEnum.ADMIN, RoleNameEnum.SUPER_ADMIN, RoleNameEnum.PROFESSIONAL}):
+        if has_any_role(current_user, {RoleNameEnum.ADMIN, RoleNameEnum.PROFESSIONAL}):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Patient dashboard is only available for patient users",
