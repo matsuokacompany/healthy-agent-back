@@ -7,8 +7,10 @@ from urllib.request import urlopen
 import json
 import uuid
 
-from fastapi import Depends, HTTPException, status
+import secrets
+from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import httpx
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
 
@@ -23,6 +25,123 @@ ALGORITHMS = ["HS256", "RS256", "ES256"]
 bearer_scheme = HTTPBearer()
 bearer_scheme_optional = HTTPBearer(auto_error=False)
 logger = logging.getLogger(__name__)
+
+ACCESS_COOKIE = settings.AUTH_ACCESS_COOKIE_NAME
+REFRESH_COOKIE = settings.AUTH_REFRESH_COOKIE_NAME
+CSRF_COOKIE = settings.AUTH_CSRF_COOKIE_NAME
+
+
+def _auth_headers() -> dict[str, str]:
+    if not settings.SUPABASE_ANON_KEY:
+        raise RuntimeError("SUPABASE_ANON_KEY must be configured for Supabase Auth server-side calls")
+    return {"apikey": settings.SUPABASE_ANON_KEY, "Authorization": f"Bearer {settings.SUPABASE_ANON_KEY}"}
+
+
+def _auth_url(path: str) -> str:
+    project_url = _supabase_project_url()
+    if not project_url:
+        raise RuntimeError("SUPABASE_PROJECT_URL must be configured")
+    return f"{project_url}/auth/v1{path}"
+
+
+def _generic_auth_error() -> HTTPException:
+    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+
+def set_no_store(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store"
+
+
+def set_auth_cookies(response: Response, *, access_token: str, refresh_token: str, expires_in: int) -> str:
+    csrf_token = secrets.token_urlsafe(32)
+    secure = settings.AUTH_COOKIE_SECURE
+    same_site = settings.AUTH_COOKIE_SAMESITE.lower()
+    response.set_cookie(
+        ACCESS_COOKIE,
+        access_token,
+        max_age=max(1, int(expires_in)),
+        httponly=True,
+        secure=secure,
+        samesite=same_site,
+        path="/",
+    )
+    response.set_cookie(
+        REFRESH_COOKIE,
+        refresh_token,
+        max_age=60 * 60 * 24 * 30,
+        httponly=True,
+        secure=secure,
+        samesite="strict",
+        path="/api/auth",
+    )
+    response.set_cookie(
+        CSRF_COOKIE,
+        csrf_token,
+        max_age=60 * 60 * 24 * 30,
+        httponly=False,
+        secure=secure,
+        samesite="strict",
+        path="/",
+    )
+    return csrf_token
+
+
+def clear_auth_cookies(response: Response) -> None:
+    secure = settings.AUTH_COOKIE_SECURE
+    response.delete_cookie(ACCESS_COOKIE, path="/", secure=secure, samesite=settings.AUTH_COOKIE_SAMESITE.lower())
+    response.delete_cookie(REFRESH_COOKIE, path="/api/auth", secure=secure, samesite="strict")
+    response.delete_cookie(CSRF_COOKIE, path="/", secure=secure, samesite="strict")
+
+
+def _resolve_or_create_user(db: Session, payload: dict[str, Any]) -> User:
+    supabase_user_id = uuid.UUID(str(payload["sub"]))
+    email = payload.get("email") or "unknown@example.com"
+    user = db.query(User).filter(User.supabase_user_id == supabase_user_id).first()
+    if not user and email:
+        user = db.query(User).filter(User.email == email).first()
+        if user and user.supabase_user_id is None:
+            user.supabase_user_id = supabase_user_id
+    if not user:
+        user = User(email=email, name=email.split("@")[0], supabase_user_id=supabase_user_id)
+        db.add(user)
+        db.flush()
+        assign_role(db, user, RoleNameEnum.PATIENT)
+    _sync_supabase_profile(db, user, payload)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def supabase_password_login(email: str, password: str) -> dict[str, Any]:
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(
+                _auth_url("/token?grant_type=password"),
+                headers=_auth_headers(),
+                json={"email": email, "password": password},
+            )
+    except (httpx.HTTPError, RuntimeError):
+        logger.info("Supabase login failed for email=%s", email)
+        raise _generic_auth_error()
+    if response.status_code >= 400:
+        logger.info("Supabase login rejected for email=%s status=%s", email, response.status_code)
+        raise _generic_auth_error()
+    return response.json()
+
+
+def supabase_refresh(refresh_token: str) -> dict[str, Any]:
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(
+                _auth_url("/token?grant_type=refresh_token"),
+                headers=_auth_headers(),
+                json={"refresh_token": refresh_token},
+            )
+    except (httpx.HTTPError, RuntimeError):
+        raise _generic_auth_error()
+    if response.status_code >= 400:
+        raise _generic_auth_error()
+    return response.json()
 
 
 def _supabase_project_url() -> str | None:
@@ -187,46 +306,25 @@ def _sync_supabase_profile(db: Session, user: User, payload: dict[str, Any]) -> 
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    request: Request | None = None,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme_optional),
     db: Session = Depends(get_db),
 ) -> User:
-    payload = _decode_supabase_token(credentials.credentials)
-    supabase_user_id = uuid.UUID(str(payload["sub"]))
-    email = payload.get("email")
-
-    user = db.query(User).filter(User.supabase_user_id == supabase_user_id).first()
-    if not user and email:
-        user = db.query(User).filter(User.email == email).first()
-        if user and user.supabase_user_id is None:
-            _log_user_update(
-                user,
-                previous_name=user.name,
-                new_name=user.name,
-                origin="auth.get_current_user.link_supabase_identity",
-            )
-            user.supabase_user_id = supabase_user_id
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User is not provisioned for this application",
-        )
-
-    _sync_supabase_profile(db, user, payload)
-
-    db.commit()
-    db.refresh(user)
-    return user
+    token = (request.cookies.get(ACCESS_COOKIE) if request else None) or (credentials.credentials if credentials else None)
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return _resolve_or_create_user(db, _decode_supabase_token(token))
 
 
 def get_current_user_optional(
+    request: Request | None = None,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme_optional),
     db: Session = Depends(get_db),
 ) -> User | None:
-    if not credentials:
+    if not credentials and not (request and request.cookies.get(ACCESS_COOKIE)):
         return None
     try:
-        return get_current_user(credentials=credentials, db=db)
+        return get_current_user(request=request, credentials=credentials, db=db)
     except HTTPException:
         return None
 
