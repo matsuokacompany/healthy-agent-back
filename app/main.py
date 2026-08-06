@@ -3,7 +3,8 @@ import os
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.bot.channels.bot_manager import BotManager
@@ -109,12 +110,35 @@ app = FastAPI(
 
 API_PREFIX = "/api"
 
+
+@app.middleware("http")
+async def csrf_and_origin_protection(request: Request, call_next):
+    unsafe_method = request.method in {"POST", "PUT", "PATCH", "DELETE"}
+    if unsafe_method and request.url.path.startswith(API_PREFIX):
+        origin = request.headers.get("origin")
+        if origin and origin not in CORS_ORIGINS:
+            return JSONResponse(status_code=403, content={"detail": "Invalid origin"})
+        csrf_exempt = {
+            f"{API_PREFIX}/auth/login",
+            f"{API_PREFIX}/auth/forgot-password",
+            f"{API_PREFIX}/auth/callback",
+        }
+        if request.url.path not in csrf_exempt:
+            csrf_cookie = request.cookies.get("ha_csrf")
+            csrf_header = request.headers.get("X-CSRF-Token")
+            if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
+                return JSONResponse(status_code=403, content={"detail": "Invalid CSRF token"})
+    response = await call_next(request)
+    if request.url.path.startswith(f"{API_PREFIX}/auth"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
 )
 
 

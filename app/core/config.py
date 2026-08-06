@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     SUPABASE_JWT_SECRET: Optional[str] = None
     SUPABASE_JWT_AUDIENCE: str = "authenticated"
     SUPABASE_JWT_ISSUER: Optional[str] = None
+    SUPABASE_ANON_KEY: Optional[str] = None
+    AUTH_COOKIE_SECURE: bool = True
+    AUTH_COOKIE_SAMESITE: str = "lax"
+    AUTH_ACCESS_COOKIE_NAME: str = "__Host-ha_access"
+    AUTH_REFRESH_COOKIE_NAME: str = "__Host-ha_refresh"
+    AUTH_CSRF_COOKIE_NAME: str = "ha_csrf"
+    AUTH_CSRF_HEADER_NAME: str = "X-CSRF-Token"
+    AUTH_REDIRECT_ALLOWLIST: str = "http://localhost:3000,https://app.julha.com.br"
 
     SCHEDULER_TIMEZONE: str = "UTC"
 
