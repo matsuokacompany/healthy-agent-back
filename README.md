@@ -116,20 +116,86 @@ postgresql+psycopg2://postgres:postgres@db:5432/app_dev
 Produção não sobe PostgreSQL local. O `docker-compose.yml` contém somente a API.
 
 1. Criar projeto Supabase e copiar a connection string PostgreSQL.
-2. Configurar `.env` na EC2 com `DATABASE_URL` do Supabase e demais variáveis.
-3. Instalar Docker e Docker Compose plugin.
-4. Aplicar migrations.
-5. Subir a API.
+2. Configurar os secrets do ambiente `production` no GitHub (veja abaixo).
+3. Instalar Docker e o plugin Docker Compose uma única vez na instância.
+4. Fazer push para `main`; migrations e inicialização da API são automáticas.
 
-Comandos sugeridos na EC2:
+O workflow `.github/workflows/deploy.yml` envia uma cópia limpa do commit para a
+EC2, cria o `.env`, reconstrói a imagem, executa as migrations no início do
+container e valida que a API permaneceu em execução. Assim, a instância não
+precisa ter uma cópia Git do repositório nem credenciais do GitHub.
+
+Cadastre estes secrets em **Settings > Environments > production**:
+
+- `EC2_HOST`: IP ou domínio público da instância;
+- `EC2_USER`: usuário SSH (por exemplo, `ubuntu`);
+- `EC2_SSH_KEY`: chave SSH privada;
+- `EC2_HOST_KEY`: linha completa retornada por `ssh-keyscan -H <host>`;
+- `PRODUCTION_ENV`: conteúdo completo do arquivo `.env` de produção.
+
+Exemplo dos secrets do environment `production` (substitua todos os valores
+entre `<...>` pelos valores reais):
+
+| Secret | Exemplo de valor |
+| --- | --- |
+| `EC2_HOST` | `api.exemplo.com` ou `203.0.113.10` |
+| `EC2_USER` | `ubuntu` |
+| `EC2_SSH_KEY` | conteúdo completo de `-----BEGIN OPENSSH PRIVATE KEY-----` até `-----END OPENSSH PRIVATE KEY-----` |
+| `EC2_HOST_KEY` | saída completa de `ssh-keyscan -H api.exemplo.com` |
+
+Para o secret multilinha `PRODUCTION_ENV`, use um valor como este:
+
+```dotenv
+ENV=production
+DEBUG=false
+DATABASE_URL=postgresql+psycopg2://postgres:<SENHA>@db.<PROJECT_REF>.supabase.co:5432/postgres?sslmode=require
+
+SUPABASE_PROJECT_URL=https://<PROJECT_REF>.supabase.co
+SUPABASE_ANON_KEY=<SUPABASE_ANON_KEY>
+SUPABASE_JWT_SECRET=<SUPABASE_JWT_SECRET>
+SUPABASE_JWT_AUDIENCE=authenticated
+SUPABASE_JWT_ISSUER=https://<PROJECT_REF>.supabase.co/auth/v1
+
+CORS_ORIGINS=https://app.exemplo.com
+AUTH_REDIRECT_ALLOWLIST=https://app.exemplo.com
+AUTH_COOKIE_SECURE=true
+AUTH_COOKIE_SAMESITE=lax
+
+WHATSAPP_VERIFY_TOKEN=<TOKEN_DE_VERIFICACAO>
+WHATSAPP_PHONE_NUMBER_ID=<PHONE_NUMBER_ID>
+WHATSAPP_ACCESS_TOKEN=<TOKEN_DE_ACESSO_PERMANENTE>
+WHATSAPP_DAILY_TEMPLATE_NAME=daily_symptom_checkin
+APP_SECRET=<META_APP_SECRET>
+
+SCHEDULER_TIMEZONE=America/Sao_Paulo
+SCHEDULER_MORNING_HOUR=8
+SCHEDULER_MORNING_MINUTE=0
+
+OPENAI_API_KEY=<OPENAI_API_KEY>
+AI_REPORT_PREVIEW_SECRET=<SEGREDO_ALEATORIO_LONGO>
+AI_REPORT_MODEL=gpt-4o-mini
+AI_REPORT_MAX_INPUT_TOKENS=2000
+AI_REPORT_MAX_OUTPUT_TOKENS=500
+AI_REPORT_MAX_COST_USD=0.05
+AI_REPORT_INPUT_COST_PER_MILLION_USD=<CUSTO_DE_ENTRADA>
+AI_REPORT_OUTPUT_COST_PER_MILLION_USD=<CUSTO_DE_SAIDA>
+```
+
+O GitHub preserva as quebras de linha de `PRODUCTION_ENV`; não transforme esse
+valor em JSON e não faça commit dos valores reais. `OPENAI_API_KEY` e as
+variáveis `AI_REPORT_*` podem ser omitidas quando a geração de relatórios por IA
+não for utilizada.
+
+Na EC2, Docker e o plugin Docker Compose precisam estar instalados uma única
+vez e o usuário SSH deve ter permissão para executar `docker`. Depois disso,
+todo push na branch `main` (ou uma execução manual em **Actions**) realiza o
+deploy sem comandos manuais na instância.
+
+Para diagnóstico local na EC2, os comandos equivalentes são:
 
 ```bash
-git pull
-nano .env
-
-docker compose build api
-docker compose run --rm api alembic upgrade head
-docker compose up -d api
+cd ~/healthy-agent-back
+docker compose ps
 docker compose logs -f api
 ```
 
