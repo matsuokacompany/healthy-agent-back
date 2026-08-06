@@ -60,13 +60,16 @@ def update_report(
         raise HTTPException(status_code=404, detail="Report not found")
 
     payload = data.model_dump(exclude_unset=True)
-    return DailyReportService.update_patient_response(
-        db,
-        report,
-        had_symptoms=payload.get("had_symptoms", report.had_symptoms),
-        symptom_description=payload.get("symptom_description", report.symptom_description),
-        suspected_cause=payload.get("suspected_cause", report.suspected_cause),
-    )
+    try:
+        return DailyReportService.update_patient_response(
+            db,
+            report,
+            had_symptoms=payload.get("had_symptoms", report.had_symptoms),
+            symptom_description=payload.get("symptom_description", report.symptom_description),
+            suspected_cause=payload.get("suspected_cause", report.suspected_cause),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.delete("/{report_id}/response", response_model=DailyReportRead)

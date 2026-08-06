@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 ACCESS_COOKIE = settings.AUTH_ACCESS_COOKIE_NAME
 REFRESH_COOKIE = settings.AUTH_REFRESH_COOKIE_NAME
 CSRF_COOKIE = settings.AUTH_CSRF_COOKIE_NAME
+CSRF_HEADER = settings.AUTH_CSRF_HEADER_NAME
 
 
 def _auth_headers() -> dict[str, str]:
@@ -83,6 +84,7 @@ def set_auth_cookies(response: Response, *, access_token: str, refresh_token: st
         samesite="strict",
         path="/",
     )
+    response.headers[CSRF_HEADER] = csrf_token
     return csrf_token
 
 

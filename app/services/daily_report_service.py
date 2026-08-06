@@ -142,6 +142,11 @@ class DailyReportService:
         symptom_description: str | None = None,
         suspected_cause: str | None = None,
     ) -> DailyReport:
+        if had_symptoms is True:
+            symptom_description = (symptom_description or "").strip()
+            if not symptom_description:
+                raise ValueError("A symptom description is required when symptoms are reported")
+
         report.had_symptoms = had_symptoms
         report.symptom_description = symptom_description if had_symptoms is not False else None
         report.suspected_cause = suspected_cause if had_symptoms is not False else None
