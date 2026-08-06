@@ -116,20 +116,142 @@ postgresql+psycopg2://postgres:postgres@db:5432/app_dev
 Produção não sobe PostgreSQL local. O `docker-compose.yml` contém somente a API.
 
 1. Criar projeto Supabase e copiar a connection string PostgreSQL.
-2. Configurar `.env` na EC2 com `DATABASE_URL` do Supabase e demais variáveis.
-3. Instalar Docker e Docker Compose plugin.
-4. Aplicar migrations.
-5. Subir a API.
+2. Configurar os secrets do ambiente `production` no GitHub (veja abaixo).
+3. Instalar Docker e o plugin Docker Compose uma única vez na instância.
+4. Fazer push para `main`; migrations e inicialização da API são automáticas.
 
-Comandos sugeridos na EC2:
+O workflow `.github/workflows/deploy.yml` envia uma cópia limpa do commit para a
+EC2, cria o `.env`, reconstrói a imagem, executa as migrations no início do
+container e valida que a API permaneceu em execução. Assim, a instância não
+precisa ter uma cópia Git do repositório nem credenciais do GitHub.
+O checkout e a configuração SSH usam somente ferramentas já presentes no
+runner (`git` e `ssh`), sem baixar actions do Marketplace; isso evita que uma
+indisponibilidade do serviço de download de actions bloqueie o deploy.
+
+### Impacto e custo para um MVP
+
+Esse fluxo não cria instâncias, bancos, load balancers ou containers adicionais:
+ele apenas atualiza o único serviço `api` que já roda na EC2. `git archive`,
+`scp`, as verificações via `docker compose ps` e o armazenamento dos secrets têm
+impacto desprezível em produção. A compilação da imagem consome CPU, memória e
+disco da própria EC2 somente durante cada deploy; por isso, evite muitos pushes
+seguidos em uma instância muito pequena. O `concurrency` serializa os deploys e
+`docker image prune` remove imagens sem uso depois de uma atualização bem-sucedida.
+
+O workflow não aumenta, por si só, a quantidade de recursos faturados na AWS.
+Ainda podem existir custos normais da infraestrutura escolhida: horas da EC2,
+EBS, endereço IPv4 público, tráfego de saída, Supabase/OpenAI/Meta e, se usados,
+Elastic IP, Route 53 ou outros serviços. O upload do release é pequeno e ocorre
+apenas no deploy. GitHub Actions é cobrado/limitado pelo plano do GitHub, não na
+fatura da AWS. Para um MVP, não é necessário adicionar Elastic IP ou domínio ao
+workflow; eles servem apenas para manter um endereço estável.
+
+Cadastre estes secrets em **Settings > Environments > production**:
+
+- `EC2_HOST`: IP ou domínio público da instância;
+- `EC2_USER`: usuário SSH (por exemplo, `ubuntu`);
+- `EC2_SSH_KEY`: chave SSH privada;
+- `EC2_HOST_KEY`: linha completa retornada por `ssh-keyscan -H <host>`;
+- `PRODUCTION_ENV`: conteúdo completo do arquivo `.env` de produção.
+
+### Onde obter os secrets de deploy
+
+- **`EC2_HOST`**: no console da AWS, abra **EC2 > Instances**, selecione a
+  instância e copie **Public IPv4 address** ou **Public IPv4 DNS** na aba de
+  detalhes. Prefira associar um Elastic IP ou usar um domínio apontado para ele,
+  pois o IP público automático pode mudar quando a instância é parada.
+- **`EC2_USER`**: é o usuário definido pela AMI e usado no seu comando SSH. Nas
+  imagens Ubuntu oficiais normalmente é `ubuntu`; no Amazon Linux é
+  `ec2-user`. A tela **Connect > SSH client** da instância mostra um comando de
+  conexão pronto e, nele, o usuário aparece antes de `@`.
+- **`EC2_SSH_KEY`**: é todo o conteúdo do arquivo privado `.pem` baixado ao criar
+  o key pair da instância, incluindo as linhas `BEGIN` e `END`. A AWS não permite
+  baixar novamente a chave privada. Se ela foi perdida, crie uma chave nova e
+  adicione sua chave pública à instância usando EC2 Instance Connect ou Session
+  Manager; nunca cole a chave privada na EC2 ou no repositório.
+- **`EC2_HOST_KEY`**: em uma máquina confiável, execute
+  `ssh-keyscan -H <EC2_HOST>` e copie toda a saída. Para evitar confiar em uma
+  chave interceptada, compare antes o fingerprint com o da instância. Pelo
+  Session Manager, execute `sudo ssh-keygen -lf
+  /etc/ssh/ssh_host_ed25519_key.pub`; localmente, salve a saída do `ssh-keyscan`
+  e execute `ssh-keygen -lf <arquivo>`. Os fingerprints devem ser iguais.
+  Use no comando o mesmo IP ou domínio salvo em `EC2_HOST`. O workflow também
+  associa a chave confiável ao hostname efetivamente usado pelo `scp`, portanto
+  funciona se a chave tiver sido coletada pelo IP e `EC2_HOST` usar o DNS (ou o
+  inverso), desde que ambos apontem para a mesma instância.
+- **`PRODUCTION_ENV`**: não é fornecido pronto pela AWS. Crie esse secret
+  juntando as configurações dos serviços usados pela aplicação: conexão e
+  chaves no painel do Supabase, credenciais no painel Meta for Developers,
+  chave da OpenAI e os domínios/horários escolhidos para a aplicação. Use o
+  modelo abaixo e substitua cada marcador `<...>`.
+
+Depois, no GitHub, abra **Settings > Environments > production**, crie o
+environment se necessário e adicione cada item em **Environment secrets**. Os
+nomes precisam coincidir exatamente com os usados pelo workflow.
+
+Exemplo dos secrets do environment `production` (substitua todos os valores
+entre `<...>` pelos valores reais):
+
+| Secret | Exemplo de valor |
+| --- | --- |
+| `EC2_HOST` | `api.exemplo.com` ou `203.0.113.10` |
+| `EC2_USER` | `ubuntu` |
+| `EC2_SSH_KEY` | conteúdo completo de `-----BEGIN OPENSSH PRIVATE KEY-----` até `-----END OPENSSH PRIVATE KEY-----` |
+| `EC2_HOST_KEY` | saída completa de `ssh-keyscan -H api.exemplo.com` |
+
+Para o secret multilinha `PRODUCTION_ENV`, use um valor como este:
+
+```dotenv
+ENV=production
+DEBUG=false
+DATABASE_URL=postgresql+psycopg2://postgres:<SENHA>@db.<PROJECT_REF>.supabase.co:5432/postgres?sslmode=require
+
+SUPABASE_PROJECT_URL=https://<PROJECT_REF>.supabase.co
+SUPABASE_ANON_KEY=<SUPABASE_ANON_KEY>
+SUPABASE_JWT_SECRET=<SUPABASE_JWT_SECRET>
+SUPABASE_JWT_AUDIENCE=authenticated
+SUPABASE_JWT_ISSUER=https://<PROJECT_REF>.supabase.co/auth/v1
+
+CORS_ORIGINS=https://app.exemplo.com
+AUTH_REDIRECT_ALLOWLIST=https://app.exemplo.com
+AUTH_COOKIE_SECURE=true
+AUTH_COOKIE_SAMESITE=lax
+
+WHATSAPP_VERIFY_TOKEN=<TOKEN_DE_VERIFICACAO>
+WHATSAPP_PHONE_NUMBER_ID=<PHONE_NUMBER_ID>
+WHATSAPP_ACCESS_TOKEN=<TOKEN_DE_ACESSO_PERMANENTE>
+WHATSAPP_DAILY_TEMPLATE_NAME=daily_symptom_checkin
+APP_SECRET=<META_APP_SECRET>
+
+SCHEDULER_TIMEZONE=America/Sao_Paulo
+SCHEDULER_MORNING_HOUR=8
+SCHEDULER_MORNING_MINUTE=0
+
+OPENAI_API_KEY=<OPENAI_API_KEY>
+AI_REPORT_PREVIEW_SECRET=<SEGREDO_ALEATORIO_LONGO>
+AI_REPORT_MODEL=gpt-4o-mini
+AI_REPORT_MAX_INPUT_TOKENS=2000
+AI_REPORT_MAX_OUTPUT_TOKENS=500
+AI_REPORT_MAX_COST_USD=0.05
+AI_REPORT_INPUT_COST_PER_MILLION_USD=<CUSTO_DE_ENTRADA>
+AI_REPORT_OUTPUT_COST_PER_MILLION_USD=<CUSTO_DE_SAIDA>
+```
+
+O GitHub preserva as quebras de linha de `PRODUCTION_ENV`; não transforme esse
+valor em JSON e não faça commit dos valores reais. `OPENAI_API_KEY` e as
+variáveis `AI_REPORT_*` podem ser omitidas quando a geração de relatórios por IA
+não for utilizada.
+
+Na EC2, Docker e o plugin Docker Compose precisam estar instalados uma única
+vez e o usuário SSH deve ter permissão para executar `docker`. Depois disso,
+todo push na branch `main` (ou uma execução manual em **Actions**) realiza o
+deploy sem comandos manuais na instância.
+
+Para diagnóstico local na EC2, os comandos equivalentes são:
 
 ```bash
-git pull
-nano .env
-
-docker compose build api
-docker compose run --rm api alembic upgrade head
-docker compose up -d api
+cd ~/healthy-agent-back
+docker compose ps
 docker compose logs -f api
 ```
 
