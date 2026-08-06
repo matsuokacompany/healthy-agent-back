@@ -306,22 +306,22 @@ def _sync_supabase_profile(db: Session, user: User, payload: dict[str, Any]) -> 
 
 
 def get_current_user(
-    request: Request | None = None,
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme_optional),
     db: Session = Depends(get_db),
 ) -> User:
-    token = (request.cookies.get(ACCESS_COOKIE) if request else None) or (credentials.credentials if credentials else None)
+    token = request.cookies.get(ACCESS_COOKIE) or (credentials.credentials if credentials else None)
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     return _resolve_or_create_user(db, _decode_supabase_token(token))
 
 
 def get_current_user_optional(
-    request: Request | None = None,
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme_optional),
     db: Session = Depends(get_db),
 ) -> User | None:
-    if not credentials and not (request and request.cookies.get(ACCESS_COOKIE)):
+    if not credentials and not request.cookies.get(ACCESS_COOKIE):
         return None
     try:
         return get_current_user(request=request, credentials=credentials, db=db)
