@@ -2,36 +2,106 @@ name: Deploy to EC2
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
 
     steps:
-
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Add SSH key
-        uses: webfactory/ssh-agent@v0.7.0
+        uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
 
-      - name: Deploy to EC2
+      - name: Trust EC2 host key
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_HOST_KEY: ${{ secrets.EC2_HOST_KEY }}
         run: |
-          ssh -o StrictHostKeyChecking=no \
-          ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          set -euo pipefail
+          test -n "$EC2_HOST"
+          test -n "$EC2_HOST_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$EC2_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
-            cd ~/healthy-agent-back
+      - name: Build deployment bundle
+        env:
+          PRODUCTION_ENV: ${{ secrets.PRODUCTION_ENV }}
+        run: |
+          set -euo pipefail
+          test -n "$PRODUCTION_ENV"
+          printf '%s\n' "$PRODUCTION_ENV" > /tmp/healthy-agent.env
+          chmod 600 /tmp/healthy-agent.env
+          git archive --format=tar.gz --output=/tmp/healthy-agent.tar.gz HEAD
 
-            git pull origin main
+      - name: Upload release to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$EC2_USER"
+          scp /tmp/healthy-agent.tar.gz /tmp/healthy-agent.env \
+            "$EC2_USER@$EC2_HOST:/tmp/"
 
-            docker compose down
+      - name: Deploy on EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          set -euo pipefail
+          ssh "$EC2_USER@$EC2_HOST" 'bash -se' <<'EOF'
+            set -euo pipefail
 
-            docker compose up -d --build
+            command -v docker >/dev/null || {
+              echo "Docker is not installed on the EC2 instance." >&2
+              exit 1
+            }
+            docker compose version >/dev/null
 
-            docker image prune -f
+            app_dir="$HOME/healthy-agent-back"
+            mkdir -p "$app_dir"
 
+            # git archive contains only tracked files, so each deployment is clean.
+            find "$app_dir" -mindepth 1 -maxdepth 1 ! -name '.env' -exec rm -rf -- {} +
+            tar -xzf /tmp/healthy-agent.tar.gz -C "$app_dir"
+            install -m 600 /tmp/healthy-agent.env "$app_dir/.env"
+            rm -f /tmp/healthy-agent.tar.gz /tmp/healthy-agent.env
+
+            cd "$app_dir"
+            docker compose up -d --build --remove-orphans
+
+            # Migrations run in the image CMD. Fail the deployment if the API exits.
+            healthy_checks=0
+            for attempt in $(seq 1 12); do
+              if [ -n "$(docker compose ps --status running --quiet api)" ]; then
+                healthy_checks=$((healthy_checks + 1))
+                if [ "$healthy_checks" -ge 3 ]; then
+                  docker image prune -f
+                  exit 0
+                fi
+              else
+                healthy_checks=0
+              fi
+              sleep 5
+            done
+
+            docker compose logs --no-color --tail=100 api
+            exit 1
           EOF

@@ -116,20 +116,33 @@ postgresql+psycopg2://postgres:postgres@db:5432/app_dev
 Produção não sobe PostgreSQL local. O `docker-compose.yml` contém somente a API.
 
 1. Criar projeto Supabase e copiar a connection string PostgreSQL.
-2. Configurar `.env` na EC2 com `DATABASE_URL` do Supabase e demais variáveis.
-3. Instalar Docker e Docker Compose plugin.
-4. Aplicar migrations.
-5. Subir a API.
+2. Configurar os secrets do ambiente `production` no GitHub (veja abaixo).
+3. Instalar Docker e o plugin Docker Compose uma única vez na instância.
+4. Fazer push para `main`; migrations e inicialização da API são automáticas.
 
-Comandos sugeridos na EC2:
+O workflow `.github/workflows/deploy.yml` envia uma cópia limpa do commit para a
+EC2, cria o `.env`, reconstrói a imagem, executa as migrations no início do
+container e valida que a API permaneceu em execução. Assim, a instância não
+precisa ter uma cópia Git do repositório nem credenciais do GitHub.
+
+Cadastre estes secrets em **Settings > Environments > production**:
+
+- `EC2_HOST`: IP ou domínio público da instância;
+- `EC2_USER`: usuário SSH (por exemplo, `ubuntu`);
+- `EC2_SSH_KEY`: chave SSH privada;
+- `EC2_HOST_KEY`: linha completa retornada por `ssh-keyscan -H <host>`;
+- `PRODUCTION_ENV`: conteúdo completo do arquivo `.env` de produção.
+
+Na EC2, Docker e o plugin Docker Compose precisam estar instalados uma única
+vez e o usuário SSH deve ter permissão para executar `docker`. Depois disso,
+todo push na branch `main` (ou uma execução manual em **Actions**) realiza o
+deploy sem comandos manuais na instância.
+
+Para diagnóstico local na EC2, os comandos equivalentes são:
 
 ```bash
-git pull
-nano .env
-
-docker compose build api
-docker compose run --rm api alembic upgrade head
-docker compose up -d api
+cd ~/healthy-agent-back
+docker compose ps
 docker compose logs -f api
 ```
 
