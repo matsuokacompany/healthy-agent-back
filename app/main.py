@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.bot.channels.bot_manager import BotManager
 from app.bot.channels.whatsapp_channel import WhatsAppBotChannel
 from app.bot.scheduler import start_scheduler, stop_scheduler, get_scheduler
+from app.core.config import settings
 
 from app.routes import (
     anamnese_routes,
@@ -123,9 +124,12 @@ async def csrf_and_origin_protection(request: Request, call_next):
             f"{API_PREFIX}/auth/forgot-password",
             f"{API_PREFIX}/auth/callback",
         }
-        if request.url.path not in csrf_exempt:
-            csrf_cookie = request.cookies.get("ha_csrf")
-            csrf_header = request.headers.get("X-CSRF-Token")
+        access_cookie = request.cookies.get(settings.AUTH_ACCESS_COOKIE_NAME)
+        bearer_auth = request.headers.get("Authorization", "").lower().startswith("bearer ")
+        uses_cookie_auth = bool(access_cookie) or not bearer_auth
+        if request.url.path not in csrf_exempt and uses_cookie_auth:
+            csrf_cookie = request.cookies.get(settings.AUTH_CSRF_COOKIE_NAME)
+            csrf_header = request.headers.get(settings.AUTH_CSRF_HEADER_NAME)
             if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
                 return JSONResponse(status_code=403, content={"detail": "Invalid CSRF token"})
     response = await call_next(request)
@@ -138,7 +142,8 @@ app.add_middleware(
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
+    allow_headers=["Authorization", "Content-Type", settings.AUTH_CSRF_HEADER_NAME],
+    expose_headers=[settings.AUTH_CSRF_HEADER_NAME],
 )
 
 

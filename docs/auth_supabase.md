@@ -91,7 +91,7 @@ Preferred future hardening is an opaque `session_id` cookie backed by Redis or t
 
 Because cookies are sent automatically by browsers, CORS uses `allow_credentials=True` and explicit `CORS_ORIGINS`; wildcard origins must not be used with credentials. Configure local, staging, preview, and production frontend origins in `CORS_ORIGINS` as a comma-separated list.
 
-Unsafe `/api` methods (`POST`, `PUT`, `PATCH`, `DELETE`) validate `Origin` against `CORS_ORIGINS`. Mutations also require double-submit CSRF protection with a readable `ha_csrf` cookie and matching `X-CSRF-Token` header. Login and forgot-password validate `Origin`; session-bound mutations such as refresh, logout, and change-password require CSRF. Auth responses include `Cache-Control: no-store`.
+Unsafe `/api` methods (`POST`, `PUT`, `PATCH`, `DELETE`) validate `Origin` against `CORS_ORIGINS`. Cookie-authenticated mutations also require double-submit CSRF protection with a `ha_csrf` cookie and matching `X-CSRF-Token` header. The frontend can obtain the current token from `GET /api/auth/csrf`; login and refresh also expose the newly rotated token in the `X-CSRF-Token` response header. Requests authenticated exclusively with `Authorization: Bearer` do not require CSRF because browsers do not attach that credential automatically. Login and forgot-password validate `Origin`; session-bound mutations such as refresh, logout, and change-password require CSRF. Auth responses include `Cache-Control: no-store`.
 
 ### Environment variables
 

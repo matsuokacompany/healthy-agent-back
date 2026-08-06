@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import (
     ACCESS_COOKIE,
+    CSRF_COOKIE,
     REFRESH_COOKIE,
     _auth_headers,
     _auth_url,
@@ -65,6 +66,17 @@ def me(response: Response, current_user: User = Depends(get_current_user)):
     """Return the local domain user resolved from a valid HttpOnly cookie session."""
     set_no_store(response)
     return current_user
+
+
+@router.get("/csrf")
+def csrf_token(request: Request, response: Response):
+    """Expose the double-submit token without exposing the HttpOnly session cookies."""
+    set_no_store(response)
+    token = request.cookies.get(CSRF_COOKIE)
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="CSRF token not available")
+    response.headers[settings.AUTH_CSRF_HEADER_NAME] = token
+    return {"csrf_token": token}
 
 
 @router.post("/refresh", status_code=status.HTTP_204_NO_CONTENT)
