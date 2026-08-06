@@ -104,6 +104,19 @@ class UserRoleUpdate(BaseModel):
     roles: List[RoleNameEnum]
 
 
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ChangePasswordRequest(BaseModel):
+    password: str = Field(min_length=8, max_length=1024)
+
+
 class AnamneseBase(BaseModel):
     info: str
 
