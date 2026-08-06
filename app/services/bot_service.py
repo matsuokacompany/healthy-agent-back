@@ -322,8 +322,9 @@ class BotService:
                     "Entendi. Para concluir, descreva em uma única resposta quais sintomas você teve.\n\n"
                     "Exemplo: dor de cabeça e tontura.\n"
                     "Máx: 280 caracteres.\n\n"
-                    "Se esquecer de algo ou precisar corrigir as informações, você pode alterá-las "
-                    "acessando app.julha.com.br."
+                    "Se você informou algo errado ou esqueceu alguma informação, acesse "
+                    "https://app.julha.com.br/patient/monitoring com seu login. Na plataforma, "
+                    "você pode editar ou excluir uma resposta e registrar novamente as informações."
                 ),
                 ask_followup=True,
             )

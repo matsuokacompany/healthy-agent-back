@@ -1,5 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -275,6 +277,27 @@ def test_update_patient_response_clears_text_when_marked_without_symptoms():
     assert report.had_symptoms is False
     assert report.symptom_description is None
     assert report.suspected_cause is None
+
+
+@pytest.mark.parametrize("description", [None, "", "   "])
+def test_update_patient_response_requires_description_when_symptoms_are_reported(description):
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    report = DailyReportService.create_pending_report(
+        db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING
+    )
+    db.commit()
+
+    with pytest.raises(ValueError, match="symptom description is required"):
+        DailyReportService.update_patient_response(
+            db,
+            report,
+            had_symptoms=True,
+            symptom_description=description,
+        )
+
+    assert report.completed is False
+    assert report.status == DailyReportStatusEnum.PENDING
 
 
 def test_delete_patient_response_reopens_report_for_answering():
