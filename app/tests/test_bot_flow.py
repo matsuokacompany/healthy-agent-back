@@ -53,7 +53,8 @@ def test_bot_service_response_flow(monkeypatch):
     assert first.ask_followup is True
     assert "quais sintomas" in first.text
     assert "Causa" not in first.text
-    assert "app.julha.com.br" in first.text
+    assert "https://app.julha.com.br/patient/monitoring com seu login" in first.text
+    assert "editar ou excluir uma resposta e registrar novamente as informações" in first.text
 
     second = service.process_incoming(
         channel="whatsapp",
