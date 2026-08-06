@@ -19,26 +19,48 @@ jobs:
     environment: production
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Add SSH key
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
-
-      - name: Trust EC2 host key
+      # Keep the deploy independent from Marketplace action downloads. This is
+      # equivalent to actions/checkout for the exact commit that triggered it.
+      - name: Checkout repository without external actions
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_HOST_KEY: ${{ secrets.EC2_HOST_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
         run: |
           set -euo pipefail
-          test -n "$EC2_HOST"
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)"
+          git init .
+          git remote add origin "https://github.com/$REPOSITORY.git"
+          for attempt in 1 2 3; do
+            if git -c http.extraheader="$auth_header" fetch --no-tags --depth=1 origin "$REVISION"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
+          git checkout --detach FETCH_HEAD
+
+      - name: Configure SSH
+        env:
+          EC2_HOST_KEY: ${{ secrets.EC2_HOST_KEY }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          set -euo pipefail
           test -n "$EC2_HOST_KEY"
+          test -n "$EC2_SSH_KEY"
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/id_deploy
           printf '%s\n' "$EC2_HOST_KEY" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_deploy ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<'EOF'
+          Host *
+            IdentityFile ~/.ssh/id_deploy
+            IdentitiesOnly yes
+          EOF
+          chmod 600 ~/.ssh/config
 
       - name: Build deployment bundle
         env:
