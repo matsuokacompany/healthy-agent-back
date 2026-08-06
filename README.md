@@ -175,6 +175,10 @@ Cadastre estes secrets em **Settings > Environments > production**:
   Session Manager, execute `sudo ssh-keygen -lf
   /etc/ssh/ssh_host_ed25519_key.pub`; localmente, salve a saída do `ssh-keyscan`
   e execute `ssh-keygen -lf <arquivo>`. Os fingerprints devem ser iguais.
+  Use no comando o mesmo IP ou domínio salvo em `EC2_HOST`. O workflow também
+  associa a chave confiável ao hostname efetivamente usado pelo `scp`, portanto
+  funciona se a chave tiver sido coletada pelo IP e `EC2_HOST` usar o DNS (ou o
+  inverso), desde que ambos apontem para a mesma instância.
 - **`PRODUCTION_ENV`**: não é fornecido pronto pela AWS. Crie esse secret
   juntando as configurações dos serviços usados pela aplicação: conexão e
   chaves no painel do Supabase, credenciais no painel Meta for Developers,

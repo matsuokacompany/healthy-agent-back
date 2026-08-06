@@ -44,23 +44,38 @@ jobs:
 
       - name: Configure SSH
         env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_HOST_KEY: ${{ secrets.EC2_HOST_KEY }}
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
           set -euo pipefail
+          test -n "$EC2_HOST"
           test -n "$EC2_HOST_KEY"
           test -n "$EC2_SSH_KEY"
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "$EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/id_deploy
-          printf '%s\n' "$EC2_HOST_KEY" > ~/.ssh/known_hosts
+
+          # Preserve the trusted key but bind it to the exact hostname used by
+          # scp. This also handles a key collected using the instance IP while
+          # EC2_HOST contains its DNS name (or the inverse).
+          printf '%s\n' "$EC2_HOST_KEY" | tr -d '\r' | awk -v host="$EC2_HOST" '
+            NF >= 3 && $1 !~ /^#/ { print host, $(NF - 1), $NF }
+          ' > ~/.ssh/known_hosts
+          if [ ! -s ~/.ssh/known_hosts ]; then
+            echo "EC2_HOST_KEY must contain the complete output of: ssh-keyscan -H $EC2_HOST" >&2
+            exit 1
+          fi
           chmod 600 ~/.ssh/id_deploy ~/.ssh/known_hosts
           cat > ~/.ssh/config <<'EOF'
           Host *
             IdentityFile ~/.ssh/id_deploy
             IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
           EOF
           chmod 600 ~/.ssh/config
+          ssh-keygen -F "$EC2_HOST" -f ~/.ssh/known_hosts >/dev/null
 
       - name: Build deployment bundle
         env:
@@ -78,7 +93,12 @@ jobs:
           EC2_USER: ${{ secrets.EC2_USER }}
         run: |
           set -euo pipefail
+          test -n "$EC2_HOST"
           test -n "$EC2_USER"
+          if ! ssh -o ConnectTimeout=15 "$EC2_USER@$EC2_HOST" true; then
+            echo "SSH connection failed. Confirm that EC2_HOST_KEY belongs to EC2_HOST and that port 22 is allowed." >&2
+            exit 1
+          fi
           scp /tmp/healthy-agent.tar.gz /tmp/healthy-agent.env \
             "$EC2_USER@$EC2_HOST:/tmp/"
 
