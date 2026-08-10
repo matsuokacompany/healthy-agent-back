@@ -510,6 +510,19 @@ class CustomAiReportCreateRequest(CustomAiReportPreviewRequest):
     preview_token: str = Field(min_length=1)
 
 
+class AiReportCooldownReleaseRequest(BaseModel):
+    modo: Literal["preventivo", "avaliacao_clinica"]
+
+
+class AiReportCooldownReleaseResponse(BaseModel):
+    patient_id: int
+    report_id: int
+    modo: Literal["preventivo", "avaliacao_clinica"]
+    released_by_user_id: int
+    previous_next_generation_at: datetime
+    released_at: datetime
+
+
 class CustomAiReportEligibility(BaseModel):
     can_generate: bool
     reason: Optional[str] = None
