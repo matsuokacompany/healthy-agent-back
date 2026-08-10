@@ -41,7 +41,7 @@ class CustomReportPreviewService:
             payload.start_date,
             payload.end_date,
         )
-        eligibility = self._build_eligibility(patient_id, summary, now)
+        eligibility = self._build_eligibility(patient_id, payload.modo, summary, now)
         if not eligibility.can_generate:
             return CustomAiReportPreviewResponse(
                 modo=payload.modo,
@@ -73,6 +73,7 @@ class CustomReportPreviewService:
     def _build_eligibility(
         self,
         patient_id: int,
+        modo: str,
         summary: CustomClinicalSummary,
         now: datetime,
     ) -> CustomAiReportEligibility:
@@ -86,6 +87,7 @@ class CustomReportPreviewService:
         latest_report = (
             self.db.query(AiReportCache)
             .filter(AiReportCache.patient_id == patient_id)
+            .filter(AiReportCache.modo == modo)
             .filter(AiReportCache.status == AiReportStatusEnum.COMPLETED.value)
             .filter(AiReportCache.generated_at.is_not(None))
             .order_by(AiReportCache.generated_at.desc(), AiReportCache.id.desc())

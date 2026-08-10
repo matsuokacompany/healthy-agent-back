@@ -69,12 +69,13 @@ def create_cached_report(
     status: AiReportStatusEnum,
     generated_at: datetime | None = None,
     next_generation_at: datetime | None = None,
+    modo: str = "avaliacao_clinica",
 ):
     report = AiReportCache(
         patient_id=patient.id,
         professional_user_id=professional.id,
         periodo="personalizado",
-        modo="avaliacao_clinica",
+        modo=modo,
         status=status.value,
         generated_at=generated_at,
         next_generation_at=next_generation_at,
@@ -85,8 +86,12 @@ def create_cached_report(
     return report
 
 
-def preview_payload(start_date: date, end_date: date) -> CustomAiReportPreviewRequest:
-    return CustomAiReportPreviewRequest(start_date=start_date, end_date=end_date)
+def preview_payload(
+    start_date: date,
+    end_date: date,
+    modo: str = "avaliacao_clinica",
+) -> CustomAiReportPreviewRequest:
+    return CustomAiReportPreviewRequest(start_date=start_date, end_date=end_date, modo=modo)
 
 
 def test_preview_returns_signed_token_for_eligible_patient():
@@ -136,7 +141,7 @@ def test_preview_does_not_issue_token_when_data_is_insufficient():
     assert preview.preview_expires_at is None
 
 
-def test_preview_applies_thirty_day_quota_per_patient():
+def test_preview_applies_thirty_day_quota_per_patient_and_mode():
     db = build_session()
     patient, professional, plan = create_users_and_plan(db)
     end_date = date.today()
@@ -164,6 +169,35 @@ def test_preview_applies_thirty_day_quota_per_patient():
     assert preview.eligibility.latest_report_id == cached_report.id
     assert preview.eligibility.next_generation_at == cached_report.next_generation_at
     assert preview.preview_token is None
+
+
+def test_preview_allows_other_report_mode_during_thirty_day_window():
+    db = build_session()
+    patient, professional, plan = create_users_and_plan(db)
+    end_date = date.today()
+    start_date = end_date - timedelta(days=29)
+    create_completed_checkins(db, patient=patient, plan=plan, start_date=start_date)
+    now = datetime.now(timezone.utc)
+    create_cached_report(
+        db,
+        patient=patient,
+        professional=professional,
+        status=AiReportStatusEnum.COMPLETED,
+        generated_at=now - timedelta(days=10),
+        next_generation_at=now + timedelta(days=20),
+        modo="avaliacao_clinica",
+    )
+
+    preview = CustomReportPreviewService(db, TOKEN_SECRET).preview(
+        patient_id=patient.id,
+        requested_by_user_id=professional.id,
+        payload=preview_payload(start_date, end_date, modo="preventivo"),
+        now=now,
+    )
+
+    assert preview.eligibility.can_generate is True
+    assert preview.eligibility.reason is None
+    assert preview.preview_token
 
 
 def test_preview_blocks_patient_with_report_in_progress():
