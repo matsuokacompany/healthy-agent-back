@@ -123,3 +123,21 @@ sem uma segunda chamada à IA.
 As duas consultas exigem acesso profissional ao paciente, não chamam a IA e
 não alteram a cota. A listagem omite os textos extensos do consolidado e da
 interpretação; esses dados aparecem apenas no detalhe.
+
+## Liberação operacional excepcional
+
+Um `super_admin` pode liberar uma única geração antes do fim da janela, sem
+apagar o histórico, pela área administrativa:
+
+```http
+POST /api/admin/patients/{patient_id}/ai-reports/release-cooldown
+Content-Type: application/json
+
+{"modo": "avaliacao_clinica"}
+```
+
+O endpoint exige autenticação de `super_admin`, rejeita liberações durante uma
+geração em andamento e altera somente `next_generation_at` do relatório
+concluído mais recente daquele modo. A próxima geração concluída grava uma nova
+janela de 30 dias, portanto a exceção vale apenas uma vez. A operação registra
+no log o super administrador responsável, o paciente e o relatório liberado.

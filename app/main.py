@@ -13,6 +13,7 @@ from app.bot.scheduler import start_scheduler, stop_scheduler, get_scheduler
 from app.core.config import settings
 
 from app.routes import (
+    admin_routes,
     anamnese_routes,
     auth_routes,
     bot_webhook_routes,
@@ -150,6 +151,7 @@ app.add_middleware(
 # =========================================================
 # ROUTES
 # =========================================================
+app.include_router(admin_routes.router, prefix=f"{API_PREFIX}/admin")
 app.include_router(auth_routes.router, prefix=f"{API_PREFIX}/auth")
 app.include_router(anamnese_routes.router, prefix=f"{API_PREFIX}/anamneses")
 app.include_router(daily_reports_routes.router, prefix=f"{API_PREFIX}/daily-reports")
