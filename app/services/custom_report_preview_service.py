@@ -86,6 +86,7 @@ class CustomReportPreviewService:
         latest_report = (
             self.db.query(AiReportCache)
             .filter(AiReportCache.patient_id == patient_id)
+            .filter(AiReportCache.modo == payload.modo)
             .filter(AiReportCache.status == AiReportStatusEnum.COMPLETED.value)
             .filter(AiReportCache.generated_at.is_not(None))
             .order_by(AiReportCache.generated_at.desc(), AiReportCache.id.desc())

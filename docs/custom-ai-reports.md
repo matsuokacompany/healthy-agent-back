@@ -19,8 +19,11 @@ datas; eles não representam tipos diferentes de relatório no backend.
 
 ## Elegibilidade e cota
 
-- A cota pertence ao paciente, independentemente do profissional solicitante.
-- Uma nova geração é permitida 30 dias após a última geração concluída.
+- A cota pertence ao paciente e ao modo do relatório, independentemente do
+  profissional solicitante.
+- Cada paciente pode gerar um relatório preventivo e um relatório de apoio à
+  avaliação clínica na mesma janela; uma nova geração do mesmo modo é permitida
+  30 dias após a última geração concluída desse modo.
 - Pré-visualizações não consomem a cota.
 - Relatórios pendentes, em processamento ou com falha não iniciam uma nova
   janela de 30 dias.

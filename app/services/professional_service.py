@@ -135,7 +135,7 @@ class ProfessionalService:
         modo: Literal["preventivo", "avaliacao_clinica"],
         api_key: str | None,
     ) -> ProfessionalAiReportResponse:
-        require_role(current_user, RoleNameEnum.PROFESSIONAL)
+        self._require_report_role(current_user)
         self._require_patient_access(current_user, patient_id)
         clinical_summary = self._build_clinical_summary(patient_id, periodo)
         week_start = self._current_week_start()
@@ -188,7 +188,7 @@ class ProfessionalService:
         payload: CustomAiReportPreviewRequest,
         token_secret: str | None,
     ) -> CustomAiReportPreviewResponse:
-        require_role(current_user, RoleNameEnum.PROFESSIONAL)
+        self._require_report_role(current_user)
         self._require_patient_access(current_user, patient_id)
         if not token_secret or len(token_secret) < CustomReportPreviewService.MINIMUM_TOKEN_SECRET_LENGTH:
             raise HTTPException(
@@ -216,7 +216,7 @@ class ProfessionalService:
         input_cost_per_million_usd: float | None,
         output_cost_per_million_usd: float | None,
     ) -> CustomAiReportResponse:
-        require_role(current_user, RoleNameEnum.PROFESSIONAL)
+        self._require_report_role(current_user)
         self._require_patient_access(current_user, patient_id)
         if (
             not token_secret
@@ -261,7 +261,7 @@ class ProfessionalService:
         pagination: PaginationParams,
         report_status: str | None,
     ) -> CustomAiReportListResponse:
-        require_role(current_user, RoleNameEnum.PROFESSIONAL)
+        self._require_report_role(current_user)
         self._require_patient_access(current_user, patient_id)
         return CustomReportHistoryService(self.db).list_reports(
             patient_id,
@@ -275,7 +275,7 @@ class ProfessionalService:
         patient_id: int,
         report_id: int,
     ) -> CustomAiReportResponse:
-        require_role(current_user, RoleNameEnum.PROFESSIONAL)
+        self._require_report_role(current_user)
         self._require_patient_access(current_user, patient_id)
         return CustomReportHistoryService(self.db).get_report(patient_id, report_id)
 
@@ -301,6 +301,12 @@ class ProfessionalService:
         if not profile:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Active professional profile required")
         return profile
+
+    @staticmethod
+    def _require_report_role(current_user: User) -> None:
+        """Allow administrators to use report tools without a professional role."""
+        if not is_admin(current_user):
+            require_role(current_user, RoleNameEnum.PROFESSIONAL)
 
     def _require_patient_access(self, current_user: User, patient_id: int) -> User:
         patient = self.db.query(User).filter(User.id == patient_id).first()
