@@ -31,11 +31,15 @@ class UserService:
             raise HTTPException(400, "CPF already registered")
 
         requested_role_values = {role.value for role in data.roles}
-        privileged_roles = {RoleNameEnum.ADMIN.value, RoleNameEnum.SUPER_ADMIN.value}
+        privileged_roles = {
+            RoleNameEnum.ADMIN.value,
+            RoleNameEnum.SUPER_ADMIN.value,
+            RoleNameEnum.PROFESSIONAL.value,
+        }
         if requested_role_values & privileged_roles and not is_super_admin(current_user):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only super admins can assign admin or super_admin roles",
+                detail="Only super admins can assign professional, admin, or super_admin roles",
             )
 
         supabase_user_id = uuid.UUID(data.supabase_user_id) if data.supabase_user_id else None

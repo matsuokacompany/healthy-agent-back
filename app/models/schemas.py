@@ -190,6 +190,25 @@ class MonitoringPlanRead(MonitoringPlanBase, ORMModel):
     updated_at: datetime
 
 
+class ProfessionalPatientCreate(UserBase):
+    """Patient and initial monitoring plan created by a professional."""
+
+    plan_title: str = Field(min_length=1, max_length=255)
+    plan_description: Optional[str] = None
+    plan_start_date: Optional[date] = None
+    plan_end_date: Optional[date] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return validate_user_name(value)
+
+
+class ProfessionalPatientCreateResponse(BaseModel):
+    patient: UserRead
+    monitoring_plan: MonitoringPlanRead
+
+
 class MonitoringProfessionalCreate(BaseModel):
     professional_profile_id: int
     role: Optional[str] = None
