@@ -24,12 +24,15 @@ from app.models.schemas import (
     PatientDashboardResponseV2,
     ProfessionalAiReportResponse,
     ProfessionalPatientRead,
+    ProfessionalPatientCreate,
+    ProfessionalPatientCreateResponse,
     CustomAiReportPreviewRequest,
     CustomAiReportPreviewResponse,
     CustomAiReportCreateRequest,
     CustomAiReportResponse,
     CustomAiReportListResponse,
 )
+from app.core.auth import assign_role
 from app.core.permissions import is_admin, require_role
 from app.services.insight_service import InsightService
 from app.services.custom_report_preview_service import CustomReportPreviewService
@@ -40,11 +43,76 @@ from app.services.report_service import ReportService
 
 
 class ProfessionalService:
-    """Read-only professional workspace operations scoped to monitored patients."""
+    """Professional workspace operations scoped to monitored patients."""
 
     def __init__(self, db: Session):
         self.db = db
         self.dashboard_service = PatientDashboardService(db)
+
+    def create_patient(
+        self,
+        current_user: User,
+        payload: ProfessionalPatientCreate,
+    ) -> ProfessionalPatientCreateResponse:
+        """Create a patient, initial plan, and link them to the requesting professional."""
+        profile = self._get_access_profile(current_user)
+        if profile is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Active professional profile required",
+            )
+        if self.db.query(User).filter(User.email == payload.email).first():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+        if payload.cpf and self.db.query(User).filter(User.cpf == payload.cpf).first():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CPF already registered")
+        if payload.phone:
+            normalized_phone = "".join(character for character in payload.phone if character.isdigit()) or None
+            if normalized_phone and self.db.query(User).filter(User.phone == normalized_phone).first():
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Phone already registered")
+        else:
+            normalized_phone = None
+        if payload.plan_start_date and payload.plan_end_date and payload.plan_end_date < payload.plan_start_date:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="plan_end_date must be greater than or equal to plan_start_date",
+            )
+
+        patient = User(
+            name=payload.name,
+            email=payload.email,
+            phone=normalized_phone,
+            city=payload.city,
+            state=payload.state,
+            gender=payload.gender,
+            birth_date=payload.birth_date,
+            cpf=payload.cpf,
+            is_admin=False,
+        )
+        self.db.add(patient)
+        self.db.flush()
+        assign_role(self.db, patient, RoleNameEnum.PATIENT)
+        plan = MonitoringPlan(
+            patient_id=patient.id,
+            title=payload.plan_title,
+            description=payload.plan_description,
+            active=True,
+            start_date=payload.plan_start_date,
+            end_date=payload.plan_end_date,
+        )
+        self.db.add(plan)
+        self.db.flush()
+        self.db.add(
+            MonitoringProfessional(
+                monitoring_plan_id=plan.id,
+                professional_profile_id=profile.id,
+                role="responsible",
+                active=True,
+            )
+        )
+        self.db.commit()
+        self.db.refresh(patient)
+        self.db.refresh(plan)
+        return ProfessionalPatientCreateResponse(patient=patient, monitoring_plan=plan)
 
     def list_patients(self, current_user: User) -> list[ProfessionalPatientRead]:
         profile = self._get_access_profile(current_user)

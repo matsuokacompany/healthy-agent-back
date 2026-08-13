@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.core.auth import get_current_admin, get_current_user
+from app.core.auth import get_current_admin, get_current_super_admin, get_current_user
 from app.core.dependencies import get_db
 from app.core.permissions import require_access_user
 from app.models.models import User
@@ -25,7 +25,7 @@ router = APIRouter(tags=["Monitoring"])
 def create_professional_profile(
     payload: ProfessionalProfileCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_admin),
+    _: User = Depends(get_current_super_admin),
 ):
     return ProfessionalProfileService(db).create(payload)
 

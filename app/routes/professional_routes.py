@@ -2,7 +2,7 @@ from datetime import date
 from typing import Literal
 import os
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
@@ -23,11 +23,26 @@ from app.models.schemas import (
     ProfessionalAiReportRequest,
     ProfessionalAiReportResponse,
     ProfessionalPatientRead,
+    ProfessionalPatientCreate,
+    ProfessionalPatientCreateResponse,
 )
 from app.services.patient_dashboard_service import PaginationParams, ReportFilters
 from app.services.professional_service import ProfessionalService
 
 router = APIRouter(tags=["Professional"])
+
+
+@router.post(
+    "/patients",
+    response_model=ProfessionalPatientCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_professional_patient(
+    payload: ProfessionalPatientCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return ProfessionalService(db).create_patient(current_user, payload)
 
 
 @router.get("/patients", response_model=list[ProfessionalPatientRead])
