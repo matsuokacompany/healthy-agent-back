@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.dependencies import get_db
 from app.models.models import User
 from app.models.schemas import (
+    AnamneseBase,
     AnamneseRead,
     CustomAiReportPreviewRequest,
     CustomAiReportPreviewResponse,
@@ -96,6 +97,30 @@ def get_professional_patient_anamnese(
     current_user: User = Depends(get_current_user),
 ):
     return ProfessionalService(db).get_anamnese(current_user, patient_id)
+
+
+@router.post(
+    "/patients/{patient_id}/anamnese",
+    response_model=AnamneseRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_professional_patient_anamnese(
+    patient_id: int,
+    payload: AnamneseBase,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return ProfessionalService(db).create_anamnese(current_user, patient_id, payload.info)
+
+
+@router.put("/patients/{patient_id}/anamnese", response_model=AnamneseRead)
+def update_professional_patient_anamnese(
+    patient_id: int,
+    payload: AnamneseBase,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return ProfessionalService(db).update_anamnese(current_user, patient_id, payload.info)
 
 
 @router.post("/patients/{patient_id}/ai-report", response_model=ProfessionalAiReportResponse)
