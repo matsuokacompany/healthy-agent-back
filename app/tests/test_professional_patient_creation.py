@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base_class import Base
 from app.models.models import (
+    Anamnese,
     MonitoringPlan,
     MonitoringProfessional,
     ProfessionalProfile,
@@ -94,6 +95,65 @@ def test_professional_patient_creation_requires_active_profile():
         ProfessionalService(db).create_patient(professional, patient_payload())
 
     assert exc_info.value.status_code == 403
+
+
+def create_monitored_patient(db, profile):
+    patient = User(name="Maria", email="maria.anamnese@example.com")
+    db.add(patient)
+    db.flush()
+    plan = MonitoringPlan(patient_id=patient.id, title="Acompanhamento", active=True)
+    db.add(plan)
+    db.flush()
+    db.add(
+        MonitoringProfessional(
+            monitoring_plan_id=plan.id,
+            professional_profile_id=profile.id,
+            role="responsible",
+            active=True,
+        )
+    )
+    db.commit()
+    return patient
+
+
+def test_professional_creates_and_updates_monitored_patient_anamnese():
+    db = build_session()
+    professional, profile = create_professional(db)
+    patient = create_monitored_patient(db, profile)
+    service = ProfessionalService(db)
+
+    created = service.create_anamnese(professional, patient.id, "Anamnese inicial")
+    updated = service.update_anamnese(professional, patient.id, "Anamnese revisada")
+
+    assert created.id == updated.id
+    assert updated.info == "Anamnese revisada"
+    assert db.query(Anamnese).filter(Anamnese.user_id == patient.id).count() == 1
+
+
+def test_professional_cannot_create_anamnese_for_unmonitored_patient():
+    db = build_session()
+    professional, _ = create_professional(db)
+    patient = User(name="Sem vínculo", email="sem-vinculo@example.com")
+    db.add(patient)
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        ProfessionalService(db).create_anamnese(professional, patient.id, "Não autorizada")
+
+    assert exc_info.value.status_code == 403
+
+
+def test_professional_cannot_create_duplicate_patient_anamnese():
+    db = build_session()
+    professional, profile = create_professional(db)
+    patient = create_monitored_patient(db, profile)
+    service = ProfessionalService(db)
+    service.create_anamnese(professional, patient.id, "Original")
+
+    with pytest.raises(HTTPException) as exc_info:
+        service.create_anamnese(professional, patient.id, "Duplicada")
+
+    assert exc_info.value.status_code == 409
 
 
 def test_admin_cannot_create_a_professional_user():

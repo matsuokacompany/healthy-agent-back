@@ -5,6 +5,7 @@ from typing import Literal
 
 from fastapi import HTTPException, status
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.models import (
@@ -192,6 +193,36 @@ class ProfessionalService:
         anamnese = self.db.query(Anamnese).filter(Anamnese.user_id == patient_id).first()
         if not anamnese:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anamnese not found")
+        return anamnese
+
+    def create_anamnese(self, current_user: User, patient_id: int, info: str) -> Anamnese:
+        self._require_patient_access(current_user, patient_id)
+        if self.db.query(Anamnese).filter(Anamnese.user_id == patient_id).first():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This patient already has an anamnese",
+            )
+        anamnese = Anamnese(user_id=patient_id, info=info)
+        self.db.add(anamnese)
+        try:
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This patient already has an anamnese",
+            )
+        self.db.refresh(anamnese)
+        return anamnese
+
+    def update_anamnese(self, current_user: User, patient_id: int, info: str) -> Anamnese:
+        self._require_patient_access(current_user, patient_id)
+        anamnese = self.db.query(Anamnese).filter(Anamnese.user_id == patient_id).first()
+        if not anamnese:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anamnese not found")
+        anamnese.info = info
+        self.db.commit()
+        self.db.refresh(anamnese)
         return anamnese
 
     def generate_ai_report(
