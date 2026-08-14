@@ -3,13 +3,14 @@ import hmac
 import json
 import logging
 
-from fastapi import APIRouter, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 
 from app.bot.channels.whatsapp_channel import WhatsAppBotChannel
+from app.core.auth import get_current_super_admin
 from app.core.config import settings
 from app.bot.scheduler import send_prompt
 from app.bot.channels.bot_manager import BotManager
-from app.models.models import CheckTypeEnum
+from app.models.models import CheckTypeEnum, User
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,7 @@ async def whatsapp_webhook(
 
 
 @router.post("/debug/send-prompt")
-async def debug_send_prompt():
+async def debug_send_prompt(_: User = Depends(get_current_super_admin)):
     # 🔒 proteção para não vazar em produção
     if not settings.DEBUG:
         raise HTTPException(status_code=404, detail="Not found")
