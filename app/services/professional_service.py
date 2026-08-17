@@ -34,12 +34,14 @@ from app.models.schemas import (
     CustomAiReportListResponse,
 )
 from app.core.auth import assign_role
+from app.core.access_policy import AccessPolicy
 from app.core.permissions import is_admin, require_role
 from app.services.insight_service import InsightService
 from app.services.custom_report_preview_service import CustomReportPreviewService
 from app.services.custom_report_generation_service import CustomReportCostPolicy, CustomReportGenerationService
 from app.services.custom_report_history_service import CustomReportHistoryService
 from app.services.patient_dashboard_service import PaginationParams, PatientDashboardService, ReportFilters
+from app.db.security_context import set_database_service_context
 from app.services.report_service import ReportService
 
 
@@ -62,6 +64,10 @@ class ProfessionalService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Active professional profile required",
             )
+        # Provisioning must check global uniqueness and create the patient,
+        # plan, role, and initial professional link atomically before a normal
+        # patient access relationship exists.
+        set_database_service_context(self.db, "professional_patient_provisioning")
         if self.db.query(User).filter(User.email == payload.email).first():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
         if payload.cpf and self.db.query(User).filter(User.cpf == payload.cpf).first():
@@ -389,17 +395,7 @@ class ProfessionalService:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def _get_access_profile(self, current_user: User) -> ProfessionalProfile | None:
-        if is_admin(current_user):
-            return None
-        require_role(current_user, RoleNameEnum.PROFESSIONAL)
-        profile = (
-            self.db.query(ProfessionalProfile)
-            .filter(ProfessionalProfile.user_id == current_user.id, ProfessionalProfile.active.is_(True))
-            .first()
-        )
-        if not profile:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Active professional profile required")
-        return profile
+        return AccessPolicy(self.db, current_user).require_active_professional_profile()
 
     @staticmethod
     def _require_report_role(current_user: User) -> None:
@@ -408,26 +404,7 @@ class ProfessionalService:
             require_role(current_user, RoleNameEnum.PROFESSIONAL)
 
     def _require_patient_access(self, current_user: User, patient_id: int) -> User:
-        patient = self.db.query(User).filter(User.id == patient_id).first()
-        if not patient:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
-        if is_admin(current_user):
-            return patient
-        profile = self._get_access_profile(current_user)
-        exists = (
-            self.db.query(MonitoringProfessional)
-            .join(MonitoringPlan, MonitoringPlan.id == MonitoringProfessional.monitoring_plan_id)
-            .filter(
-                MonitoringPlan.patient_id == patient_id,
-                MonitoringPlan.active.is_(True),
-                MonitoringProfessional.professional_profile_id == profile.id,
-                MonitoringProfessional.active.is_(True),
-            )
-            .first()
-        )
-        if not exists:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this patient")
-        return patient
+        return AccessPolicy(self.db, current_user).require_professional_patient_read(patient_id)
 
     def _build_patient_dashboard(self, patient: User) -> PatientDashboardResponseV2:
         today = datetime.now(self.dashboard_service.timezone).date()

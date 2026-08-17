@@ -3,9 +3,14 @@ from enum import Enum
 from uuid import UUID
 from typing import ClassVar, List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.core.user_identity import validate_user_name
+from app.models.validated_fields import ClinicalPlainText, ShortPlainText
+
+
+class StrictRequestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
 class CheckTypeEnum(str, Enum):
@@ -52,15 +57,15 @@ class ORMModel(BaseModel):
         from_attributes = True
 
 
-class UserBase(BaseModel):
-    name: str
+class UserBase(StrictRequestModel):
+    name: ShortPlainText
     email: EmailStr
-    phone: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
-    gender: Optional[str] = None
+    phone: Optional[str] = Field(default=None, max_length=32)
+    city: Optional[ShortPlainText] = None
+    state: Optional[ShortPlainText] = None
+    gender: Optional[ShortPlainText] = None
     birth_date: Optional[date] = None
-    cpf: Optional[str] = None
+    cpf: Optional[str] = Field(default=None, max_length=32)
 
 
 class UserCreate(UserBase):
@@ -73,8 +78,8 @@ class UserCreate(UserBase):
         return validate_user_name(value)
 
 
-class UserUpdate(BaseModel):
-    name: Optional[str] = None
+class UserUpdate(StrictRequestModel):
+    name: Optional[ShortPlainText] = None
     email: Optional[EmailStr] = None
 
     @field_validator("name")
@@ -84,12 +89,12 @@ class UserUpdate(BaseModel):
             return value
         return validate_user_name(value)
 
-    phone: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
-    gender: Optional[str] = None
+    phone: Optional[str] = Field(default=None, max_length=32)
+    city: Optional[ShortPlainText] = None
+    state: Optional[ShortPlainText] = None
+    gender: Optional[ShortPlainText] = None
     birth_date: Optional[date] = None
-    cpf: Optional[str] = None
+    cpf: Optional[str] = Field(default=None, max_length=32)
 
 
 class UserRead(UserBase, ORMModel):
@@ -117,16 +122,16 @@ class ChangePasswordRequest(BaseModel):
     password: str = Field(min_length=8, max_length=1024)
 
 
-class AnamneseBase(BaseModel):
-    info: str
+class AnamneseBase(StrictRequestModel):
+    info: ClinicalPlainText
 
 
 class AnamneseCreate(AnamneseBase):
     user_id: int
 
 
-class AnamneseUpdate(BaseModel):
-    info: Optional[str] = None
+class AnamneseUpdate(StrictRequestModel):
+    info: Optional[ClinicalPlainText] = None
 
 
 class AnamneseRead(AnamneseBase, ORMModel):
@@ -136,11 +141,11 @@ class AnamneseRead(AnamneseBase, ORMModel):
     updated_at: datetime
 
 
-class ProfessionalProfileBase(BaseModel):
-    license_number: Optional[str] = None
-    license_state: Optional[str] = None
-    specialty: Optional[str] = None
-    bio: Optional[str] = None
+class ProfessionalProfileBase(StrictRequestModel):
+    license_number: Optional[str] = Field(default=None, max_length=64)
+    license_state: Optional[str] = Field(default=None, max_length=32)
+    specialty: Optional[str] = Field(default=None, max_length=128)
+    bio: Optional[str] = Field(default=None, max_length=2_000)
     active: bool = True
 
 
@@ -148,11 +153,11 @@ class ProfessionalProfileCreate(ProfessionalProfileBase):
     user_id: int
 
 
-class ProfessionalProfileUpdate(BaseModel):
-    license_number: Optional[str] = None
-    license_state: Optional[str] = None
-    specialty: Optional[str] = None
-    bio: Optional[str] = None
+class ProfessionalProfileUpdate(StrictRequestModel):
+    license_number: Optional[str] = Field(default=None, max_length=64)
+    license_state: Optional[str] = Field(default=None, max_length=32)
+    specialty: Optional[str] = Field(default=None, max_length=128)
+    bio: Optional[str] = Field(default=None, max_length=2_000)
     active: Optional[bool] = None
 
 
@@ -163,9 +168,9 @@ class ProfessionalProfileRead(ProfessionalProfileBase, ORMModel):
     updated_at: datetime
 
 
-class MonitoringPlanBase(BaseModel):
-    title: str
-    description: Optional[str] = None
+class MonitoringPlanBase(StrictRequestModel):
+    title: ShortPlainText
+    description: Optional[str] = Field(default=None, max_length=2_000)
     active: bool = True
     start_date: Optional[date] = None
     end_date: Optional[date] = None
@@ -175,9 +180,9 @@ class MonitoringPlanCreate(MonitoringPlanBase):
     patient_id: int
 
 
-class MonitoringPlanUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
+class MonitoringPlanUpdate(StrictRequestModel):
+    title: Optional[ShortPlainText] = None
+    description: Optional[str] = Field(default=None, max_length=2_000)
     active: Optional[bool] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
@@ -194,7 +199,7 @@ class ProfessionalPatientCreate(UserBase):
     """Patient and initial monitoring plan created by a professional."""
 
     plan_title: str = Field(min_length=1, max_length=255)
-    plan_description: Optional[str] = None
+    plan_description: Optional[str] = Field(default=None, max_length=2_000)
     plan_start_date: Optional[date] = None
     plan_end_date: Optional[date] = None
 
@@ -211,11 +216,11 @@ class ProfessionalPatientCreateResponse(BaseModel):
 
 class MonitoringProfessionalCreate(BaseModel):
     professional_profile_id: int
-    role: Optional[str] = None
+    role: Optional[str] = Field(default=None, max_length=64)
 
 
 class MonitoringProfessionalUpdate(BaseModel):
-    role: Optional[str] = None
+    role: Optional[str] = Field(default=None, max_length=64)
     active: Optional[bool] = None
 
 
@@ -283,7 +288,7 @@ class AvaliacaoClinica(BaseModel):
 
 
 class InsightRequest(BaseModel):
-    relatorio_texto: str
+    relatorio_texto: str = Field(min_length=1, max_length=6000)
 
 
 class InsightPreventiveResponse(BaseModel):

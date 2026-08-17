@@ -12,6 +12,7 @@ import uuid
 from app.core.auth import assign_role
 from app.core.user_identity import is_email_like, validate_user_name
 from app.db.session import SessionLocal
+from app.db.security_context import set_database_service_context
 from app.models.models import RoleNameEnum, User
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ def main() -> None:
     supabase_user_id = uuid.UUID(args.supabase_user_id)
 
     db = SessionLocal()
+    set_database_service_context(db, "create_super_admin")
     try:
         user = db.query(User).filter(User.supabase_user_id == supabase_user_id).first()
         if not user:

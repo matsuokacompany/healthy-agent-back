@@ -1,6 +1,7 @@
 import pytest
 from fastapi import HTTPException
 
+from app.core.auth import get_current_professional_or_admin
 from app.core.permissions import can_access_user, has_role, is_admin, is_super_admin
 from app.models.models import Role, RoleNameEnum, User
 from app.services.professional_service import ProfessionalService
@@ -49,3 +50,16 @@ def test_report_tools_reject_patient_role_alone():
 
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail == "Insufficient role"
+
+
+@pytest.mark.parametrize("role", [RoleNameEnum.ADMIN, RoleNameEnum.SUPER_ADMIN, RoleNameEnum.PROFESSIONAL])
+def test_generic_insight_tools_accept_only_professional_or_admin(role):
+    user = user_with_roles(role)
+    assert get_current_professional_or_admin(user) is user
+
+
+def test_generic_insight_tools_reject_patient():
+    with pytest.raises(HTTPException) as exc_info:
+        get_current_professional_or_admin(user_with_roles(RoleNameEnum.PATIENT))
+
+    assert exc_info.value.status_code == 403

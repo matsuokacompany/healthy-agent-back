@@ -2,6 +2,9 @@
 
 Backend FastAPI para um MVP SaaS de monitoramento clínico com Supabase PostgreSQL, WhatsApp Cloud API, APScheduler, autenticação JWT/refresh tokens, anamneses, daily reports e geração de insights com OpenAI/LangChain.
 
+As regras de isolamento entre paciente, profissional e serviços internos, além
+da configuração de Row Level Security, estão em [`docs/security.md`](docs/security.md).
+
 ## Arquitetura
 
 ```text
@@ -63,6 +66,7 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | --- | --- | --- | --- |
 | `ENV` | não | `production` | Ambiente da aplicação. |
 | `DATABASE_URL` | sim | `postgresql+psycopg2://postgres:<PASSWORD>@db.<PROJECT_REF>.supabase.co:5432/postgres?sslmode=require` | URL do Supabase PostgreSQL. |
+| `DATABASE_RUNTIME_ROLE` | não | `healthy_agent_api` | Papel sem login criado pela migration de RLS e assumido pelas conexões da API. |
 | `SECRET_KEY` | sim | `change-me` | Segredo JWT legado. |
 | `SUPABASE_PROJECT_URL` | sim | `https://<PROJECT_REF>.supabase.co` | URL do projeto Supabase usada para validar o issuer `https://<PROJECT_REF>.supabase.co/auth/v1`. |
 | `SUPABASE_JWT_SECRET` | sim | `<supabase-jwt-secret>` | JWT secret do Supabase usado para validar access tokens `HS256`. |
@@ -205,6 +209,7 @@ Para o secret multilinha `PRODUCTION_ENV`, use um valor como este:
 ENV=production
 DEBUG=false
 DATABASE_URL=postgresql+psycopg2://postgres:<SENHA>@db.<PROJECT_REF>.supabase.co:5432/postgres?sslmode=require
+DATABASE_RUNTIME_ROLE=healthy_agent_api
 
 SUPABASE_PROJECT_URL=https://<PROJECT_REF>.supabase.co
 SUPABASE_ANON_KEY=<SUPABASE_ANON_KEY>
