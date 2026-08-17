@@ -7,6 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.db.session import SessionLocal
+from app.db.security_context import set_database_service_context
 from app.models.models import User, WhatsAppMessage
 from app.services.daily_report_service import DailyReportService
 
@@ -58,6 +59,7 @@ class BotService:
             return BotResponse(text="", duplicate=True)
 
         db = SessionLocal()
+        set_database_service_context(db, "whatsapp")
 
         try:
             user = self._find_user_by_whatsapp_identity(db, external_user_id, normalized_user_id)
@@ -131,6 +133,7 @@ class BotService:
         cls._recover_stale_processing_messages()
 
         db = SessionLocal()
+        set_database_service_context(db, "whatsapp")
         try:
             existing = db.query(WhatsAppMessage).filter(WhatsAppMessage.message_id == message_id).first()
             if existing:
@@ -161,6 +164,7 @@ class BotService:
     @classmethod
     def _recover_stale_processing_messages(cls) -> None:
         db = SessionLocal()
+        set_database_service_context(db, "whatsapp")
         try:
             cutoff = datetime.now(timezone.utc) - timedelta(minutes=cls.PROCESSING_TIMEOUT_MINUTES)
             stale_messages = (
@@ -184,6 +188,7 @@ class BotService:
     @staticmethod
     def _mark_message_finished(*, message_id: str, response: BotResponse, user_id: int | None, status: str) -> None:
         db = SessionLocal()
+        set_database_service_context(db, "whatsapp")
         try:
             webhook_message = db.query(WhatsAppMessage).filter(WhatsAppMessage.message_id == message_id).first()
             if not webhook_message:

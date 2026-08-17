@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     DATABASE_URL: str
+    DATABASE_RUNTIME_ROLE: str = "healthy_agent_api"
 
     OPENAI_API_KEY: Optional[str] = None
     AI_REPORT_PREVIEW_SECRET: Optional[str] = None

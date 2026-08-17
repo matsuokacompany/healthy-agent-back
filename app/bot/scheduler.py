@@ -8,6 +8,7 @@ from sqlalchemy import or_, text
 
 from app.core.config import settings
 from app.db.session import SessionLocal
+from app.db.security_context import set_database_service_context
 from app.models.models import CheckTypeEnum, MonitoringPlan, User
 from app.services.daily_report_service import DailyReportService
 
@@ -60,6 +61,7 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
     logger.info("SEND_PROMPT START | type=%s", check_type.value)
 
     db = SessionLocal()
+    set_database_service_context(db, "scheduler")
     plans_processed = 0
     plans_skipped = 0
     plans_failed = 0

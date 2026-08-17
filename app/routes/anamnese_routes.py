@@ -112,16 +112,12 @@ def delete_anamnese(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    item = db.query(Anamnese).filter(Anamnese.id == id).first()
+    query = db.query(Anamnese).filter(Anamnese.id == id)
+    if not is_admin(current_user):
+        query = query.filter(Anamnese.user_id == current_user.id)
+    item = query.first()
     if not item:
         raise HTTPException(404, "Anamnese not found")
-
-    # user normal só pode deletar a dele
-    if not is_admin(current_user) and item.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized"
-        )
 
     db.delete(item)
     db.commit()

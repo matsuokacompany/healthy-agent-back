@@ -16,8 +16,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.dependencies import get_db
-from app.core.permissions import is_admin, is_super_admin
+from app.core.permissions import has_role, is_admin, is_super_admin
 from app.core.user_identity import is_email_like
+from app.db.security_context import set_database_identity_context
 from app.models.models import Role, RoleNameEnum, User, UserRole
 
 ALGORITHMS = ["HS256", "RS256", "ES256"]
@@ -98,6 +99,7 @@ def clear_auth_cookies(response: Response) -> None:
 def _resolve_or_create_user(db: Session, payload: dict[str, Any]) -> User:
     supabase_user_id = uuid.UUID(str(payload["sub"]))
     email = payload.get("email") or "unknown@example.com"
+    set_database_identity_context(db, supabase_user_id, email)
     user = db.query(User).filter(User.supabase_user_id == supabase_user_id).first()
     if not user and email:
         user = db.query(User).filter(User.email == email).first()
@@ -110,6 +112,9 @@ def _resolve_or_create_user(db: Session, payload: dict[str, Any]) -> User:
         assign_role(db, user, RoleNameEnum.PATIENT)
     _sync_supabase_profile(db, user, payload)
     db.commit()
+    # commit ends SET LOCAL; rebind the identity for route queries that reuse
+    # this FastAPI dependency-scoped session.
+    set_database_identity_context(db, supabase_user_id, email)
     db.refresh(user)
     return user
 
@@ -340,4 +345,13 @@ def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
 def get_current_super_admin(current_user: User = Depends(get_current_user)) -> User:
     if not is_super_admin(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super admin privileges required")
+    return current_user
+
+
+def get_current_professional_or_admin(current_user: User = Depends(get_current_user)) -> User:
+    if not is_admin(current_user) and not has_role(current_user, RoleNameEnum.PROFESSIONAL):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Professional or admin privileges required",
+        )
     return current_user
