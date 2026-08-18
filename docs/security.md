@@ -109,7 +109,19 @@ python -m app.scripts.clinical_encryption_backfill --execute --batch-size 100
 ```
 
 Repita o modo de contagem e confirme que todas as tabelas ficaram em zero antes
-de interromper a escrita plaintext. Não execute duas instâncias do backfill ao
+de validar todos os envelopes existentes:
+
+```bash
+python -m app.scripts.clinical_encryption_verify --batch-size 100
+```
+
+O verificador é somente leitura, compara o valor descriptografado com a cópia
+plaintext da escrita dupla e retorna código diferente de zero em caso de falha
+de autenticação ou divergência. A saída contém somente tabela, ID, campo e tipo
+do problema; nunca contém conteúdo clínico. Somente interrompa a escrita
+plaintext quando `mismatches=0` e `failures=0`.
+
+Não execute duas instâncias do backfill ao
 mesmo tempo; `SKIP LOCKED` reduz contenção no PostgreSQL, mas a operação deve ser
 coordenada. Nunca registre os valores clínicos ou os envelopes.
 
