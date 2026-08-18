@@ -138,6 +138,22 @@ novo deploy. A partir desse corte, novas escritas persistem somente o envelope;
 as colunas legadas permanecem temporariamente para rollback e a leitura híbrida
 continua habilitada. Não limpe os plaintexts históricos no mesmo deploy.
 
+Após uma janela de estabilidade com a flag desligada, conte as cópias legadas:
+
+```bash
+python -m app.scripts.clinical_plaintext_cleanup
+```
+
+O cleanup autentica e compara cada envelope antes de limpar sua cópia plaintext,
+falha de forma fechada em qualquer divergência e confirma cada lote em uma
+transação. Faça primeiro um canário e repita a verificação criptográfica:
+
+```bash
+python -m app.scripts.clinical_plaintext_cleanup --execute --batch-size 10 --max-records 10
+python -m app.scripts.clinical_encryption_verify --batch-size 100
+python -m app.scripts.clinical_plaintext_cleanup --execute --batch-size 100
+```
+
 O preflight permanente pode ser executado sem dados de pacientes:
 
 ```bash
