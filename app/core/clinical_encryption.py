@@ -1,5 +1,6 @@
 import json
 import os
+from base64 import b64decode, b64encode
 from dataclasses import dataclass
 from typing import Mapping, Protocol
 
@@ -38,6 +39,32 @@ class ClinicalCiphertext:
     key_version: str
     algorithm: str = ALGORITHM
     envelope_version: int = ENVELOPE_VERSION
+
+    def to_storage_dict(self) -> dict[str, str | int]:
+        return {
+            "ciphertext": b64encode(self.ciphertext).decode("ascii"),
+            "nonce": b64encode(self.nonce).decode("ascii"),
+            "encrypted_data_key": b64encode(self.encrypted_data_key).decode("ascii"),
+            "key_id": self.key_id,
+            "key_version": self.key_version,
+            "algorithm": self.algorithm,
+            "envelope_version": self.envelope_version,
+        }
+
+    @classmethod
+    def from_storage_dict(cls, value: Mapping[str, str | int]) -> "ClinicalCiphertext":
+        try:
+            return cls(
+                ciphertext=b64decode(str(value["ciphertext"]), validate=True),
+                nonce=b64decode(str(value["nonce"]), validate=True),
+                encrypted_data_key=b64decode(str(value["encrypted_data_key"]), validate=True),
+                key_id=str(value["key_id"]),
+                key_version=str(value["key_version"]),
+                algorithm=str(value["algorithm"]),
+                envelope_version=int(value["envelope_version"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ClinicalEncryptionError("The stored clinical encryption envelope is invalid") from exc
 
 
 class DataKeyProvider(Protocol):
@@ -193,3 +220,19 @@ class ClinicalEncryptionService:
             "context": dict(context),
         }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def build_clinical_encryption_service(settings, *, kms_client=None) -> ClinicalEncryptionService:
+    if settings.CLINICAL_ENCRYPTION_PROVIDER != "aws_kms":
+        raise ClinicalEncryptionConfigurationError("Clinical encryption must use aws_kms")
+    if not settings.CLINICAL_ENCRYPTION_KMS_KEY_ID or not settings.CLINICAL_ENCRYPTION_AWS_REGION:
+        raise ClinicalEncryptionConfigurationError("Clinical AWS KMS key ID and region are required")
+    provider = AwsKmsDataKeyProvider(
+        settings.CLINICAL_ENCRYPTION_KMS_KEY_ID,
+        settings.CLINICAL_ENCRYPTION_AWS_REGION,
+        kms_client=kms_client,
+    )
+    return ClinicalEncryptionService(
+        provider,
+        active_key_version=settings.CLINICAL_ENCRYPTION_ACTIVE_KEY_VERSION,
+    )

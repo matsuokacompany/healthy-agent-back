@@ -7,7 +7,9 @@ from app.core.clinical_encryption import (
     ClinicalEncryptionConfigurationError,
     ClinicalEncryptionError,
     ClinicalEncryptionService,
+    ClinicalCiphertext,
     LocalDataKeyProvider,
+    build_clinical_encryption_service,
 )
 
 
@@ -43,6 +45,16 @@ def test_same_value_uses_distinct_ciphertexts_and_data_keys():
     assert first.nonce != second.nonce
     assert first.ciphertext != second.ciphertext
     assert first.encrypted_data_key != second.encrypted_data_key
+
+
+def test_storage_envelope_round_trip():
+    service = _service()
+    encrypted = service.encrypt("febre", context=CONTEXT)
+
+    restored = ClinicalCiphertext.from_storage_dict(encrypted.to_storage_dict())
+
+    assert restored == encrypted
+    assert service.decrypt(restored, context=CONTEXT) == "febre"
 
 
 @pytest.mark.parametrize("attribute", ["ciphertext", "nonce", "encrypted_data_key"])
@@ -106,3 +118,14 @@ def test_aws_kms_provider_binds_data_key_to_encryption_context():
 
     assert service.decrypt(encrypted, context=CONTEXT) == "febre"
     assert client.encryption_context == CONTEXT
+
+
+def test_factory_requires_aws_kms_configuration():
+    class Settings:
+        CLINICAL_ENCRYPTION_PROVIDER = "disabled"
+        CLINICAL_ENCRYPTION_KMS_KEY_ID = None
+        CLINICAL_ENCRYPTION_AWS_REGION = None
+        CLINICAL_ENCRYPTION_ACTIVE_KEY_VERSION = "v1"
+
+    with pytest.raises(ClinicalEncryptionConfigurationError):
+        build_clinical_encryption_service(Settings())

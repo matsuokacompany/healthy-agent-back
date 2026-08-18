@@ -89,3 +89,15 @@ em logs.
 O contexto criptográfico exige `table`, `record_id`, `patient_id` e `field`.
 Esse contexto é autenticado pelo KMS e pelo AES-GCM, impedindo que um ciphertext
 seja movido silenciosamente para outro paciente, registro ou campo.
+
+A migration `0010` somente adiciona envelopes JSON anuláveis ao lado das colunas
+legadas. Ela não lê, atualiza, criptografa ou remove valores existentes. O
+backfill deve ser implementado e executado separadamente, somente após validar
+o deploy aditivo e conferir novamente as contagens registradas antes da
+migration.
+
+O preflight permanente pode ser executado sem dados de pacientes:
+
+```bash
+python -m app.scripts.clinical_encryption_preflight
+```
