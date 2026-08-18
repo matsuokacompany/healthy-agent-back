@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from sqlalchemy import and_, or_
+from sqlalchemy import JSON, and_, null, or_, text
 from sqlalchemy.orm import Session
 
 from app.models.models import AiReportCache, Anamnese, DailyReport
@@ -40,6 +40,7 @@ class ClinicalPlaintextCleanupService:
         if batch_size < 1 or (max_records is not None and max_records < 1):
             raise ValueError("batch_size and max_records must be at least 1")
         stats = CleanupStats()
+        self._normalize_json_nulls(stats, max_records=max_records)
         for model, fields in self.TARGETS:
             last_id = 0
             while max_records is None or stats.records < max_records:
@@ -56,7 +57,15 @@ class ClinicalPlaintextCleanupService:
                     last_id = record.id
                     for name, value_type in fields:
                         plaintext = getattr(record, name)
-                        if plaintext is None or getattr(record, f"{name}_encryption_envelope") is None:
+                        envelope = getattr(record, f"{name}_encryption_envelope")
+                        if envelope is None:
+                            continue
+                        if plaintext is None:
+                            if value_type == "json":
+                                # SQLAlchemy JSON historically encoded Python
+                                # None as JSON `null`; normalize it to SQL NULL.
+                                setattr(record, name, null())
+                                stats.fields += 1
                             continue
                         decrypted = self.clinical_data.read_json(record, name) if value_type == "json" else self.clinical_data.read_text(record, name)
                         if decrypted != plaintext:
@@ -70,6 +79,54 @@ class ClinicalPlaintextCleanupService:
                 self.db.commit()
                 self.db.expunge_all()
         return stats
+
+    def _normalize_json_nulls(self, stats: CleanupStats, *, max_records: int | None) -> None:
+        """Convert legacy JSON `null` responses to real SQL NULL values."""
+        remaining = None if max_records is None else max_records - stats.records
+        if remaining is not None and remaining <= 0:
+            return
+        if self.db.get_bind().dialect.name == "postgresql":
+            # PostgreSQL json has no equality operator, and the ORM maps both
+            # SQL NULL and JSON `null` to Python None. Inspect the JSON text at
+            # the database boundary so the two representations stay distinct.
+            record_ids = list(
+                self.db.execute(
+                    text(
+                        """
+                        SELECT id
+                        FROM ai_report_cache
+                        WHERE ai_response IS NOT NULL
+                          AND ai_response::text = 'null'
+                          AND ai_response_encryption_envelope IS NOT NULL
+                        ORDER BY id
+                        LIMIT :limit
+                        """
+                    ),
+                    {"limit": remaining if remaining is not None else 9223372036854775807},
+                ).scalars()
+            )
+        else:
+            query = (
+                self.db.query(AiReportCache.id)
+                .filter(
+                    AiReportCache.ai_response == JSON.NULL,
+                    AiReportCache.ai_response_encryption_envelope.is_not(None),
+                )
+                .order_by(AiReportCache.id)
+            )
+            if remaining is not None:
+                query = query.limit(remaining)
+            record_ids = [row[0] for row in query.all()]
+        if not record_ids:
+            return
+        self.db.query(AiReportCache).filter(AiReportCache.id.in_(record_ids)).update(
+            {AiReportCache.ai_response: null()},
+            synchronize_session=False,
+        )
+        self.db.commit()
+        self.db.expunge_all()
+        stats.records += len(record_ids)
+        stats.fields += len(record_ids)
 
     @staticmethod
     def _pending_filter(model, fields):

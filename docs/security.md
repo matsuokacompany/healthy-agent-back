@@ -154,6 +154,15 @@ python -m app.scripts.clinical_encryption_verify --batch-size 100
 python -m app.scripts.clinical_plaintext_cleanup --execute --batch-size 100
 ```
 
+O campo JSON `ai_response` usa SQL `NULL` (não o literal JSON `null`) quando a
+cópia plaintext é limpa, permitindo que a contagem operacional com `IS NULL`
+confirme corretamente o corte. O cleanup também normaliza explicitamente
+literais JSON `null` criados por versões anteriores, usando uma atualização SQL
+direta para não depender da desserialização do ORM, que representa ambos como
+Python `None`. No PostgreSQL, a seleção usa `ai_response::text = 'null'`, pois o
+tipo `json` não possui operador de igualdade e a comparação deve distinguir o
+literal JSON de SQL `NULL`.
+
 O preflight permanente pode ser executado sem dados de pacientes:
 
 ```bash

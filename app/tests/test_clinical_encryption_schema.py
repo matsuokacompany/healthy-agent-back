@@ -27,3 +27,4 @@ def test_clinical_encryption_envelope_columns_are_nullable_and_additive():
                 assert columns[column_name].nullable is True
 
     assert Anamnese.__table__.columns.info.nullable is True
+    assert AiReportCache.__table__.columns.ai_response.type.none_as_null is True
