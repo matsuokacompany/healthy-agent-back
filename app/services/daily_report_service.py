@@ -161,7 +161,7 @@ class DailyReportService:
         report.status = DailyReportStatusEnum.COMPLETED
         db.commit()
         db.refresh(report)
-        return report
+        return cls.hydrate_clinical(report)
 
     @classmethod
     def delete_patient_response(cls, db: Session, report: DailyReport) -> DailyReport:
