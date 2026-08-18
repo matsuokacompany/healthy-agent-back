@@ -169,6 +169,29 @@ O preflight permanente pode ser executado sem dados de pacientes:
 python -m app.scripts.clinical_encryption_preflight
 ```
 
+## Rotação dos envelopes
+
+Para trocar a chave, mantenha a chave anterior habilitada para descriptografia,
+conceda à IAM Role acesso à chave nova e configure o novo key ID e uma nova
+`CLINICAL_ENCRYPTION_ACTIVE_KEY_VERSION`. Após o preflight, conte sem alterar:
+
+```bash
+python -m app.scripts.clinical_encryption_rotate --target-key-version v2
+```
+
+Faça um canário, verifique todos os envelopes e só então conclua a rotação:
+
+```bash
+python -m app.scripts.clinical_encryption_rotate --execute --target-key-version v2 --batch-size 10 --max-records 10
+python -m app.scripts.clinical_encryption_verify --batch-size 100
+python -m app.scripts.clinical_encryption_rotate --execute --target-key-version v2 --batch-size 100
+```
+
+O comando recusa uma versão de destino diferente da versão ativa, reabre cada
+envelope antigo, cria um novo envelope ciphertext-only e o relê antes do commit.
+Não desabilite a chave anterior até a contagem da rotação chegar a zero, a
+verificação terminar sem falhas e a janela de rollback ser encerrada.
+
 Relatórios diários novos ou editados gravam o envelope autenticado na mesma
 transação. Enquanto a flag de corte estiver habilitada, também fazem escrita
 dupla para rollback; depois do corte, a coluna plaintext fica nula. Em produção
