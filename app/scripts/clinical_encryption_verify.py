@@ -1,6 +1,7 @@
 import argparse
 
 from app.db.session import SessionLocal
+from app.db.security_context import set_database_service_context
 from app.services.clinical_encryption_verification_service import ClinicalEncryptionVerificationService
 
 
@@ -14,6 +15,7 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _parser().parse_args()
     with SessionLocal() as db:
+        set_database_service_context(db, "clinical_encryption_verification")
         result = ClinicalEncryptionVerificationService(db).run(
             batch_size=args.batch_size,
             max_records=args.max_records,

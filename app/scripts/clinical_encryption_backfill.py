@@ -1,6 +1,7 @@
 import argparse
 
 from app.db.session import SessionLocal
+from app.db.security_context import set_database_service_context
 from app.services.clinical_encryption_backfill_service import ClinicalEncryptionBackfillService
 
 
@@ -15,6 +16,7 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _parser().parse_args()
     with SessionLocal() as db:
+        set_database_service_context(db, "clinical_encryption_backfill")
         service = ClinicalEncryptionBackfillService(db)
         before = service.pending_counts()
         print("Pending records: " + ", ".join(f"{table}={count}" for table, count in before.items()))

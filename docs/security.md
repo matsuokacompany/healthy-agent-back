@@ -121,6 +121,12 @@ de autenticação ou divergência. A saída contém somente tabela, ID, campo e 
 do problema; nunca contém conteúdo clínico. Somente interrompa a escrita
 plaintext quando `mismatches=0` e `failures=0`.
 
+Os comandos de backfill e verificação configuram um contexto interno de serviço
+antes de consultar o PostgreSQL. Isso é necessário para que as políticas de RLS
+permitam que a manutenção enxergue todos os pacientes. Uma execução de versão
+anterior que retorne zero registros sem esse contexto não comprova que o banco
+esteja vazio e deve ser repetida após o deploy desta correção.
+
 Não execute duas instâncias do backfill ao
 mesmo tempo; `SKIP LOCKED` reduz contenção no PostgreSQL, mas a operação deve ser
 coordenada. Nunca registre os valores clínicos ou os envelopes.
