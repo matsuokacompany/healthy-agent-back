@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     AI_REPORT_INPUT_COST_PER_MILLION_USD: Optional[float] = None
     AI_REPORT_OUTPUT_COST_PER_MILLION_USD: Optional[float] = None
 
+    # Clinical field encryption. The AWS credentials must come from the EC2
+    # instance role; never configure long-lived AWS access keys here.
+    CLINICAL_ENCRYPTION_PROVIDER: str = "disabled"
+    CLINICAL_ENCRYPTION_KMS_KEY_ID: Optional[str] = None
+    CLINICAL_ENCRYPTION_AWS_REGION: Optional[str] = None
+    CLINICAL_ENCRYPTION_ACTIVE_KEY_VERSION: str = "v1"
+
     USER_ID: int = 1
     ENV: str = "dev"
     DEBUG: bool = False
