@@ -246,7 +246,7 @@ class Anamnese(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
-    info = Column(Text, nullable=False)
+    info = Column(Text, nullable=True)
     info_encryption_envelope = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(

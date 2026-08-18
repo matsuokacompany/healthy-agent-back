@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     CLINICAL_ENCRYPTION_KMS_KEY_ID: Optional[str] = None
     CLINICAL_ENCRYPTION_AWS_REGION: Optional[str] = None
     CLINICAL_ENCRYPTION_ACTIVE_KEY_VERSION: str = "v1"
+    CLINICAL_ENCRYPTION_PLAINTEXT_WRITES_ENABLED: bool = True
 
     USER_ID: int = 1
     ENV: str = "dev"

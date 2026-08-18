@@ -25,3 +25,5 @@ def test_clinical_encryption_envelope_columns_are_nullable_and_additive():
         for column_name in column_names:
             if column_name.endswith("_envelope"):
                 assert columns[column_name].nullable is True
+
+    assert Anamnese.__table__.columns.info.nullable is True
