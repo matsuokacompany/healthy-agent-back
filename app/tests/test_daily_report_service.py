@@ -39,6 +39,7 @@ def test_daily_report_button_flow_complete():
     db = build_session()
     user, plan = create_user_and_plan(db)
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    report.suspected_cause = "Causa antiga"
     db.commit()
     db.refresh(plan)
 
@@ -246,7 +247,6 @@ def test_update_patient_response_marks_report_completed():
         report,
         had_symptoms=True,
         symptom_description="Dor de cabeça corrigida",
-        suspected_cause="Dormi mal",
     )
 
     assert report.completed is True
@@ -255,13 +255,14 @@ def test_update_patient_response_marks_report_completed():
     assert report.awaiting_cause is False
     assert report.had_symptoms is True
     assert report.symptom_description == "Dor de cabeça corrigida"
-    assert report.suspected_cause == "Dormi mal"
+    assert report.suspected_cause is None
 
 
 def test_update_patient_response_clears_text_when_marked_without_symptoms():
     db = build_session()
     user, plan = create_user_and_plan(db)
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    report.suspected_cause = "Causa que deve ser removida"
     db.commit()
 
     DailyReportService.update_patient_response(
@@ -269,7 +270,6 @@ def test_update_patient_response_clears_text_when_marked_without_symptoms():
         report,
         had_symptoms=False,
         symptom_description="Texto que deve ser removido",
-        suspected_cause="Causa que deve ser removida",
     )
 
     assert report.completed is True

@@ -374,7 +374,6 @@ class PatientDashboardService:
             completed=report.completed,
             had_symptoms=report.had_symptoms,
             symptom_description=report.symptom_description,
-            suspected_cause=report.suspected_cause,
             prompt_sent_at=report.prompt_sent_at,
             answered_at=report.updated_at if report.completed else None,
             expires_at=report.expires_at,

@@ -2,10 +2,11 @@ import hashlib
 import hmac
 
 import pytest
-from fastapi import HTTPException, status
+from fastapi import FastAPI, HTTPException, status
+from fastapi.testclient import TestClient
 
 from app.core.config import settings
-from app.routes.bot_webhook_routes import verify_whatsapp_signature
+from app.routes.bot_webhook_routes import MAX_WEBHOOK_BODY_BYTES, router, verify_whatsapp_signature
 
 
 def make_signature(secret: str, body: bytes) -> str:
@@ -47,3 +48,15 @@ def test_verify_whatsapp_signature_fails_closed_when_secret_is_missing(monkeypat
         verify_whatsapp_signature(b"{}", "sha256=anything")
 
     assert exc.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+
+
+def test_webhook_rejects_oversized_body_before_signature_validation():
+    app = FastAPI()
+    app.include_router(router)
+
+    response = TestClient(app).post(
+        "/webhook/whatsapp",
+        content=b"x" * (MAX_WEBHOOK_BODY_BYTES + 1),
+    )
+
+    assert response.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
