@@ -43,6 +43,7 @@ from app.services.custom_report_history_service import CustomReportHistoryServic
 from app.services.patient_dashboard_service import PaginationParams, PatientDashboardService, ReportFilters
 from app.db.security_context import set_database_service_context
 from app.services.report_service import ReportService
+from app.services.anamnese_clinical_service import AnamneseClinicalService
 
 
 class ProfessionalService:
@@ -199,7 +200,7 @@ class ProfessionalService:
         anamnese = self.db.query(Anamnese).filter(Anamnese.user_id == patient_id).first()
         if not anamnese:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anamnese not found")
-        return anamnese
+        return AnamneseClinicalService.hydrate(anamnese)
 
     def create_anamnese(self, current_user: User, patient_id: int, info: str) -> Anamnese:
         self._require_patient_access(current_user, patient_id)
@@ -211,6 +212,8 @@ class ProfessionalService:
         anamnese = Anamnese(user_id=patient_id, info=info)
         self.db.add(anamnese)
         try:
+            self.db.flush()
+            AnamneseClinicalService.write(anamnese, info)
             self.db.commit()
         except IntegrityError:
             self.db.rollback()
@@ -226,7 +229,7 @@ class ProfessionalService:
         anamnese = self.db.query(Anamnese).filter(Anamnese.user_id == patient_id).first()
         if not anamnese:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anamnese not found")
-        anamnese.info = info
+        AnamneseClinicalService.write(anamnese, info)
         self.db.commit()
         self.db.refresh(anamnese)
         return anamnese
@@ -441,7 +444,7 @@ class ProfessionalService:
         if not anamnese:
             anamnese_text = "Anamnese não registrada."
         else:
-            anamnese_text = anamnese.info
+            anamnese_text = AnamneseClinicalService.hydrate(anamnese).info
         return "\n\n".join([
             "ANAMNESE DO PACIENTE:",
             anamnese_text,

@@ -106,3 +106,7 @@ Relatórios diários novos ou editados fazem escrita dupla de descrição e caus
 o plaintext é mantido temporariamente para rollback e o envelope autenticado é
 gravado na mesma transação. Em produção não existe fallback silencioso quando o
 KMS falha. Limpar uma resposta também limpa os envelopes correspondentes.
+
+Anamneses novas e atualizadas também fazem escrita dupla após o registro obter
+seu ID. Leituras do paciente, profissional, dashboard e geração de prompts
+preferem o envelope autenticado, mantendo fallback para anamneses legadas.

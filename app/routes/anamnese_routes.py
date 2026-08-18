@@ -6,6 +6,7 @@ from app.models.schemas import AnamneseCreate, AnamneseRead, AnamneseUpdate
 from app.core.dependencies import get_db
 from app.core.auth import get_current_user
 from app.core.permissions import is_admin
+from app.services.anamnese_clinical_service import AnamneseClinicalService
 
 router = APIRouter(tags=["Anamneses"])
 
@@ -31,9 +32,11 @@ def create_anamnese(
             detail="This user already has an anamnese"
         )
 
-    db_item = Anamnese(**anamnese.dict())
+    db_item = Anamnese(user_id=anamnese.user_id, info=anamnese.info)
     db.add(db_item)
     try:
+        db.flush()
+        AnamneseClinicalService.write(db_item, anamnese.info)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -65,7 +68,8 @@ def get_user_anamneses(
             detail="Not authorized"
         )
 
-    return db.query(Anamnese).filter(Anamnese.user_id == user_id).all()
+    items = db.query(Anamnese).filter(Anamnese.user_id == user_id).all()
+    return [AnamneseClinicalService.hydrate(item) for item in items]
 
 
 @router.get("/me", response_model=AnamneseRead)
@@ -77,7 +81,7 @@ def get_my_anamnese(
     if not item:
         raise HTTPException(404, "Anamnese not found")
 
-    return item
+    return AnamneseClinicalService.hydrate(item)
 
 
 # ============================================================
@@ -94,12 +98,12 @@ def update_my_anamnese(
         raise HTTPException(404, "Anamnese not found")
 
     data = payload.dict(exclude_unset=True)
-    for field, value in data.items():
-        setattr(item, field, value)
+    if "info" in data:
+        AnamneseClinicalService.write(item, data["info"])
 
     db.commit()
     db.refresh(item)
-    return item
+    return AnamneseClinicalService.hydrate(item)
 
 
 

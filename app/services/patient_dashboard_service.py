@@ -41,6 +41,7 @@ from app.models.schemas import (
     PatientResponsibleProfessional,
 )
 from app.services.daily_report_service import DailyReportService
+from app.services.anamnese_clinical_service import AnamneseClinicalService
 
 
 @dataclass(frozen=True)
@@ -447,7 +448,7 @@ class PatientDashboardService:
     def _build_anamnesis_summary(self, anamnese: Anamnese | None) -> PatientAnamnesisSummary:
         if not anamnese:
             return PatientAnamnesisSummary(has_anamnesis=False)
-        preview = self._extract_anamnesis_preview(anamnese.info)
+        preview = self._extract_anamnesis_preview(AnamneseClinicalService.hydrate(anamnese).info)
         if not preview:
             return PatientAnamnesisSummary(has_anamnesis=True)
         return PatientAnamnesisSummary(
