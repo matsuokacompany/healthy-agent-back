@@ -19,7 +19,8 @@ def get_my_reports(
     query = db.query(DailyReport).filter(DailyReport.user_id == current_user.id)
     if monitoring_plan_id is not None:
         query = query.filter(DailyReport.monitoring_plan_id == monitoring_plan_id)
-    return query.order_by(DailyReport.created_at.desc()).all()
+    reports = query.order_by(DailyReport.created_at.desc()).all()
+    return [DailyReportService.hydrate_clinical(report) for report in reports]
 
 
 @router.get("/{report_id}", response_model=DailyReportRead)
@@ -38,7 +39,7 @@ def get_report(
     )
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
-    return report
+    return DailyReportService.hydrate_clinical(report)
 
 
 @router.patch("/{report_id}", response_model=DailyReportRead)
@@ -60,6 +61,7 @@ def update_report(
         raise HTTPException(status_code=404, detail="Report not found")
 
     payload = data.model_dump(exclude_unset=True)
+    DailyReportService.hydrate_clinical(report)
     try:
         return DailyReportService.update_patient_response(
             db,
