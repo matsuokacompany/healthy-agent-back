@@ -11,6 +11,7 @@ from app.models.schemas import (
     CustomClinicalSymptomOccurrence,
     CustomClinicalTimelineGroup,
 )
+from app.services.daily_report_service import DailyReportService
 
 
 class CustomReportService:
@@ -75,6 +76,7 @@ class CustomReportService:
         occurrences: dict[str, list[DailyReport]] = defaultdict(list)
         labels: dict[str, str] = {}
         for report in reports:
+            DailyReportService.hydrate_clinical(report)
             if not report.completed or report.had_symptoms is not True or not report.symptom_description:
                 continue
             description = " ".join(report.symptom_description.split())

@@ -32,6 +32,10 @@ class FakeSession:
     def add(self, item):
         self.item = item
 
+    def flush(self):
+        # Real databases assign the primary key before clinical encryption.
+        self.item.id = 100
+
     def commit(self):
         raise IntegrityError("insert", {}, Exception("unique violation"))
 
@@ -39,9 +43,10 @@ class FakeSession:
         self.rolled_back = True
 
 
-def test_create_anamnese_returns_conflict_when_unique_constraint_races():
+def test_create_anamnese_returns_conflict_when_unique_constraint_races(monkeypatch):
     db = FakeSession()
     current_user = User(id=1, name="Paciente", email="paciente@example.com")
+    monkeypatch.setattr("app.routes.anamnese_routes.AnamneseClinicalService.write", lambda item, info: None)
 
     with pytest.raises(HTTPException) as exc:
         create_anamnese(

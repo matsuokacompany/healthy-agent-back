@@ -14,6 +14,8 @@ from app.models.schemas import CustomAiReportCreateRequest, CustomAiReportRespon
 from app.services.custom_report_preview_service import CustomReportPreviewService
 from app.services.custom_report_service import CustomReportService
 from app.services.insight_service import InsightService
+from app.services.anamnese_clinical_service import AnamneseClinicalService
+from app.services.ai_report_clinical_service import AiReportClinicalService
 
 
 @dataclass(frozen=True)
@@ -95,6 +97,8 @@ class CustomReportGenerationService:
         )
         self.db.add(report)
         try:
+            self.db.flush()
+            AiReportClinicalService.write_summary(report, clinical_summary)
             self.db.commit()
             self.db.refresh(report)
         except IntegrityError:
@@ -116,7 +120,7 @@ class CustomReportGenerationService:
                 max_tokens=self.cost_policy.max_output_tokens,
             ).gerar_interpretacao_com_uso(clinical_summary)
             generated_at = datetime.now(timezone.utc)
-            report.ai_response = result.data
+            AiReportClinicalService.write_response(report, result.data)
             report.input_tokens = result.input_tokens
             report.output_tokens = result.output_tokens
             report.actual_cost = self._calculate_cost(result.input_tokens, result.output_tokens)
@@ -159,7 +163,7 @@ class CustomReportGenerationService:
         return "\n\n".join(
             [
                 "ANAMNESE DO PACIENTE:",
-                anamnese.info if anamnese else "Anamnese não registrada.",
+                AnamneseClinicalService.hydrate(anamnese).info if anamnese else "Anamnese não registrada.",
                 "DADOS CONSOLIDADOS DO PERÍODO (JSON):",
                 json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")),
             ]
@@ -195,6 +199,7 @@ class CustomReportGenerationService:
 
     @staticmethod
     def _response(report: AiReportCache) -> CustomAiReportResponse:
+        AiReportClinicalService.hydrate(report)
         return CustomAiReportResponse(
             report_id=report.id,
             patient_id=report.patient_id,
