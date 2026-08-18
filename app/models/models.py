@@ -15,10 +15,10 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
     text,
 )
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base_class import Base
 
@@ -97,7 +97,7 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     email = Column(String, nullable=False, unique=True)
-    supabase_user_id = Column(UUID(as_uuid=True), nullable=True, unique=True, index=True)
+    supabase_user_id = Column(Uuid(as_uuid=True), nullable=True, unique=True, index=True)
     phone = Column(String, nullable=True, unique=True, index=True)
     whatsapp_wa_id = Column(String, nullable=True, unique=True, index=True)
     city = Column(String, nullable=True)
