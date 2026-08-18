@@ -255,6 +255,7 @@ class ProfessionalService:
             .first()
         )
         if cached_report:
+            AiReportClinicalService.hydrate(cached_report)
             return ProfessionalAiReportResponse(
                 patient_id=patient_id,
                 periodo=cached_report.periodo,
@@ -265,8 +266,7 @@ class ProfessionalService:
 
         ai = InsightService(api_key=api_key or "", modo=modo).gerar_interpretacao(clinical_summary)
         generated_at = datetime.now(timezone.utc)
-        self.db.add(
-            AiReportCache(
+        report = AiReportCache(
                 patient_id=patient_id,
                 professional_user_id=current_user.id,
                 periodo=periodo,
@@ -278,7 +278,10 @@ class ProfessionalService:
                 generated_at=generated_at,
                 next_generation_at=generated_at + timedelta(days=30),
             )
-        )
+        self.db.add(report)
+        self.db.flush()
+        AiReportClinicalService.write_summary(report, clinical_summary)
+        AiReportClinicalService.write_response(report, ai)
         self.db.commit()
         return ProfessionalAiReportResponse(
             patient_id=patient_id,
