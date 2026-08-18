@@ -142,7 +142,6 @@ class DailyReportService:
         *,
         had_symptoms: bool | None = None,
         symptom_description: str | None = None,
-        suspected_cause: str | None = None,
     ) -> DailyReport:
         if had_symptoms is True:
             symptom_description = (symptom_description or "").strip()
@@ -153,7 +152,9 @@ class DailyReportService:
         cls._write_clinical(
             report,
             symptom_description=symptom_description if had_symptoms is not False else None,
-            suspected_cause=suspected_cause if had_symptoms is not False else None,
+            # Cause collection is retired. Editing a report also erases any
+            # legacy value that predates this API version.
+            suspected_cause=None,
         )
         report.completed = True
         report.awaiting_response = False

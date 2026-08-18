@@ -15,6 +15,7 @@ from app.models.models import CheckTypeEnum, User
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+MAX_WEBHOOK_BODY_BYTES = 1_000_000
 
 
 def verify_whatsapp_signature(raw_body: bytes, signature: str | None) -> None:
@@ -64,7 +65,20 @@ async def whatsapp_webhook(
     request: Request,
     x_hub_signature_256: str | None = Header(default=None),
 ):
-    raw_body = await request.body()
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_WEBHOOK_BODY_BYTES:
+                raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Payload too large")
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Content-Length") from exc
+
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > MAX_WEBHOOK_BODY_BYTES:
+            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Payload too large")
+    raw_body = bytes(body)
     verify_whatsapp_signature(raw_body, x_hub_signature_256)
 
     try:

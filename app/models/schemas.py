@@ -236,7 +236,6 @@ class MonitoringProfessionalRead(ORMModel):
 class DailyReportBase(BaseModel):
     check_type: CheckTypeEnum
     symptom_description: Optional[str] = Field(None, max_length=280)
-    suspected_cause: Optional[str] = Field(None, max_length=280)
 
 
 class DailyReportCreate(BaseModel):
@@ -247,7 +246,6 @@ class DailyReportCreate(BaseModel):
 class DailyReportUpdate(BaseModel):
     had_symptoms: Optional[bool] = None
     symptom_description: Optional[str] = Field(None, max_length=280)
-    suspected_cause: Optional[str] = Field(None, max_length=280)
 
     class Config:
         extra = "forbid"
@@ -419,7 +417,6 @@ class PatientDashboardReportItem(BaseModel):
     completed: bool
     had_symptoms: Optional[bool] = None
     symptom_description: Optional[str] = None
-    suspected_cause: Optional[str] = None
     prompt_sent_at: datetime
     answered_at: Optional[datetime] = None
     expires_at: datetime

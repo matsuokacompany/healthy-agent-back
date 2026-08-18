@@ -121,6 +121,18 @@ def test_update_rejects_description_longer_than_280_characters():
     assert response.status_code == 422
 
 
+def test_update_rejects_retired_suspected_cause_field():
+    client, db, current_user, _ = build_client()
+    report = create_report(db, current_user)
+
+    response = client.patch(
+        f"/daily-reports/{report.id}",
+        json={"had_symptoms": False, "suspected_cause": "Estresse"},
+    )
+
+    assert response.status_code == 422
+
+
 def test_update_requires_description_when_symptoms_are_reported():
     client, db, current_user, _ = build_client()
     report = create_report(db, current_user)
