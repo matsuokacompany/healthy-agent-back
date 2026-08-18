@@ -92,9 +92,26 @@ seja movido silenciosamente para outro paciente, registro ou campo.
 
 A migration `0010` somente adiciona envelopes JSON anuláveis ao lado das colunas
 legadas. Ela não lê, atualiza, criptografa ou remove valores existentes. O
-backfill deve ser implementado e executado separadamente, somente após validar
-o deploy aditivo e conferir novamente as contagens registradas antes da
-migration.
+backfill é reiniciável e processa somente valores plaintext não nulos que ainda
+não possuem envelope. Primeiro confira as contagens sem acessar o KMS:
+
+```bash
+python -m app.scripts.clinical_encryption_backfill
+```
+
+Depois do preflight e de um backup verificado, execute em lotes. Cada lote é
+confirmado em uma transação separada; uma nova execução ignora campos já
+processados. `--max-records` permite um canário controlado:
+
+```bash
+python -m app.scripts.clinical_encryption_backfill --execute --batch-size 100 --max-records 10
+python -m app.scripts.clinical_encryption_backfill --execute --batch-size 100
+```
+
+Repita o modo de contagem e confirme que todas as tabelas ficaram em zero antes
+de interromper a escrita plaintext. Não execute duas instâncias do backfill ao
+mesmo tempo; `SKIP LOCKED` reduz contenção no PostgreSQL, mas a operação deve ser
+coordenada. Nunca registre os valores clínicos ou os envelopes.
 
 O preflight permanente pode ser executado sem dados de pacientes:
 
