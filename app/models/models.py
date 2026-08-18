@@ -247,6 +247,7 @@ class Anamnese(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     info = Column(Text, nullable=False)
+    info_encryption_envelope = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
@@ -275,7 +276,9 @@ class DailyReport(Base):
     check_type = Column(Enum(CheckTypeEnum), nullable=False)
     status = Column(Enum(DailyReportStatusEnum), default=DailyReportStatusEnum.PENDING, nullable=False)
     symptom_description = Column(Text, nullable=True)
+    symptom_description_encryption_envelope = Column(JSON, nullable=True)
     suspected_cause = Column(Text, nullable=True)
+    suspected_cause_encryption_envelope = Column(JSON, nullable=True)
     had_symptoms = Column(Boolean, nullable=True)
     completed = Column(Boolean, default=False, nullable=False)
     awaiting_response = Column(Boolean, default=True, nullable=False)
@@ -321,7 +324,9 @@ class AiReportCache(Base):
     status = Column(String, nullable=False, default=AiReportStatusEnum.COMPLETED.value)
     clinical_summary_hash = Column(String, nullable=True)
     clinical_summary = Column(Text, nullable=True)
+    clinical_summary_encryption_envelope = Column(JSON, nullable=True)
     ai_response = Column(JSON, nullable=True)
+    ai_response_encryption_envelope = Column(JSON, nullable=True)
     requested_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     processing_started_at = Column(DateTime(timezone=True), nullable=True)
     generated_at = Column(DateTime(timezone=True), nullable=True)
