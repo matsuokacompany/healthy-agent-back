@@ -101,3 +101,8 @@ O preflight permanente pode ser executado sem dados de pacientes:
 ```bash
 python -m app.scripts.clinical_encryption_preflight
 ```
+
+Relatórios diários novos ou editados fazem escrita dupla de descrição e causa:
+o plaintext é mantido temporariamente para rollback e o envelope autenticado é
+gravado na mesma transação. Em produção não existe fallback silencioso quando o
+KMS falha. Limpar uma resposta também limpa os envelopes correspondentes.
