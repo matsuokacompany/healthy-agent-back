@@ -3,6 +3,8 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.models.models import CheckTypeEnum, DailyReport, DailyReportStatusEnum, MonitoringPlan, User
+from app.core.config import settings
+from app.services.clinical_data_service import ClinicalDataService
 
 
 class DailyReportService:
@@ -45,7 +47,9 @@ class DailyReportService:
 
         report.user_id = user.id
         report.symptom_description = None
+        report.symptom_description_encryption_envelope = None
         report.suspected_cause = None
+        report.suspected_cause_encryption_envelope = None
         report.had_symptoms = None
         report.completed = False
         report.awaiting_response = True
@@ -81,7 +85,7 @@ class DailyReportService:
             return "ALREADY_COMPLETED"
 
         if report.awaiting_cause or report.status == DailyReportStatusEnum.AWAITING_CAUSE:
-            report.suspected_cause = None
+            cls._write_clinical(report, suspected_cause=None)
             report.awaiting_cause = False
             report.awaiting_response = False
             report.completed = True
@@ -90,8 +94,7 @@ class DailyReportService:
             return "COMPLETED"
 
         if report.status == DailyReportStatusEnum.AWAITING_SYMPTOM_DESCRIPTION:
-            report.symptom_description = message_text
-            report.suspected_cause = None
+            cls._write_clinical(report, symptom_description=message_text, suspected_cause=None)
             report.awaiting_response = False
             report.awaiting_cause = False
             report.completed = True
@@ -104,8 +107,7 @@ class DailyReportService:
 
         if cls._is_negative_response(message_text):
             report.had_symptoms = False
-            report.symptom_description = None
-            report.suspected_cause = None
+            cls._write_clinical(report, symptom_description=None, suspected_cause=None)
             report.awaiting_response = False
             report.awaiting_cause = False
             report.completed = True
@@ -115,7 +117,7 @@ class DailyReportService:
 
         if cls._is_positive_response(message_text):
             report.had_symptoms = True
-            report.symptom_description = None
+            cls._write_clinical(report, symptom_description=None)
             report.awaiting_response = True
             report.awaiting_cause = False
             report.status = DailyReportStatusEnum.AWAITING_SYMPTOM_DESCRIPTION
@@ -123,12 +125,11 @@ class DailyReportService:
             return "ASK_SYMPTOM_DESCRIPTION"
 
         report.had_symptoms = True
-        report.symptom_description = message_text
+        cls._write_clinical(report, symptom_description=message_text, suspected_cause=None)
         report.awaiting_response = False
         report.awaiting_cause = False
         report.status = DailyReportStatusEnum.COMPLETED
         report.completed = True
-        report.suspected_cause = None
         db.commit()
         return "COMPLETED"
 
@@ -148,8 +149,11 @@ class DailyReportService:
                 raise ValueError("A symptom description is required when symptoms are reported")
 
         report.had_symptoms = had_symptoms
-        report.symptom_description = symptom_description if had_symptoms is not False else None
-        report.suspected_cause = suspected_cause if had_symptoms is not False else None
+        cls._write_clinical(
+            report,
+            symptom_description=symptom_description if had_symptoms is not False else None,
+            suspected_cause=suspected_cause if had_symptoms is not False else None,
+        )
         report.completed = True
         report.awaiting_response = False
         report.awaiting_cause = False
@@ -161,8 +165,7 @@ class DailyReportService:
     @classmethod
     def delete_patient_response(cls, db: Session, report: DailyReport) -> DailyReport:
         report.had_symptoms = None
-        report.symptom_description = None
-        report.suspected_cause = None
+        cls._write_clinical(report, symptom_description=None, suspected_cause=None)
         report.completed = False
         report.awaiting_response = True
         report.awaiting_cause = False
@@ -189,6 +192,31 @@ class DailyReportService:
             .order_by(DailyReport.created_at.desc(), DailyReport.id.desc())
             .first()
         )
+
+    _UNSET = object()
+
+    @classmethod
+    def _write_clinical(
+        cls,
+        report: DailyReport,
+        *,
+        symptom_description=_UNSET,
+        suspected_cause=_UNSET,
+    ) -> None:
+        if settings.CLINICAL_ENCRYPTION_PROVIDER == "disabled" and settings.ENV != "production":
+            if symptom_description is not cls._UNSET:
+                report.symptom_description = symptom_description
+                report.symptom_description_encryption_envelope = None
+            if suspected_cause is not cls._UNSET:
+                report.suspected_cause = suspected_cause
+                report.suspected_cause_encryption_envelope = None
+            return
+
+        clinical_data = ClinicalDataService()
+        if symptom_description is not cls._UNSET:
+            clinical_data.write_text(report, "symptom_description", symptom_description)
+        if suspected_cause is not cls._UNSET:
+            clinical_data.write_text(report, "suspected_cause", suspected_cause)
 
     @staticmethod
     def _is_expired(report: DailyReport, now: datetime) -> bool:

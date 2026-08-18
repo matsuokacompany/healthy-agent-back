@@ -80,6 +80,10 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `AI_REPORT_MAX_COST_USD` | não | `0.05` | Teto estimado em dólar para uma geração. |
 | `AI_REPORT_INPUT_COST_PER_MILLION_USD` | sim para geração | consulte o provedor | Preço configurável de um milhão de tokens de entrada. |
 | `AI_REPORT_OUTPUT_COST_PER_MILLION_USD` | sim para geração | consulte o provedor | Preço configurável de um milhão de tokens de saída. |
+| `CLINICAL_ENCRYPTION_PROVIDER` | não nesta etapa | `aws_kms` | Provedor da fundação de criptografia clínica. Ainda não criptografa colunas até a integração dos modelos. |
+| `CLINICAL_ENCRYPTION_KMS_KEY_ID` | não nesta etapa | `arn:aws:kms:sa-east-1:<ACCOUNT_ID>:key/<KEY_ID>` | ARN/ID da chave KMS clínica; a EC2 deve acessá-la por IAM Role. |
+| `CLINICAL_ENCRYPTION_AWS_REGION` | não nesta etapa | `sa-east-1` | Região da chave AWS KMS. |
+| `CLINICAL_ENCRYPTION_ACTIVE_KEY_VERSION` | não | `v1` | Versão lógica gravada no envelope para permitir rotação futura. |
 | `CORS_ORIGINS` | não | `http://localhost:3000,https://app.julha.com.br` | Origens permitidas no CORS, separadas por vírgula. O padrão já inclui `http://localhost:3000` e `https://app.julha.com.br`. |
 | `WHATSAPP_VERIFY_TOKEN` | sim | `verify-token` | Token de verificação do webhook Meta. |
 | `WHATSAPP_PHONE_NUMBER_ID` | sim | `123456789` | Phone Number ID da Meta. |
