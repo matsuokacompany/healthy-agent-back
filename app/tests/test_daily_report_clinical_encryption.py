@@ -48,3 +48,27 @@ def test_daily_report_clinical_clear_removes_both_envelopes(monkeypatch):
     assert report.symptom_description_encryption_envelope is None
     assert report.suspected_cause is None
     assert report.suspected_cause_encryption_envelope is None
+
+
+def test_hybrid_read_prefers_envelope_without_marking_plaintext_dirty(monkeypatch):
+    class FakeClinicalDataService:
+        def read_text(self, report, field):
+            return {"symptom_description": "Envelope", "suspected_cause": "Envelope cause"}[field]
+
+    report = SimpleNamespace(
+        symptom_description="Plaintext",
+        symptom_description_encryption_envelope={"encrypted": True},
+        suspected_cause="Plaintext cause",
+        suspected_cause_encryption_envelope={"encrypted": True},
+    )
+    # SimpleNamespace is sufficient for the service contract, but SQLAlchemy's
+    # committed-value helper is patched to assert the values selected for output.
+    monkeypatch.setattr(
+        "app.services.daily_report_service.set_committed_value",
+        lambda target, field, value: setattr(target, field, value),
+    )
+
+    DailyReportService.hydrate_clinical(report, FakeClinicalDataService())
+
+    assert report.symptom_description == "Envelope"
+    assert report.suspected_cause == "Envelope cause"

@@ -40,6 +40,7 @@ from app.models.schemas import (
     PatientNextCheckin,
     PatientResponsibleProfessional,
 )
+from app.services.daily_report_service import DailyReportService
 
 
 @dataclass(frozen=True)
@@ -362,6 +363,7 @@ class PatientDashboardService:
 
     @staticmethod
     def _build_report_item(report: DailyReport) -> PatientDashboardReportItem:
+        DailyReportService.hydrate_clinical(report)
         return PatientDashboardReportItem(
             id=report.id,
             monitoring_plan_id=report.monitoring_plan_id,

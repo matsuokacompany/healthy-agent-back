@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.models.models import CheckTypeEnum, DailyReport, DailyReportStatusEnum, MonitoringPlan, User
 from app.core.config import settings
@@ -217,6 +218,28 @@ class DailyReportService:
             clinical_data.write_text(report, "symptom_description", symptom_description)
         if suspected_cause is not cls._UNSET:
             clinical_data.write_text(report, "suspected_cause", suspected_cause)
+
+    @classmethod
+    def hydrate_clinical(cls, report: DailyReport, clinical_data: ClinicalDataService | None = None) -> DailyReport:
+        if not (
+            report.symptom_description_encryption_envelope
+            or report.suspected_cause_encryption_envelope
+        ):
+            return report
+        clinical_data = clinical_data or ClinicalDataService()
+        if report.symptom_description_encryption_envelope:
+            set_committed_value(
+                report,
+                "symptom_description",
+                clinical_data.read_text(report, "symptom_description"),
+            )
+        if report.suspected_cause_encryption_envelope:
+            set_committed_value(
+                report,
+                "suspected_cause",
+                clinical_data.read_text(report, "suspected_cause"),
+            )
+        return report
 
     @staticmethod
     def _is_expired(report: DailyReport, now: datetime) -> bool:
