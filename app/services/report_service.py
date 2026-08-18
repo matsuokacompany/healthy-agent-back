@@ -1,6 +1,7 @@
 from datetime import datetime, timezone, timedelta
 from collections import Counter
 from app.models.models import DailyReport
+from app.services.daily_report_service import DailyReportService
 
 class ReportService:
     """Gera relatórios a partir da tabela DailyReport"""
@@ -58,6 +59,7 @@ class ReportService:
         def contar(relatorios):
             counter = Counter()
             for r in com_sintomas(relatorios):
+                DailyReportService.hydrate_clinical(r)
                 if r.symptom_description:
                     counter[r.symptom_description.lower().strip()] += 1
             return counter
