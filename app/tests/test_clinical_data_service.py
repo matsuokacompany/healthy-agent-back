@@ -48,6 +48,34 @@ def test_json_round_trip():
     assert service.read_json(record, "ai_response") == {"resultado": "estável"}
 
 
+def test_ciphertext_only_write_clears_text_plaintext():
+    record = _record()
+    service = ClinicalDataService(
+        ClinicalEncryptionService(LocalDataKeyProvider(b"k" * 32), active_key_version="v1"),
+        write_plaintext=False,
+    )
+
+    service.write_text(record, "symptom_description", "Febre")
+
+    assert record.symptom_description is None
+    assert record.symptom_description_encryption_envelope is not None
+    assert service.read_text(record, "symptom_description") == "Febre"
+
+
+def test_ciphertext_only_json_write_does_not_restore_plaintext():
+    record = _record()
+    service = ClinicalDataService(
+        ClinicalEncryptionService(LocalDataKeyProvider(b"k" * 32), active_key_version="v1"),
+        write_plaintext=False,
+    )
+
+    service.write_json(record, "ai_response", {"resultado": "estável"})
+
+    assert record.ai_response is None
+    assert record.ai_response_encryption_envelope is not None
+    assert service.read_json(record, "ai_response") == {"resultado": "estável"}
+
+
 def test_rejects_unflushed_record():
     with pytest.raises(ClinicalEncryptionConfigurationError):
         _service().write_text(_record(id=None), "symptom_description", "Febre")

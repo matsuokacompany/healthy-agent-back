@@ -34,3 +34,13 @@ def test_anamnese_hybrid_read_prefers_envelope(monkeypatch):
     AnamneseClinicalService.hydrate(record)
 
     assert record.info == "Envelope"
+
+
+def test_anamnese_initial_plaintext_is_null_after_cutover(monkeypatch):
+    monkeypatch.setattr("app.services.anamnese_clinical_service.settings.CLINICAL_ENCRYPTION_PROVIDER", "aws_kms")
+    monkeypatch.setattr(
+        "app.services.anamnese_clinical_service.settings.CLINICAL_ENCRYPTION_PLAINTEXT_WRITES_ENABLED",
+        False,
+    )
+
+    assert AnamneseClinicalService.initial_plaintext("Histórico") is None
