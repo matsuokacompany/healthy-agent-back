@@ -32,7 +32,10 @@ def create_anamnese(
             detail="This user already has an anamnese"
         )
 
-    db_item = Anamnese(user_id=anamnese.user_id, info=anamnese.info)
+    db_item = Anamnese(
+        user_id=anamnese.user_id,
+        info=AnamneseClinicalService.initial_plaintext(anamnese.info),
+    )
     db.add(db_item)
     try:
         db.flush()
@@ -52,7 +55,7 @@ def create_anamnese(
         )
 
     db.refresh(db_item)
-    return db_item
+    return AnamneseClinicalService.hydrate(db_item)
 
 
 @router.get("/user/{user_id}", response_model=list[AnamneseRead])

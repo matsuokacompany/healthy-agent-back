@@ -78,6 +78,7 @@ CLINICAL_ENCRYPTION_PROVIDER=aws_kms
 CLINICAL_ENCRYPTION_KMS_KEY_ID=arn:aws:kms:sa-east-1:<ACCOUNT_ID>:key/<KEY_ID>
 CLINICAL_ENCRYPTION_AWS_REGION=sa-east-1
 CLINICAL_ENCRYPTION_ACTIVE_KEY_VERSION=v1
+CLINICAL_ENCRYPTION_PLAINTEXT_WRITES_ENABLED=true
 ```
 
 Não configure `AWS_ACCESS_KEY_ID` ou `AWS_SECRET_ACCESS_KEY` no `.env` da EC2.
@@ -92,9 +93,75 @@ seja movido silenciosamente para outro paciente, registro ou campo.
 
 A migration `0010` somente adiciona envelopes JSON anuláveis ao lado das colunas
 legadas. Ela não lê, atualiza, criptografa ou remove valores existentes. O
-backfill deve ser implementado e executado separadamente, somente após validar
-o deploy aditivo e conferir novamente as contagens registradas antes da
-migration.
+backfill é reiniciável e processa somente valores plaintext não nulos que ainda
+não possuem envelope. Primeiro confira as contagens sem acessar o KMS:
+
+```bash
+python -m app.scripts.clinical_encryption_backfill
+```
+
+Depois do preflight e de um backup verificado, execute em lotes. Cada lote é
+confirmado em uma transação separada; uma nova execução ignora campos já
+processados. `--max-records` permite um canário controlado:
+
+```bash
+python -m app.scripts.clinical_encryption_backfill --execute --batch-size 100 --max-records 10
+python -m app.scripts.clinical_encryption_backfill --execute --batch-size 100
+```
+
+Repita o modo de contagem e confirme que todas as tabelas ficaram em zero antes
+de validar todos os envelopes existentes:
+
+```bash
+python -m app.scripts.clinical_encryption_verify --batch-size 100
+```
+
+O verificador é somente leitura, compara o valor descriptografado com a cópia
+plaintext da escrita dupla e retorna código diferente de zero em caso de falha
+de autenticação ou divergência. A saída contém somente tabela, ID, campo e tipo
+do problema; nunca contém conteúdo clínico. Somente interrompa a escrita
+plaintext quando `mismatches=0` e `failures=0`.
+
+Os comandos de backfill e verificação configuram um contexto interno de serviço
+antes de consultar o PostgreSQL. Isso é necessário para que as políticas de RLS
+permitam que a manutenção enxergue todos os pacientes. Uma execução de versão
+anterior que retorne zero registros sem esse contexto não comprova que o banco
+esteja vazio e deve ser repetida após o deploy desta correção.
+
+Não execute duas instâncias do backfill ao
+mesmo tempo; `SKIP LOCKED` reduz contenção no PostgreSQL, mas a operação deve ser
+coordenada. Nunca registre os valores clínicos ou os envelopes.
+
+Depois de concluir e verificar o backfill, altere
+`CLINICAL_ENCRYPTION_PLAINTEXT_WRITES_ENABLED=false` no `PRODUCTION_ENV` e faça
+novo deploy. A partir desse corte, novas escritas persistem somente o envelope;
+as colunas legadas permanecem temporariamente para rollback e a leitura híbrida
+continua habilitada. Não limpe os plaintexts históricos no mesmo deploy.
+
+Após uma janela de estabilidade com a flag desligada, conte as cópias legadas:
+
+```bash
+python -m app.scripts.clinical_plaintext_cleanup
+```
+
+O cleanup autentica e compara cada envelope antes de limpar sua cópia plaintext,
+falha de forma fechada em qualquer divergência e confirma cada lote em uma
+transação. Faça primeiro um canário e repita a verificação criptográfica:
+
+```bash
+python -m app.scripts.clinical_plaintext_cleanup --execute --batch-size 10 --max-records 10
+python -m app.scripts.clinical_encryption_verify --batch-size 100
+python -m app.scripts.clinical_plaintext_cleanup --execute --batch-size 100
+```
+
+O campo JSON `ai_response` usa SQL `NULL` (não o literal JSON `null`) quando a
+cópia plaintext é limpa, permitindo que a contagem operacional com `IS NULL`
+confirme corretamente o corte. O cleanup também normaliza explicitamente
+literais JSON `null` criados por versões anteriores, usando uma atualização SQL
+direta para não depender da desserialização do ORM, que representa ambos como
+Python `None`. No PostgreSQL, a seleção usa `ai_response::text = 'null'`, pois o
+tipo `json` não possui operador de igualdade e a comparação deve distinguir o
+literal JSON de SQL `NULL`.
 
 O preflight permanente pode ser executado sem dados de pacientes:
 
@@ -102,11 +169,36 @@ O preflight permanente pode ser executado sem dados de pacientes:
 python -m app.scripts.clinical_encryption_preflight
 ```
 
-Relatórios diários novos ou editados fazem escrita dupla de descrição e causa:
-o plaintext é mantido temporariamente para rollback e o envelope autenticado é
-gravado na mesma transação. Em produção não existe fallback silencioso quando o
-KMS falha. Limpar uma resposta também limpa os envelopes correspondentes.
+## Rotação dos envelopes
 
-Anamneses novas e atualizadas também fazem escrita dupla após o registro obter
-seu ID. Leituras do paciente, profissional, dashboard e geração de prompts
-preferem o envelope autenticado, mantendo fallback para anamneses legadas.
+Para trocar a chave, mantenha a chave anterior habilitada para descriptografia,
+conceda à IAM Role acesso à chave nova e configure o novo key ID e uma nova
+`CLINICAL_ENCRYPTION_ACTIVE_KEY_VERSION`. Após o preflight, conte sem alterar:
+
+```bash
+python -m app.scripts.clinical_encryption_rotate --target-key-version v2
+```
+
+Faça um canário, verifique todos os envelopes e só então conclua a rotação:
+
+```bash
+python -m app.scripts.clinical_encryption_rotate --execute --target-key-version v2 --batch-size 10 --max-records 10
+python -m app.scripts.clinical_encryption_verify --batch-size 100
+python -m app.scripts.clinical_encryption_rotate --execute --target-key-version v2 --batch-size 100
+```
+
+O comando recusa uma versão de destino diferente da versão ativa, reabre cada
+envelope antigo, cria um novo envelope ciphertext-only e o relê antes do commit.
+Não desabilite a chave anterior até a contagem da rotação chegar a zero, a
+verificação terminar sem falhas e a janela de rollback ser encerrada.
+
+Relatórios diários novos ou editados gravam o envelope autenticado na mesma
+transação. Enquanto a flag de corte estiver habilitada, também fazem escrita
+dupla para rollback; depois do corte, a coluna plaintext fica nula. Em produção
+não existe fallback silencioso quando o KMS falha. Limpar uma resposta também
+limpa os envelopes correspondentes.
+
+Anamneses novas e atualizadas são criptografadas após o registro obter seu ID e
+seguem a mesma flag de corte. Leituras do paciente, profissional, dashboard e
+geração de prompts preferem o envelope autenticado, mantendo fallback para
+anamneses legadas.

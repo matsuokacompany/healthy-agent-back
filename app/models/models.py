@@ -246,7 +246,7 @@ class Anamnese(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
-    info = Column(Text, nullable=False)
+    info = Column(Text, nullable=True)
     info_encryption_envelope = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
@@ -325,7 +325,9 @@ class AiReportCache(Base):
     clinical_summary_hash = Column(String, nullable=True)
     clinical_summary = Column(Text, nullable=True)
     clinical_summary_encryption_envelope = Column(JSON, nullable=True)
-    ai_response = Column(JSON, nullable=True)
+    # Persist Python None as SQL NULL so ciphertext-only writes and cleanup can
+    # be audited with IS NULL instead of leaving a JSON `null` value behind.
+    ai_response = Column(JSON(none_as_null=True), nullable=True)
     ai_response_encryption_envelope = Column(JSON, nullable=True)
     requested_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     processing_started_at = Column(DateTime(timezone=True), nullable=True)

@@ -209,7 +209,10 @@ class ProfessionalService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="This patient already has an anamnese",
             )
-        anamnese = Anamnese(user_id=patient_id, info=info)
+        anamnese = Anamnese(
+            user_id=patient_id,
+            info=AnamneseClinicalService.initial_plaintext(info),
+        )
         self.db.add(anamnese)
         try:
             self.db.flush()
@@ -222,7 +225,7 @@ class ProfessionalService:
                 detail="This patient already has an anamnese",
             )
         self.db.refresh(anamnese)
-        return anamnese
+        return AnamneseClinicalService.hydrate(anamnese)
 
     def update_anamnese(self, current_user: User, patient_id: int, info: str) -> Anamnese:
         self._require_patient_access(current_user, patient_id)
@@ -232,7 +235,7 @@ class ProfessionalService:
         AnamneseClinicalService.write(anamnese, info)
         self.db.commit()
         self.db.refresh(anamnese)
-        return anamnese
+        return AnamneseClinicalService.hydrate(anamnese)
 
     def generate_ai_report(
         self,
