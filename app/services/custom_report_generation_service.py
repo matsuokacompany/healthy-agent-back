@@ -14,6 +14,7 @@ from app.models.schemas import CustomAiReportCreateRequest, CustomAiReportRespon
 from app.services.custom_report_preview_service import CustomReportPreviewService
 from app.services.custom_report_service import CustomReportService
 from app.services.insight_service import InsightService
+from app.services.anamnese_clinical_service import AnamneseClinicalService
 
 
 @dataclass(frozen=True)
@@ -159,7 +160,7 @@ class CustomReportGenerationService:
         return "\n\n".join(
             [
                 "ANAMNESE DO PACIENTE:",
-                anamnese.info if anamnese else "Anamnese não registrada.",
+                AnamneseClinicalService.hydrate(anamnese).info if anamnese else "Anamnese não registrada.",
                 "DADOS CONSOLIDADOS DO PERÍODO (JSON):",
                 json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")),
             ]

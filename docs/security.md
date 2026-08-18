@@ -61,3 +61,52 @@ nunca usar `innerHTML` ou `dangerouslySetInnerHTML`.
 Segredos permanecem em variáveis de ambiente ou no provedor de secrets. Nunca
 adicione chaves OpenAI, Meta, Supabase, banco ou SSH ao repositório. Execute
 secret scanning no repositório e no histórico antes de cada release.
+
+## Criptografia de dados clínicos
+
+A fundação de criptografia clínica usa envelope encryption: uma data key AES-256
+é gerada pelo AWS KMS para cada operação e o valor clínico é protegido com
+AES-256-GCM. O banco deve persistir somente o ciphertext, nonce, data key
+criptografada, identificador/versão da chave e versão do envelope. A integração
+com os modelos e o backfill são realizados em etapas posteriores; adicionar as
+configurações abaixo, por si só, ainda não criptografa colunas existentes.
+
+Em produção, configure:
+
+```dotenv
+CLINICAL_ENCRYPTION_PROVIDER=aws_kms
+CLINICAL_ENCRYPTION_KMS_KEY_ID=arn:aws:kms:sa-east-1:<ACCOUNT_ID>:key/<KEY_ID>
+CLINICAL_ENCRYPTION_AWS_REGION=sa-east-1
+CLINICAL_ENCRYPTION_ACTIVE_KEY_VERSION=v1
+```
+
+Não configure `AWS_ACCESS_KEY_ID` ou `AWS_SECRET_ACCESS_KEY` no `.env` da EC2.
+Associe uma IAM Role à instância e limite-a à chave clínica, com apenas as ações
+KMS exigidas pela aplicação. Desenvolvimento e testes não podem utilizar a
+chave de produção. Nunca inclua plaintext clínico, data keys ou respostas do KMS
+em logs.
+
+O contexto criptográfico exige `table`, `record_id`, `patient_id` e `field`.
+Esse contexto é autenticado pelo KMS e pelo AES-GCM, impedindo que um ciphertext
+seja movido silenciosamente para outro paciente, registro ou campo.
+
+A migration `0010` somente adiciona envelopes JSON anuláveis ao lado das colunas
+legadas. Ela não lê, atualiza, criptografa ou remove valores existentes. O
+backfill deve ser implementado e executado separadamente, somente após validar
+o deploy aditivo e conferir novamente as contagens registradas antes da
+migration.
+
+O preflight permanente pode ser executado sem dados de pacientes:
+
+```bash
+python -m app.scripts.clinical_encryption_preflight
+```
+
+Relatórios diários novos ou editados fazem escrita dupla de descrição e causa:
+o plaintext é mantido temporariamente para rollback e o envelope autenticado é
+gravado na mesma transação. Em produção não existe fallback silencioso quando o
+KMS falha. Limpar uma resposta também limpa os envelopes correspondentes.
+
+Anamneses novas e atualizadas também fazem escrita dupla após o registro obter
+seu ID. Leituras do paciente, profissional, dashboard e geração de prompts
+preferem o envelope autenticado, mantendo fallback para anamneses legadas.
