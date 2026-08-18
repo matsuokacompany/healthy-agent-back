@@ -82,7 +82,8 @@ class ClinicalEncryptionVerificationService:
                             result.failures += 1
                             result.issues.append(self._issue(record, name, "decrypt_failure"))
                             continue
-                        if decrypted != getattr(record, name):
+                        plaintext = getattr(record, name)
+                        if plaintext is not None and decrypted != plaintext:
                             result.mismatches += 1
                             result.issues.append(self._issue(record, name, "plaintext_mismatch"))
                 self.db.expunge_all()

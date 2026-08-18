@@ -73,6 +73,13 @@ def test_verifies_matches_without_exposing_values():
     assert result.issues == []
 
 
+def test_ciphertext_only_record_is_valid_when_decryption_succeeds():
+    result = _service([_record(1, None, "clinical value")]).run()
+
+    assert result.valid
+    assert (result.records, result.fields, result.mismatches, result.failures) == (1, 1, 0, 0)
+
+
 def test_reports_mismatch_and_decryption_failure_using_metadata_only():
     result = _service(
         [

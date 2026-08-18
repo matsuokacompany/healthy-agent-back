@@ -13,8 +13,18 @@ from app.core.config import settings
 class ClinicalDataService:
     """Dual-write and hybrid-read helpers for persisted clinical fields."""
 
-    def __init__(self, encryption: ClinicalEncryptionService | None = None):
+    def __init__(
+        self,
+        encryption: ClinicalEncryptionService | None = None,
+        *,
+        write_plaintext: bool | None = None,
+    ):
         self.encryption = encryption or build_clinical_encryption_service(settings)
+        self.write_plaintext = (
+            settings.CLINICAL_ENCRYPTION_PLAINTEXT_WRITES_ENABLED
+            if write_plaintext is None
+            else write_plaintext
+        )
 
     def write_text(self, record: Any, field: str, value: str | None) -> None:
         self._require_identity(record)
@@ -24,7 +34,7 @@ class ClinicalDataService:
             setattr(record, envelope_field, None)
             return
         encrypted = self.encryption.encrypt(value, context=self._context(record, field))
-        setattr(record, field, value)
+        setattr(record, field, value if self.write_plaintext else None)
         setattr(record, envelope_field, encrypted.to_storage_dict())
 
     def read_text(self, record: Any, field: str) -> str | None:
@@ -37,7 +47,7 @@ class ClinicalDataService:
     def write_json(self, record: Any, field: str, value: Any | None) -> None:
         serialized = None if value is None else json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         self.write_text(record, field, serialized)
-        setattr(record, field, value)
+        setattr(record, field, value if self.write_plaintext else None)
 
     def read_json(self, record: Any, field: str) -> Any | None:
         envelope = getattr(record, f"{field}_encryption_envelope")

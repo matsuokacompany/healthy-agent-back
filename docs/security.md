@@ -78,6 +78,7 @@ CLINICAL_ENCRYPTION_PROVIDER=aws_kms
 CLINICAL_ENCRYPTION_KMS_KEY_ID=arn:aws:kms:sa-east-1:<ACCOUNT_ID>:key/<KEY_ID>
 CLINICAL_ENCRYPTION_AWS_REGION=sa-east-1
 CLINICAL_ENCRYPTION_ACTIVE_KEY_VERSION=v1
+CLINICAL_ENCRYPTION_PLAINTEXT_WRITES_ENABLED=true
 ```
 
 Não configure `AWS_ACCESS_KEY_ID` ou `AWS_SECRET_ACCESS_KEY` no `.env` da EC2.
@@ -131,17 +132,25 @@ Não execute duas instâncias do backfill ao
 mesmo tempo; `SKIP LOCKED` reduz contenção no PostgreSQL, mas a operação deve ser
 coordenada. Nunca registre os valores clínicos ou os envelopes.
 
+Depois de concluir e verificar o backfill, altere
+`CLINICAL_ENCRYPTION_PLAINTEXT_WRITES_ENABLED=false` no `PRODUCTION_ENV` e faça
+novo deploy. A partir desse corte, novas escritas persistem somente o envelope;
+as colunas legadas permanecem temporariamente para rollback e a leitura híbrida
+continua habilitada. Não limpe os plaintexts históricos no mesmo deploy.
+
 O preflight permanente pode ser executado sem dados de pacientes:
 
 ```bash
 python -m app.scripts.clinical_encryption_preflight
 ```
 
-Relatórios diários novos ou editados fazem escrita dupla de descrição e causa:
-o plaintext é mantido temporariamente para rollback e o envelope autenticado é
-gravado na mesma transação. Em produção não existe fallback silencioso quando o
-KMS falha. Limpar uma resposta também limpa os envelopes correspondentes.
+Relatórios diários novos ou editados gravam o envelope autenticado na mesma
+transação. Enquanto a flag de corte estiver habilitada, também fazem escrita
+dupla para rollback; depois do corte, a coluna plaintext fica nula. Em produção
+não existe fallback silencioso quando o KMS falha. Limpar uma resposta também
+limpa os envelopes correspondentes.
 
-Anamneses novas e atualizadas também fazem escrita dupla após o registro obter
-seu ID. Leituras do paciente, profissional, dashboard e geração de prompts
-preferem o envelope autenticado, mantendo fallback para anamneses legadas.
+Anamneses novas e atualizadas são criptografadas após o registro obter seu ID e
+seguem a mesma flag de corte. Leituras do paciente, profissional, dashboard e
+geração de prompts preferem o envelope autenticado, mantendo fallback para
+anamneses legadas.

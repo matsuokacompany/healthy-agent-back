@@ -84,6 +84,7 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `CLINICAL_ENCRYPTION_KMS_KEY_ID` | não nesta etapa | `arn:aws:kms:sa-east-1:<ACCOUNT_ID>:key/<KEY_ID>` | ARN/ID da chave KMS clínica; a EC2 deve acessá-la por IAM Role. |
 | `CLINICAL_ENCRYPTION_AWS_REGION` | não nesta etapa | `sa-east-1` | Região da chave AWS KMS. |
 | `CLINICAL_ENCRYPTION_ACTIVE_KEY_VERSION` | não | `v1` | Versão lógica gravada no envelope para permitir rotação futura. |
+| `CLINICAL_ENCRYPTION_PLAINTEXT_WRITES_ENABLED` | não | `true` | Flag de corte: defina `false` somente após concluir e verificar o backfill para persistir apenas envelopes. |
 | `CORS_ORIGINS` | não | `http://localhost:3000,https://app.julha.com.br` | Origens permitidas no CORS, separadas por vírgula. O padrão já inclui `http://localhost:3000` e `https://app.julha.com.br`. |
 | `WHATSAPP_VERIFY_TOKEN` | sim | `verify-token` | Token de verificação do webhook Meta. |
 | `WHATSAPP_PHONE_NUMBER_ID` | sim | `123456789` | Phone Number ID da Meta. |
