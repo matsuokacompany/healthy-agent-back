@@ -44,7 +44,6 @@ from app.services.patient_dashboard_service import PaginationParams, PatientDash
 from app.db.security_context import set_database_service_context
 from app.services.report_service import ReportService
 from app.services.anamnese_clinical_service import AnamneseClinicalService
-from app.services.ai_report_clinical_service import AiReportClinicalService
 
 
 class ProfessionalService:

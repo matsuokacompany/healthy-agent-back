@@ -15,7 +15,6 @@ from app.services.custom_report_preview_service import CustomReportPreviewServic
 from app.services.custom_report_service import CustomReportService
 from app.services.insight_service import InsightService
 from app.services.anamnese_clinical_service import AnamneseClinicalService
-from app.services.ai_report_clinical_service import AiReportClinicalService
 
 
 @dataclass(frozen=True)
