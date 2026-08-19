@@ -17,6 +17,12 @@ Built-in roles:
 - `professional`
 - `patient`
 
+Every authenticated local user must have at least one of these application
+roles so the client can select an access context. During login, a legacy or
+pre-provisioned local record with no roles receives only the least-privileged
+`patient` role. Professional, admin, and super-admin access is never inferred
+from authentication and must still be explicitly provisioned.
+
 `super_admin` is the only role allowed to change user roles. `admin` and `super_admin` can access administrative endpoints guarded by `get_current_admin`.
 
 ## Bootstrap first super admin

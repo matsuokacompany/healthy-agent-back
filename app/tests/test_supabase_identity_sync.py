@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.auth import _sync_supabase_profile
 from app.db.base_class import Base
-from app.models.models import User
+from app.models.models import RoleNameEnum, User
 
 
 def build_session():
@@ -167,16 +167,18 @@ def test_get_current_user_links_pre_registered_user_by_email(monkeypatch):
     )
 
     current_user = auth.get_current_user(
+        request=type("Request", (), {"cookies": {}})(),
         credentials=type("Credentials", (), {"credentials": "valid-token"})(),
         db=db,
     )
 
     assert current_user.id == user.id
     assert current_user.supabase_user_id == supabase_user_id
+    assert current_user.roles == [RoleNameEnum.PATIENT.value]
     assert db.query(User).count() == 1
 
 
-def test_get_current_user_rejects_unprovisioned_supabase_identity(monkeypatch):
+def test_get_current_user_provisions_unrecognized_identity_as_patient(monkeypatch):
     from app.core import auth
 
     db = build_session()
@@ -191,14 +193,15 @@ def test_get_current_user_rejects_unprovisioned_supabase_identity(monkeypatch):
         },
     )
 
-    with pytest.raises(HTTPException) as exc:
-        auth.get_current_user(
-            credentials=type("Credentials", (), {"credentials": "valid-token"})(),
-            db=db,
-        )
+    current_user = auth.get_current_user(
+        request=type("Request", (), {"cookies": {}})(),
+        credentials=type("Credentials", (), {"credentials": "valid-token"})(),
+        db=db,
+    )
 
-    assert exc.value.status_code == 403
-    assert db.query(User).count() == 0
+    assert current_user.email == "unknown@example.com"
+    assert current_user.roles == [RoleNameEnum.PATIENT.value]
+    assert db.query(User).count() == 1
 
 
 def test_sync_does_not_replace_name_with_email_like_metadata_different_from_payload_email():

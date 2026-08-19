@@ -1,6 +1,6 @@
 import logging
-from typing import Any
 
+from app.bot.channels.base import BaseBotChannel
 from app.models.models import User
 
 logger = logging.getLogger(__name__)
@@ -9,13 +9,16 @@ logger = logging.getLogger(__name__)
 class BotManager:
     """
     Gerencia canais de envio e decide qual usar por usuário.
-    (atualmente: apenas WhatsApp)
+
+    Somente o WhatsApp é registrado atualmente. Outros canais podem ser
+    adicionados futuramente implementando BaseBotChannel e usando
+    register_channel, sem manter lógica de um canal ainda não utilizado.
     """
 
-    def __init__(self, channels: dict[str, Any] | None = None):
+    def __init__(self, channels: dict[str, BaseBotChannel] | None = None):
         self.channels = channels or {}
 
-    def register_channel(self, channel_name: str, channel: Any) -> None:
+    def register_channel(self, channel_name: str, channel: BaseBotChannel) -> None:
         logger.info("Registrando canal: %s", channel_name)
         self.channels[channel_name] = channel
 

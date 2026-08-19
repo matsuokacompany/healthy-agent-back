@@ -292,6 +292,14 @@ docker compose run --rm api alembic upgrade head
 9. O `BotService` localiza o usuário pelo telefone e o `DailyReportService` atualiza o relatório pendente.
 10. Relatórios ficam disponíveis em `/api/daily-reports/`.
 
+### Canais do bot
+
+O único canal implementado e registrado atualmente é o WhatsApp. Não há lógica
+ativa do Telegram nem dependência dele no backend. A abstração `BaseBotChannel`
+e o registro do `BotManager` são mantidos para permitir que um canal como o
+Telegram seja adicionado futuramente como uma implementação isolada, sem
+acoplar essa possibilidade ao fluxo atual.
+
 ### Otimização de custo do WhatsApp
 
 O fluxo positivo foi encurtado para manter a experiência intuitiva e reduzir mensagens
