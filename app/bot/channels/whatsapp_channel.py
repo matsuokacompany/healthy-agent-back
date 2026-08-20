@@ -200,12 +200,39 @@ class WhatsAppBotChannel(BaseBotChannel):
                     or ""
                 ).strip()
 
+            elif message_type == "image":
+                if not (settings.CLINICAL_IMAGES_ENABLED and settings.WHATSAPP_CLINICAL_IMAGES_ENABLED):
+                    logger.info("WhatsApp image ignored because clinical images are disabled | message_id=%s", message_id)
+                    continue
+                image = message.get("image") or {}
+                media_id = str(image.get("id") or "").strip()
+                caption = str(image.get("caption") or "").strip()
+                if not message_id or not external_user_id or not media_id:
+                    logger.warning("Invalid WhatsApp image metadata | message_id=%s", message_id)
+                    continue
+                try:
+                    content, content_type = await self._download_media(media_id, image.get("mime_type"))
+                except (httpx.HTTPError, ValueError):
+                    logger.exception("Failed to download WhatsApp image | message_id=%s", message_id)
+                    continue
+                response = self.bot_service.process_incoming_image(
+                    external_user_id=external_user_id,
+                    message_id=message_id,
+                    media_id=media_id,
+                    content=content,
+                    content_type=content_type,
+                    caption=caption,
+                )
+                if response.text:
+                    await self.send_message(external_user_id, response.text)
+                continue
+
             else:
                 logger.warning("Tipo não suportado: %s", message_type)
                 continue
 
             if not message_id or not external_user_id or not text:
-                logger.warning("Mensagem inválida: %s", message)
+                logger.warning("Mensagem inválida | message_id=%s type=%s", message_id, message_type)
                 continue
 
             response = self.bot_service.process_incoming(
@@ -226,3 +253,26 @@ class WhatsAppBotChannel(BaseBotChannel):
                 external_user_id,
                 response.text,
             )
+
+    async def _download_media(self, media_id: str, declared_content_type: str | None) -> tuple[bytes, str | None]:
+        headers = {"Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            metadata_response = await client.get(
+                f"https://graph.facebook.com/v23.0/{media_id}",
+                headers=headers,
+            )
+            metadata_response.raise_for_status()
+            metadata = metadata_response.json()
+            if int(metadata.get("file_size") or 0) > settings.CLINICAL_IMAGE_MAX_UPLOAD_BYTES:
+                raise ValueError("WhatsApp image exceeds upload limit")
+            media_url = metadata.get("url")
+            if not media_url:
+                raise ValueError("WhatsApp media URL missing")
+            async with client.stream("GET", media_url, headers=headers) as response:
+                response.raise_for_status()
+                body = bytearray()
+                async for chunk in response.aiter_bytes():
+                    body.extend(chunk)
+                    if len(body) > settings.CLINICAL_IMAGE_MAX_UPLOAD_BYTES:
+                        raise ValueError("WhatsApp image exceeds upload limit")
+            return bytes(body), metadata.get("mime_type") or declared_content_type

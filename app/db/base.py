@@ -2,6 +2,7 @@ from app.db.base_class import Base
 from app.models.models import (
     Anamnese,
     AiReportCache,
+    ClinicalAttachment,
     DailyReport,
     DailyReportStatusEnum,
     MonitoringPlan,
@@ -24,6 +25,7 @@ __all__ = [
     "DailyReportStatusEnum",
     "Anamnese",
     "AiReportCache",
+    "ClinicalAttachment",
     "Role",
     "RoleNameEnum",
     "UserRole",

@@ -56,6 +56,19 @@ def test_bot_service_response_flow(monkeypatch):
     assert "https://app.julha.com.br/patient/monitoring com seu login" in first.text
     assert "editar ou excluir uma resposta e registrar novamente as informações" in first.text
 
+
+def test_symptom_prompt_explains_single_optional_image_when_enabled(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CLINICAL_IMAGES_ENABLED", True)
+    monkeypatch.setattr(settings, "WHATSAPP_CLINICAL_IMAGES_ENABLED", True)
+
+    response = BotService()._translate("ASK_SYMPTOM_DESCRIPTION")
+
+    assert "uma única foto" in response.text
+    assert "legenda da própria imagem" in response.text
+    assert "até 5 MB" in response.text
+
     second = service.process_incoming(
         channel="whatsapp",
         external_user_id=user.phone,

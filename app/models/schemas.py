@@ -105,6 +105,24 @@ class UserRead(UserBase, ORMModel):
     roles: List[RoleNameEnum] = Field(default_factory=list)
 
 
+class ClinicalAttachmentRead(ORMModel):
+    id: int
+    patient_id: int
+    uploaded_by_user_id: int
+    daily_report_id: Optional[int] = None
+    source: str
+    content_type: str
+    byte_size: int
+    description: Optional[str] = None
+    status: str
+    created_at: datetime
+
+
+class ClinicalAttachmentUrl(BaseModel):
+    url: str
+    expires_in: int
+
+
 class UserRoleUpdate(BaseModel):
     roles: List[RoleNameEnum]
 

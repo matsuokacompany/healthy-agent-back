@@ -55,6 +55,17 @@ class AiReportStatusEnum(str, enum.Enum):
     FAILED = "FAILED"
 
 
+class ClinicalAttachmentStatusEnum(str, enum.Enum):
+    AVAILABLE = "AVAILABLE"
+    DELETED = "DELETED"
+
+
+class ClinicalAttachmentSourceEnum(str, enum.Enum):
+    WHATSAPP = "WHATSAPP"
+    PATIENT_PORTAL = "PATIENT_PORTAL"
+    PROFESSIONAL_PORTAL = "PROFESSIONAL_PORTAL"
+
+
 class RoleNameEnum(str, enum.Enum):
     SUPER_ADMIN = "super_admin"
     ADMIN = "admin"
@@ -130,6 +141,12 @@ class User(Base):
     )
     role_links = relationship("UserRole", back_populates="user", cascade="all, delete-orphan")
     role_records = relationship("Role", secondary="user_roles", back_populates="users", viewonly=True)
+    clinical_attachments = relationship(
+        "ClinicalAttachment",
+        back_populates="patient",
+        cascade="all, delete-orphan",
+        foreign_keys="ClinicalAttachment.patient_id",
+    )
 
     @property
     def roles(self) -> list[str]:
@@ -295,6 +312,45 @@ class DailyReport(Base):
 
     user = relationship("User", back_populates="daily_reports")
     monitoring_plan = relationship("MonitoringPlan", back_populates="daily_reports")
+    clinical_attachments = relationship("ClinicalAttachment", back_populates="daily_report")
+
+
+class ClinicalAttachment(Base):
+    __tablename__ = "clinical_attachments"
+    __table_args__ = (
+        Index("ix_clinical_attachments_patient_created", "patient_id", "created_at"),
+        Index("ix_clinical_attachments_uploader", "uploaded_by_user_id"),
+        Index(
+            "uq_clinical_attachments_whatsapp_report",
+            "daily_report_id",
+            unique=True,
+            postgresql_where=text("source = 'WHATSAPP' AND deleted_at IS NULL"),
+            sqlite_where=text("source = 'WHATSAPP' AND deleted_at IS NULL"),
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    uploaded_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    monitoring_plan_id = Column(Integer, ForeignKey("monitoring_plans.id"), nullable=True)
+    daily_report_id = Column(Integer, ForeignKey("daily_reports.id"), nullable=True)
+    source = Column(String, nullable=False)
+    whatsapp_message_id = Column(String, nullable=True, unique=True)
+    whatsapp_media_id = Column(String, nullable=True, unique=True)
+    bucket = Column(String, nullable=False)
+    object_key = Column(String, nullable=False, unique=True)
+    content_type = Column(String, nullable=False, default="image/jpeg")
+    byte_size = Column(Integer, nullable=False)
+    sha256 = Column(String, nullable=False)
+    description = Column(String(500), nullable=True)
+    status = Column(String, nullable=False, default=ClinicalAttachmentStatusEnum.AVAILABLE.value)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+    patient = relationship("User", foreign_keys=[patient_id], back_populates="clinical_attachments")
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_user_id])
+    monitoring_plan = relationship("MonitoringPlan")
+    daily_report = relationship("DailyReport", back_populates="clinical_attachments")
 
 
 class AiReportCache(Base):

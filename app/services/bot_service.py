@@ -5,10 +5,12 @@ from typing import Literal
 
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from fastapi import HTTPException
 
 from app.db.session import SessionLocal
 from app.db.security_context import set_database_service_context
-from app.models.models import User, WhatsAppMessage
+from app.models.models import ClinicalAttachmentSourceEnum, DailyReportStatusEnum, User, WhatsAppMessage
+from app.services.clinical_attachment_service import ClinicalAttachmentService
 from app.services.daily_report_service import DailyReportService
 
 logger = logging.getLogger(__name__)
@@ -114,6 +116,73 @@ class BotService:
             self._mark_message_finished(message_id=message_id, response=response, user_id=None, status="FAILED")
             return response
 
+        finally:
+            db.close()
+
+    def process_incoming_image(
+        self,
+        *,
+        external_user_id: str,
+        message_id: str,
+        media_id: str,
+        content: bytes,
+        content_type: str | None,
+        caption: str,
+    ) -> BotResponse:
+        normalized_user_id = self._normalize_wa_id(external_user_id)
+        if not self._reserve_message(
+            message_id=message_id,
+            channel="whatsapp",
+            external_user_id=external_user_id,
+            normalized_user_id=normalized_user_id,
+        ):
+            return BotResponse(text="", duplicate=True)
+
+        db = SessionLocal()
+        set_database_service_context(db, "whatsapp")
+        try:
+            user = self._find_user_by_whatsapp_identity(db, external_user_id, normalized_user_id)
+            if not user:
+                response = BotResponse(text="Conta não vinculada. Acesse o sistema para ativar seu acesso.")
+            else:
+                report = self.daily_report_service._get_open_report(db, user)
+                if not report or report.status != DailyReportStatusEnum.AWAITING_SYMPTOM_DESCRIPTION:
+                    response = BotResponse(text="")
+                else:
+                    ClinicalAttachmentService(db).create(
+                        actor=user,
+                        patient_id=user.id,
+                        content=content,
+                        declared_content_type=content_type,
+                        description=caption or None,
+                        daily_report_id=report.id,
+                        source=ClinicalAttachmentSourceEnum.WHATSAPP,
+                        whatsapp_message_id=message_id,
+                        whatsapp_media_id=media_id,
+                    )
+                    if caption:
+                        response = self._translate(self.daily_report_service.process_response(db, user, caption))
+                    else:
+                        response = BotResponse(
+                            text="Recebemos sua foto. Agora descreva os sintomas em uma única mensagem de texto.",
+                            ask_followup=True,
+                        )
+            self._mark_message_finished(message_id=message_id, response=response, user_id=user.id if user else None, status="PROCESSED")
+            return response
+        except HTTPException as exc:
+            db.rollback()
+            if exc.detail == "WHATSAPP_IMAGE_LIMIT_REACHED":
+                response = BotResponse(text="Já recebemos uma foto para este check-in. Outras imagens podem ser adicionadas pela plataforma.")
+            else:
+                response = BotResponse(text="Não conseguimos anexar essa foto. Envie sua descrição em texto ou use a plataforma.")
+            self._mark_message_finished(message_id=message_id, response=response, user_id=None, status="FAILED")
+            return response
+        except Exception:
+            db.rollback()
+            logger.exception("Failed to process WhatsApp clinical image | message_id=%s", message_id)
+            response = BotResponse(text="Não conseguimos anexar essa foto. Envie sua descrição em texto ou use a plataforma.")
+            self._mark_message_finished(message_id=message_id, response=response, user_id=None, status="FAILED")
+            return response
         finally:
             db.close()
 
@@ -322,11 +391,20 @@ class BotService:
             )
 
         if status == "ASK_SYMPTOM_DESCRIPTION":
+            image_instructions = ""
+            if settings.CLINICAL_IMAGES_ENABLED and settings.WHATSAPP_CLINICAL_IMAGES_ENABLED:
+                image_instructions = (
+                    "Se desejar, envie uma única foto e escreva os sintomas na legenda da própria imagem. "
+                    "A foto é opcional e ficará disponível ao profissional responsável.\n\n"
+                )
             return BotResponse(
                 text=(
                     "Entendi. Para concluir, descreva em uma única resposta quais sintomas você teve.\n\n"
-                    "Exemplo: dor de cabeça e tontura.\n"
-                    "Máx: 280 caracteres.\n\n"
+                    f"{image_instructions}"
+                    "Exemplo: dor e inchaço na gengiva inferior esquerda há dois dias.\n"
+                    "Máx: 280 caracteres."
+                    + (" Foto JPEG, PNG ou WebP de até 5 MB." if image_instructions else "")
+                    + "\n\n"
                     "Se você informou algo errado ou esqueceu alguma informação, acesse "
                     "https://app.julha.com.br/patient/monitoring com seu login. Na plataforma, "
                     "você pode editar ou excluir uma resposta e registrar novamente as informações."

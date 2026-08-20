@@ -17,6 +17,7 @@ from app.routes import (
     anamnese_routes,
     auth_routes,
     bot_webhook_routes,
+    clinical_attachment_routes,
     daily_reports_routes,
     insight_routes,
     monitoring_routes,
@@ -162,3 +163,4 @@ app.include_router(professional_routes.router, prefix=f"{API_PREFIX}/professiona
 app.include_router(report_routes.router, prefix=f"{API_PREFIX}/reports")
 app.include_router(user_routes.router, prefix=f"{API_PREFIX}/users")
 app.include_router(bot_webhook_routes.router)
+app.include_router(clinical_attachment_routes.router, prefix=f"{API_PREFIX}/clinical-attachments")
