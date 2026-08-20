@@ -7,6 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from fastapi import HTTPException
 
+from app.core.config import settings
 from app.db.session import SessionLocal
 from app.db.security_context import set_database_service_context
 from app.models.models import ClinicalAttachmentSourceEnum, DailyReportStatusEnum, User, WhatsAppMessage
