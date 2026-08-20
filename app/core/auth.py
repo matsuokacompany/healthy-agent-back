@@ -110,6 +110,12 @@ def _resolve_or_create_user(db: Session, payload: dict[str, Any]) -> User:
         db.add(user)
         db.flush()
         assign_role(db, user, RoleNameEnum.PATIENT)
+    elif not user.role_records:
+        # Legacy/pre-provisioned records may have an identity but no application
+        # role. Authentication succeeded in that case, but clients could not
+        # choose an access context. Give only the least-privileged role here;
+        # professional and administrative roles still require provisioning.
+        assign_role(db, user, RoleNameEnum.PATIENT)
     _sync_supabase_profile(db, user, payload)
     db.commit()
     # commit ends SET LOCAL; rebind the identity for route queries that reuse

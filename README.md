@@ -80,6 +80,11 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `AI_REPORT_MAX_COST_USD` | não | `0.05` | Teto estimado em dólar para uma geração. |
 | `AI_REPORT_INPUT_COST_PER_MILLION_USD` | sim para geração | consulte o provedor | Preço configurável de um milhão de tokens de entrada. |
 | `AI_REPORT_OUTPUT_COST_PER_MILLION_USD` | sim para geração | consulte o provedor | Preço configurável de um milhão de tokens de saída. |
+| `CLINICAL_IMAGES_ENABLED` | não | `false` | Chave geral do MVP de imagens clínicas. |
+| `WHATSAPP_CLINICAL_IMAGES_ENABLED` | não | `false` | Aceita uma imagem na descrição de sintomas do WhatsApp. |
+| `PORTAL_CLINICAL_IMAGES_ENABLED` | não | `false` | Aceita imagens de paciente/profissional pelo portal. |
+| `SUPABASE_STORAGE_BUCKET` | não | `clinical-images` | Bucket privado para imagens clínicas. |
+| `SUPABASE_SERVICE_ROLE_KEY` | sim para imagens | - | Segredo exclusivo do backend para operar o bucket privado; nunca exponha ao frontend. |
 | `CLINICAL_ENCRYPTION_PROVIDER` | não nesta etapa | `aws_kms` | Provedor da fundação de criptografia clínica. Ainda não criptografa colunas até a integração dos modelos. |
 | `CLINICAL_ENCRYPTION_KMS_KEY_ID` | não nesta etapa | `arn:aws:kms:sa-east-1:<ACCOUNT_ID>:key/<KEY_ID>` | ARN/ID da chave KMS clínica; a EC2 deve acessá-la por IAM Role. |
 | `CLINICAL_ENCRYPTION_AWS_REGION` | não nesta etapa | `sa-east-1` | Região da chave AWS KMS. |
@@ -291,6 +296,19 @@ docker compose run --rm api alembic upgrade head
 8. Se o paciente informar que teve sintomas pelo botão/atalho positivo, o bot pede apenas a descrição dos sintomas em uma única mensagem para reduzir respostas não-template no WhatsApp.
 9. O `BotService` localiza o usuário pelo telefone e o `DailyReportService` atualiza o relatório pendente.
 10. Relatórios ficam disponíveis em `/api/daily-reports/`.
+
+### Canais do bot
+
+O único canal implementado e registrado atualmente é o WhatsApp. Não há lógica
+ativa do Telegram nem dependência dele no backend. A abstração `BaseBotChannel`
+e o registro do `BotManager` são mantidos para permitir que um canal como o
+Telegram seja adicionado futuramente como uma implementação isolada, sem
+acoplar essa possibilidade ao fluxo atual.
+
+O MVP opcional de imagens clínicas é documentado em
+[`docs/clinical-images-mvp.md`](docs/clinical-images-mvp.md). Ele permanece
+desligado por padrão, limita o WhatsApp a uma imagem por check-in e o portal a
+três imagens por envio, sem análise por IA.
 
 ### Otimização de custo do WhatsApp
 
