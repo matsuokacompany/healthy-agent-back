@@ -56,6 +56,15 @@ def test_bot_service_response_flow(monkeypatch):
     assert "https://app.julha.com.br/patient/monitoring com seu login" in first.text
     assert "editar ou excluir uma resposta e registrar novamente as informações" in first.text
 
+    second = service.process_incoming(
+        channel="whatsapp",
+        external_user_id=user.phone,
+        message_text="Tive tontura",
+        message_id="msg-flow-2",
+    )
+    assert second.ask_followup is False
+    assert "concluído" in second.text
+
 
 def test_symptom_prompt_explains_single_optional_image_when_enabled(monkeypatch):
     from app.core.config import settings
@@ -68,15 +77,6 @@ def test_symptom_prompt_explains_single_optional_image_when_enabled(monkeypatch)
     assert "uma única foto" in response.text
     assert "legenda da própria imagem" in response.text
     assert "até 5 MB" in response.text
-
-    second = service.process_incoming(
-        channel="whatsapp",
-        external_user_id=user.phone,
-        message_text="Tive tontura",
-        message_id="msg-flow-2",
-    )
-    assert second.ask_followup is False
-    assert "concluído" in second.text
 
 
 def test_bot_service_negative_flow(monkeypatch):
