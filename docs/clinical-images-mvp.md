@@ -44,6 +44,30 @@ opcional. Pacientes só operam sobre si mesmos; profissionais precisam de perfil
 plano e vínculo ativos. Mutações autenticadas por cookie também enviam o token
 CSRF já exigido pela API.
 
+### Contrato da edição de check-in no frontend
+
+Para exibir somente as imagens do check-in em edição, carregue os anexos do
+paciente com `GET /api/clinical-attachments/patients/{patient_id}` e filtre a
+resposta pelo campo `daily_report_id` igual ao `id` do check-in. Para cada anexo,
+obtenha uma URL temporária em
+`GET /api/clinical-attachments/{attachment_id}/view`; não persista essa URL, pois
+ela expira.
+
+Ao salvar novas imagens, envie `multipart/form-data` para
+`POST /api/clinical-attachments/patients/{patient_id}`. Repita o campo `files` para
+cada arquivo e envie também `daily_report_id`; `description` é opcional. O portal
+aceita JPEG, PNG e WebP, no máximo 5 MiB por arquivo e três arquivos por
+requisição. Para excluir, chame
+`DELETE /api/clinical-attachments/{attachment_id}`. Envie cookies e o cabeçalho
+`X-CSRF-Token` nas duas mutações.
+
+Upload e exclusão são operações separadas do `PATCH` do relatório. A interface
+deve preservar cada operação que já foi concluída e atualizar a lista após cada
+resposta, em vez de prometer atomicidade entre texto e arquivos. Um profissional
+pode excluir arquivos que ele próprio enviou; o paciente pode excluir os próprios
+anexos. A API não permite que um profissional exclua uma imagem enviada pelo
+paciente ou recebida via WhatsApp.
+
 ## WhatsApp
 
 Depois da resposta positiva, a mensagem pede uma única foto opcional com os

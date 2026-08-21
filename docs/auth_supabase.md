@@ -126,3 +126,28 @@ Set the Supabase Auth Site URL to the canonical frontend URL. Add explicit Redir
 ### Rollback plan
 
 If rollout fails, revert the frontend to the previous Supabase browser login flow and keep the backend Bearer-token path enabled. Revert this backend change only after confirming no active clients depend on the cookie endpoints. Expire auth cookies for affected users during rollback to avoid ambiguous client state.
+
+### Frontend session renewal contract
+
+Supabase access tokens are intentionally short-lived. Their expiration must not be
+treated as the end of the browser session while the refresh cookie is still valid.
+The frontend must use `credentials: "include"` on every API request and implement a
+single-flight refresh flow:
+
+1. Call the requested endpoint normally.
+2. On the first `401`, read the current double-submit token from
+   `GET /api/auth/csrf`.
+3. Call `POST /api/auth/refresh` with `credentials: "include"` and the returned
+   token in `X-CSRF-Token`.
+4. If refresh succeeds, capture the rotated `X-CSRF-Token` response header and
+   retry the original request exactly once.
+5. Redirect to login only when refresh fails. Do not refresh recursively and do
+   not start multiple simultaneous refresh requests; concurrent callers should
+   await the same in-flight promise.
+
+The same recovery flow should run during application bootstrap when
+`GET /api/auth/me` returns `401`. A logout occurring near the access-token lifetime
+(commonly about one hour) normally means that the frontend is redirecting on the
+first `401`, omitting the CSRF header, omitting credentials, or not retrying after
+refresh. Diagnose it in the browser network panel by checking `/me`, `/csrf`, and
+`/refresh` in that order. Tokens and cookie values must never be logged.
