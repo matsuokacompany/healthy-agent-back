@@ -31,6 +31,8 @@ ACCESS_COOKIE = settings.AUTH_ACCESS_COOKIE_NAME
 REFRESH_COOKIE = settings.AUTH_REFRESH_COOKIE_NAME
 CSRF_COOKIE = settings.AUTH_CSRF_COOKIE_NAME
 CSRF_HEADER = settings.AUTH_CSRF_HEADER_NAME
+REFRESH_COOKIE_PATH = "/"
+LEGACY_REFRESH_COOKIE_PATH = "/api/auth"
 
 
 def _auth_headers() -> dict[str, str]:
@@ -74,7 +76,11 @@ def set_auth_cookies(response: Response, *, access_token: str, refresh_token: st
         httponly=True,
         secure=secure,
         samesite="strict",
-        path="/api/auth",
+        # The default name uses the __Host- prefix. Browsers only accept a
+        # __Host- cookie when Path=/ (and no Domain is present). Using the
+        # narrower /api/auth path silently discarded the refresh cookie in
+        # compliant browsers and ended the session when the access JWT expired.
+        path=REFRESH_COOKIE_PATH,
     )
     response.set_cookie(
         CSRF_COOKIE,
@@ -92,7 +98,10 @@ def set_auth_cookies(response: Response, *, access_token: str, refresh_token: st
 def clear_auth_cookies(response: Response) -> None:
     secure = settings.AUTH_COOKIE_SECURE
     response.delete_cookie(ACCESS_COOKIE, path="/", secure=secure, samesite=settings.AUTH_COOKIE_SAMESITE.lower())
-    response.delete_cookie(REFRESH_COOKIE, path="/api/auth", secure=secure, samesite="strict")
+    response.delete_cookie(REFRESH_COOKIE, path=REFRESH_COOKIE_PATH, secure=secure, samesite="strict")
+    # Also expire cookies created by deployments that used a custom (non
+    # __Host-) name with the former path.
+    response.delete_cookie(REFRESH_COOKIE, path=LEGACY_REFRESH_COOKIE_PATH, secure=secure, samesite="strict")
     response.delete_cookie(CSRF_COOKIE, path="/", secure=secure, samesite="strict")
 
 
