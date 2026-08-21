@@ -224,7 +224,11 @@ class WhatsAppBotChannel(BaseBotChannel):
                     caption=caption,
                 )
                 if response.text:
-                    await self.send_message(external_user_id, response.text)
+                    await self._send_response(
+                        external_user_id=external_user_id,
+                        message_id=message_id,
+                        text=response.text,
+                    )
                 continue
 
             else:
@@ -243,9 +247,10 @@ class WhatsAppBotChannel(BaseBotChannel):
             )
 
             if response.text:
-                await self.send_message(
-                    external_user_id,
-                    response.text,
+                await self._send_response(
+                    external_user_id=external_user_id,
+                    message_id=message_id,
+                    text=response.text,
                 )
 
             logger.info(
@@ -253,6 +258,32 @@ class WhatsAppBotChannel(BaseBotChannel):
                 external_user_id,
                 response.text,
             )
+
+    async def _send_response(
+        self,
+        *,
+        external_user_id: str,
+        message_id: str,
+        text: str,
+    ) -> None:
+        """Send a bot reply without failing acknowledgement of the inbound webhook."""
+        try:
+            await self.send_message(external_user_id, text)
+        except httpx.HTTPError:
+            # Meta retries a webhook whenever its handler returns an error. The
+            # inbound message has already been persisted at this point, so a
+            # retry would only be discarded by idempotency and can make
+            # WhatsApp show a generic failure to the sender. Log the delivery
+            # failure, but let the webhook acknowledge the received message.
+            logger.exception(
+                "Failed to send WhatsApp bot response | message_id=%s to=%s",
+                message_id,
+                self._mask_user_id(external_user_id),
+            )
+
+    @staticmethod
+    def _mask_user_id(user_id: str) -> str:
+        return f"***{user_id[-4:]}" if len(user_id) > 4 else "*" * len(user_id)
 
     async def _download_media(self, media_id: str, declared_content_type: str | None) -> tuple[bytes, str | None]:
         headers = {"Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"}
