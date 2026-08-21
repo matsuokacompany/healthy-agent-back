@@ -151,3 +151,17 @@ The same recovery flow should run during application bootstrap when
 first `401`, omitting the CSRF header, omitting credentials, or not retrying after
 refresh. Diagnose it in the browser network panel by checking `/me`, `/csrf`, and
 `/refresh` in that order. Tokens and cookie values must never be logged.
+
+This renewal is not automatic merely because the refresh cookie exists: the
+browser stores and sends the cookie, but the frontend still has to invoke the
+refresh endpoint after the access token expires. No timer is required; renewing
+on the first `401` (including the bootstrap `/me`) is sufficient and avoids
+refreshing an idle session unnecessarily.
+
+After deploying the fix that changed the `__Host-ha_refresh` cookie to `Path=/`,
+users whose login was created by an older deployment must sign in once again.
+Standards-compliant browsers rejected the old `__Host-` cookie, so there is no
+stored refresh credential that either the backend or frontend can recover. New
+logins and successful refreshes issue a refresh cookie with a 30-day browser
+lifetime; this does not override any shorter session lifetime configured in the
+Supabase Auth project.
