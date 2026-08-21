@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 
+import httpx
 import pytest
 
 from sqlalchemy import create_engine
@@ -180,6 +181,50 @@ async def test_whatsapp_template_returns_meta_wa_id():
     )
 
     assert wa_id == "554391266196"
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_inbound_is_acknowledged_when_response_delivery_fails():
+    from app.bot.channels.whatsapp_channel import WhatsAppBotChannel
+
+    class StubBotService:
+        @staticmethod
+        def process_incoming(**_kwargs):
+            from app.services.bot_service import BotResponse
+
+            return BotResponse(text="Resposta")
+
+    channel = WhatsAppBotChannel(bot_service=StubBotService())
+
+    async def fail_to_send(_user_id, _text):
+        request = httpx.Request("POST", channel.base_url)
+        response = httpx.Response(503, request=request)
+        raise httpx.HTTPStatusError("Meta unavailable", request=request, response=response)
+
+    channel.send_message = fail_to_send
+
+    await channel.handle_incoming(
+        {
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "value": {
+                                "messages": [
+                                    {
+                                        "id": "wamid.delivery-failure",
+                                        "from": "5543999999999",
+                                        "type": "text",
+                                        "text": {"body": "Não tive sintomas"},
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    )
 
 
 def test_bot_service_matches_normalized_phone(monkeypatch):
