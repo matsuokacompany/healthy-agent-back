@@ -6,6 +6,11 @@ Copie o prompt abaixo para o agente responsável pelo repositório do frontend.
 
 Investigue e corrija o logout prematuro da aplicação. O backend usa uma sessão gerenciada por cookies HttpOnly: o access token normalmente expira em cerca de uma hora, mas isso **não** deve encerrar a sessão enquanto o refresh cookie estiver válido. Não migre tokens para `localStorage`, `sessionStorage` ou JavaScript e não registre tokens/cookies em logs.
 
+Faça as alterações diretamente no repositório do frontend; não entregue apenas
+uma análise ou documentação. Antes de editar, identifique a stack, o cliente HTTP
+compartilhado e o fluxo de bootstrap já existentes e preserve os padrões do
+projeto.
+
 ## Contrato do backend
 
 - `POST /api/auth/login`: autentica, define cookies e retorna o usuário; nunca retorna tokens.
@@ -14,6 +19,7 @@ Investigue e corrija o logout prematuro da aplicação. O backend usa uma sessã
 - `POST /api/auth/refresh`: exige cookies, `X-CSRF-Token` correspondente e retorna `204`; redefine os cookies e expõe o novo `X-CSRF-Token` no header.
 - `POST /api/auth/logout`: exige a mesma proteção CSRF e retorna `204`.
 - Todas as chamadas devem usar `credentials: "include"` (ou `withCredentials: true` no Axios).
+- O cookie não chama o endpoint sozinho: não é necessário criar um timer, mas o frontend precisa executar `/csrf` + `/refresh` no primeiro `401` e repetir a chamada original.
 
 ## Verificações obrigatórias
 
@@ -29,6 +35,7 @@ Investigue e corrija o logout prematuro da aplicação. O backend usa uma sessã
 10. Verifique se service workers, cache de fetch, React Query/SWR e middleware SSR não armazenam respostas de autenticação nem transformam um erro transitório em logout. Chamadas de auth devem usar `cache: "no-store"` quando aplicável.
 11. No DevTools, valide que o login recebe os cookies `__Host-ha_access`, `__Host-ha_refresh` e `ha_csrf`; o refresh cookie deve ter `Secure`, `HttpOnly`, ausência de `Domain`, `SameSite=Strict`, `Path=/` e expiração aproximada de 30 dias.
 12. Confira CORS e topologia dos domínios. O origin exato do frontend precisa estar permitido pelo backend. Se frontend e API forem cross-site (não apenas subdomínios do mesmo site), documente o conflito com `SameSite=Strict` em vez de enfraquecer a política silenciosamente.
+13. Se o backend acabou de receber a correção de `Path=/` do cookie `__Host-ha_refresh`, faça um novo login uma vez: sessões criadas antes da correção não possuem um refresh cookie recuperável no navegador.
 
 ## Testes a criar
 
@@ -44,3 +51,69 @@ Investigue e corrija o logout prematuro da aplicação. O backend usa uma sessã
 Entregue: (a) diagnóstico com a causa raiz e evidências, (b) alterações mínimas de código, (c) testes automatizados, (d) comandos executados e resultados, e (e) checklist manual do Network/Application do navegador sem expor valores sensíveis.
 
 ---
+
+## Exemplo de implementação com `fetch`
+
+O ajuste precisa ser feito no cliente HTTP compartilhado do frontend, e não em
+cada tela. O exemplo abaixo mostra o contrato mínimo. Adapte a obtenção da URL da
+API e o tratamento de redirecionamento ao framework usado pelo frontend.
+
+```ts
+const API_URL = process.env.NEXT_PUBLIC_API_URL!;
+let refreshInFlight: Promise<void> | null = null;
+
+async function refreshSession(): Promise<void> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      const csrfResponse = await fetch(`${API_URL}/api/auth/csrf`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!csrfResponse.ok) throw new Error("Session refresh unavailable");
+
+      const { csrf_token: csrfToken } = await csrfResponse.json();
+      const refreshResponse = await fetch(`${API_URL}/api/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: { "X-CSRF-Token": csrfToken },
+      });
+      if (!refreshResponse.ok) throw new Error("Session refresh failed");
+    })().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+
+  return refreshInFlight;
+}
+
+export async function apiFetch(
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const request = () =>
+    fetch(`${API_URL}${path}`, {
+      ...init,
+      credentials: "include",
+      cache: "no-store",
+    });
+
+  let response = await request();
+  const cannotRefresh = new Set([
+    "/api/auth/login",
+    "/api/auth/csrf",
+    "/api/auth/refresh",
+    "/api/auth/logout",
+  ]).has(path);
+  if (response.status !== 401 || cannotRefresh) return response;
+
+  await refreshSession();
+  response = await request();
+  return response;
+}
+```
+
+O bootstrap deve chamar `apiFetch("/api/auth/me")`. A aplicação só deve apagar o
+usuário e navegar para a tela de login se `apiFetch` lançar erro no refresh ou se
+o retry de `/me` continuar retornando `401`. Não armazene access token ou refresh
+token no JavaScript.
