@@ -31,6 +31,18 @@ class MonitoringPlanOriginEnum(str, Enum):
     SELF_SERVICE = "SELF_SERVICE"
 
 
+class SubscriptionStatusEnum(str, Enum):
+    PENDING = "PENDING"
+    ACTIVE = "ACTIVE"
+    PAST_DUE = "PAST_DUE"
+    CANCELED = "CANCELED"
+
+
+class SelfMonitoringCheckoutResponse(BaseModel):
+    checkout_url: Optional[str] = None
+    status: SubscriptionStatusEnum
+
+
 class NivelSuspeicaoEnum(str, Enum):
     BAIXO = "baixo"
     MODERADO = "moderado"
