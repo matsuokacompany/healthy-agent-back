@@ -163,6 +163,12 @@ def supabase_signup(email: str, password: str, *, name: str | None = None) -> di
     body: dict[str, Any] = {"email": email, "password": password}
     if name:
         body["data"] = {"name": name}
+    # Without this, the confirmation email (when the project requires one)
+    # links back to Supabase's default Site URL instead of our callback,
+    # same reasoning as forgot_password's redirect_to in auth_routes.py.
+    allowlist = [origin.strip().rstrip("/") for origin in settings.AUTH_REDIRECT_ALLOWLIST.split(",") if origin.strip()]
+    if allowlist:
+        body["redirect_to"] = f"{allowlist[0]}/api/auth/callback"
     try:
         with httpx.Client(timeout=10.0) as client:
             response = client.post(_auth_url("/signup"), headers=_auth_headers(), json=body)
