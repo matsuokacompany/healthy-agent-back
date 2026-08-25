@@ -163,6 +163,12 @@ def supabase_signup(email: str, password: str, *, name: str | None = None) -> di
     body: dict[str, Any] = {"email": email, "password": password}
     if name:
         body["data"] = {"name": name}
+    # Without this, the confirmation email (when the project requires one)
+    # links back to Supabase's default Site URL instead of our callback,
+    # same reasoning as forgot_password's redirect_to in auth_routes.py.
+    allowlist = [origin.strip().rstrip("/") for origin in settings.AUTH_REDIRECT_ALLOWLIST.split(",") if origin.strip()]
+    if allowlist:
+        body["redirect_to"] = f"{allowlist[0]}/api/auth/callback"
     try:
         with httpx.Client(timeout=10.0) as client:
             response = client.post(_auth_url("/signup"), headers=_auth_headers(), json=body)
@@ -170,8 +176,27 @@ def supabase_signup(email: str, password: str, *, name: str | None = None) -> di
         logger.info("Supabase signup request failed for email=%s", email)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Signup failed")
     if response.status_code >= 400:
-        logger.info("Supabase signup rejected for email=%s status=%s", email, response.status_code)
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+        # Log the body (never the password) so a genuine upstream failure —
+        # e.g. Supabase's built-in email sender returning
+        # {"error_code": "unexpected_failure", "msg": "Error sending
+        # confirmation email"} once its low default rate limit is hit — is
+        # diagnosable instead of being reported to the user as a duplicate
+        # email, which it may not be at all.
+        error_payload = response.json() if "application/json" in response.headers.get("content-type", "") else {}
+        logger.warning(
+            "Supabase signup rejected for email=%s status=%s body=%s",
+            email,
+            response.status_code,
+            error_payload or response.text[:500],
+        )
+        error_code = str(error_payload.get("error_code") or "")
+        message = str(error_payload.get("msg") or error_payload.get("error_description") or "")
+        if error_code == "user_already_exists" or "already registered" in message.lower():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Signup is temporarily unavailable. Please try again shortly.",
+        )
     return response.json()
 
 
