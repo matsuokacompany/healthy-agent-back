@@ -11,18 +11,28 @@ from app.services.anamnese_clinical_service import AnamneseClinicalService
 router = APIRouter(tags=["Anamneses"])
 
 
+def _require_clinical_write_access(current_user: User) -> None:
+    # Anamnese is professional-authored clinical content. This generic,
+    # patient-id-unscoped route must not be usable to write it: patients
+    # (including self-service ones) must never write their own, and a
+    # professional writing here would bypass AccessPolicy's check that they
+    # are actually linked to that specific patient. Professionals write
+    # anamnese only through app/routes/professional_routes.py, which enforces
+    # that link. Admins are trusted with the unscoped path for support needs.
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can write anamnese through this endpoint",
+        )
+
+
 @router.post("/", response_model=AnamneseRead, status_code=status.HTTP_201_CREATED)
 def create_anamnese(
     anamnese: AnamneseCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # user normal só pode criar pra ele mesmo
-    if not is_admin(current_user) and anamnese.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to create anamnese for another user"
-        )
+    _require_clinical_write_access(current_user)
 
     # 🔥 impedir duplicado (1 anamnese por usuário)
     existing = db.query(Anamnese).filter(Anamnese.user_id == anamnese.user_id).first()
@@ -96,6 +106,7 @@ def update_my_anamnese(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    _require_clinical_write_access(current_user)
     item = db.query(Anamnese).filter(Anamnese.user_id == current_user.id).first()
     if not item:
         raise HTTPException(404, "Anamnese not found")

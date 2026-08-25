@@ -28,6 +28,7 @@ from app.routes import (
     patient_dashboard_routes,
     professional_routes,
     report_routes,
+    self_monitoring_routes,
     user_routes,
 )
 
@@ -169,6 +170,7 @@ app.include_router(monitoring_routes.router, prefix=f"{API_PREFIX}/monitoring")
 app.include_router(patient_dashboard_routes.router, prefix="/patient")
 app.include_router(professional_routes.router, prefix=f"{API_PREFIX}/professional")
 app.include_router(report_routes.router, prefix=f"{API_PREFIX}/reports")
+app.include_router(self_monitoring_routes.router, prefix=f"{API_PREFIX}/self-monitoring")
 app.include_router(user_routes.router, prefix=f"{API_PREFIX}/users")
 app.include_router(bot_webhook_routes.router)
 app.include_router(clinical_attachment_routes.router, prefix=f"{API_PREFIX}/clinical-attachments")
