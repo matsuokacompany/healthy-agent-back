@@ -10,13 +10,21 @@ from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.rate_limit import limiter
 from app.models.models import User
-from app.models.schemas import SelfMonitoringCheckoutResponse
+from app.models.schemas import SelfMonitoringCheckoutResponse, SelfMonitoringSubscriptionRead
 from app.services.payment_service import PaymentService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Billing"])
 webhook_router = APIRouter(tags=["Billing"])
+
+
+@router.get("/subscription", response_model=SelfMonitoringSubscriptionRead)
+def get_self_monitoring_subscription(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return PaymentService(db).get_or_create_subscription_record(current_user)
 
 
 @router.post("/subscription", response_model=SelfMonitoringCheckoutResponse)

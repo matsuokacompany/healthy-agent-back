@@ -133,6 +133,7 @@ async def csrf_and_origin_protection(request: Request, call_next):
             return JSONResponse(status_code=403, content={"detail": "Invalid origin"})
         csrf_exempt = {
             f"{API_PREFIX}/auth/login",
+            f"{API_PREFIX}/auth/signup",
             f"{API_PREFIX}/auth/forgot-password",
             f"{API_PREFIX}/auth/callback",
         }

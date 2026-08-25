@@ -74,6 +74,11 @@ class ORMModel(BaseModel):
         from_attributes = True
 
 
+class SelfMonitoringSubscriptionRead(ORMModel):
+    status: SubscriptionStatusEnum
+    current_period_end: Optional[datetime] = None
+
+
 class UserBase(StrictRequestModel):
     name: ShortPlainText
     email: EmailStr
@@ -147,6 +152,27 @@ class UserRoleUpdate(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=1024)
+
+
+class SignupRequest(StrictRequestModel):
+    name: ShortPlainText
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=1024)
+    phone: str = Field(min_length=1, max_length=32)
+    terms_accepted: bool
+    terms_version: str = Field(min_length=1, max_length=32)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return validate_user_name(value)
+
+    @field_validator("terms_accepted")
+    @classmethod
+    def validate_terms_accepted(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError("terms_accepted must be true")
+        return value
 
 
 class ForgotPasswordRequest(BaseModel):

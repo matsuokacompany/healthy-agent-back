@@ -151,6 +151,30 @@ def supabase_password_login(email: str, password: str) -> dict[str, Any]:
     return response.json()
 
 
+def supabase_signup(email: str, password: str, *, name: str | None = None) -> dict[str, Any]:
+    """Create a new Supabase Auth user via the public /signup endpoint (anon key).
+
+    Returns Supabase's response body. If the project auto-confirms new users,
+    the body includes a session with access_token/refresh_token, ready to be
+    exchanged into our own cookies exactly like login. If the project requires
+    email confirmation, the body has a user but no session — the caller must
+    handle that case (no local session can be established yet).
+    """
+    body: dict[str, Any] = {"email": email, "password": password}
+    if name:
+        body["data"] = {"name": name}
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(_auth_url("/signup"), headers=_auth_headers(), json=body)
+    except (httpx.HTTPError, RuntimeError):
+        logger.info("Supabase signup request failed for email=%s", email)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Signup failed")
+    if response.status_code >= 400:
+        logger.info("Supabase signup rejected for email=%s status=%s", email, response.status_code)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+    return response.json()
+
+
 def supabase_refresh(refresh_token: str) -> dict[str, Any]:
     try:
         with httpx.Client(timeout=10.0) as client:

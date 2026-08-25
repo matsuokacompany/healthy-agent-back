@@ -1,7 +1,8 @@
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 import httpx
 from sqlalchemy.orm import Session
 
@@ -19,12 +20,13 @@ from app.core.auth import (
     set_no_store,
     supabase_password_login,
     supabase_refresh,
+    supabase_signup,
 )
 from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.rate_limit import limiter
 from app.models.models import User
-from app.models.schemas import ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, UserRead
+from app.models.schemas import ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, SignupRequest, UserRead
 
 router = APIRouter(tags=["Auth"])
 
@@ -54,6 +56,45 @@ def login(request: Request, payload: LoginRequest, response: Response, db: Sessi
     set_no_store(response)
     session = supabase_password_login(payload.email, payload.password)
     user = _session_from_supabase_payload(session, db)
+    set_auth_cookies(
+        response,
+        access_token=session["access_token"],
+        refresh_token=session["refresh_token"],
+        expires_in=int(session.get("expires_in") or 3600),
+    )
+    return user
+
+
+@router.post("/signup", response_model=UserRead)
+@limiter.limit("5/minute")
+def signup(request: Request, payload: SignupRequest, response: Response, db: Session = Depends(get_db)):
+    """Self-service (no professional involved) account creation.
+
+    Returns 200 with UserRead and sets session cookies if the Supabase
+    project auto-confirms new accounts; returns 202 with no cookies if the
+    project requires email confirmation first — the browser then completes
+    login via the confirmation link, which lands on GET /callback.
+    """
+    set_no_store(response)
+    if db.query(User).filter(User.email == payload.email).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+    normalized_phone = "".join(character for character in payload.phone if character.isdigit())
+    if normalized_phone and db.query(User).filter(User.phone == normalized_phone).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Phone already registered")
+
+    session = supabase_signup(payload.email, payload.password, name=payload.name)
+    if not session.get("access_token"):
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={"message": "confirmation_email_sent"},
+        )
+
+    user = _session_from_supabase_payload(session, db)
+    user.phone = normalized_phone or user.phone
+    user.terms_accepted_at = datetime.now(timezone.utc)
+    user.terms_version = payload.terms_version
+    db.commit()
+    db.refresh(user)
     set_auth_cookies(
         response,
         access_token=session["access_token"],
