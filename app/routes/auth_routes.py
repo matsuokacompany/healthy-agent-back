@@ -22,6 +22,7 @@ from app.core.auth import (
 )
 from app.core.config import settings
 from app.core.dependencies import get_db
+from app.core.rate_limit import limiter
 from app.models.models import User
 from app.models.schemas import ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, UserRead
 
@@ -48,7 +49,8 @@ def _session_from_supabase_payload(payload: dict, db: Session) -> User:
 
 
 @router.post("/login", response_model=UserRead)
-def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
     set_no_store(response)
     session = supabase_password_login(payload.email, payload.password)
     user = _session_from_supabase_payload(session, db)
@@ -116,7 +118,8 @@ def logout(request: Request, response: Response):
 
 
 @router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
-def forgot_password(payload: ForgotPasswordRequest, response: Response):
+@limiter.limit("3/minute")
+def forgot_password(request: Request, payload: ForgotPasswordRequest, response: Response):
     set_no_store(response)
     try:
         redirect_to = _allowed_redirect(None).rstrip("/") + "/api/auth/callback"

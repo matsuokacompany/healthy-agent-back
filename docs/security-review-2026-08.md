@@ -46,7 +46,14 @@ para que check-ins antigos abertos sejam concluídos sem prender o paciente.
    `BYPASSRLS` e que RLS está ativo em todas as tabelas sensíveis.
 3. Adicionar secret scanning e auditoria de dependências ao CI; travar hashes
    das dependências para builds reproduzíveis.
-4. Aplicar rate limiting no proxy para login, recuperação de senha, geração de
-   IA e webhook. O limite de corpo reduz impacto por requisição, mas não volume.
+4. ~~Aplicar rate limiting no proxy para login, recuperação de senha, geração de
+   IA e webhook.~~ Implementado na aplicação via `slowapi` (`app/core/rate_limit.py`):
+   `/api/auth/login` 5/min, `/api/auth/forgot-password` 3/min, geração de
+   relatório de IA (`/api/professional/patients/{id}/ai-report` e
+   `/ai-reports`) 10/min, webhook do WhatsApp 120/min — todos por IP de
+   origem (`request.client.host`). Isso só reflete o IP real do cliente se o
+   Nginx na frente da API for configurado com `uvicorn --proxy-headers` e
+   `--forwarded-allow-ips` restrito ao IP do proxy; sem isso, todo tráfego
+   atrás do proxy compartilha um único limite agregado.
 5. Após o deploy completo, remover fisicamente as duas colunas de causa e seus
    registros nos serviços de rotação, verificação, backfill e cleanup.
