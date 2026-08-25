@@ -33,7 +33,7 @@ from app.models.schemas import (
     CustomAiReportResponse,
     CustomAiReportListResponse,
 )
-from app.core.auth import assign_role
+from app.core.auth import assign_role, invite_supabase_user
 from app.core.access_policy import AccessPolicy
 from app.core.permissions import is_admin, require_role
 from app.services.insight_service import InsightService
@@ -120,6 +120,13 @@ class ProfessionalService:
         self.db.commit()
         self.db.refresh(patient)
         self.db.refresh(plan)
+
+        invited_supabase_user_id = invite_supabase_user(patient.email, name=patient.name)
+        if invited_supabase_user_id:
+            patient.supabase_user_id = invited_supabase_user_id
+            self.db.commit()
+            self.db.refresh(patient)
+
         return ProfessionalPatientCreateResponse(patient=patient, monitoring_plan=plan)
 
     def list_patients(self, current_user: User) -> list[ProfessionalPatientRead]:

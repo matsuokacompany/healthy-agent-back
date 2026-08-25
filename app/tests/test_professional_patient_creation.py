@@ -1,3 +1,4 @@
+import uuid
 from datetime import date
 
 import pytest
@@ -17,6 +18,7 @@ from app.models.models import (
     UserRole,
 )
 from app.models.schemas import ProfessionalPatientCreate, UserCreate
+from app.services import professional_service as professional_service_module
 from app.services.professional_service import ProfessionalService
 from app.services.user_service import UserService
 
@@ -56,7 +58,9 @@ def patient_payload(**overrides):
     return ProfessionalPatientCreate(**data)
 
 
-def test_professional_creates_patient_plan_and_own_link_atomically():
+def test_professional_creates_patient_plan_and_own_link_atomically(monkeypatch):
+    invited_id = uuid.uuid4()
+    monkeypatch.setattr(professional_service_module, "invite_supabase_user", lambda email, name=None: invited_id)
     db = build_session()
     professional, profile = create_professional(db)
 
@@ -65,11 +69,23 @@ def test_professional_creates_patient_plan_and_own_link_atomically():
     assert result.patient.email == "maria@example.com"
     assert result.patient.phone == "5511999990000"
     assert result.patient.roles == [RoleNameEnum.PATIENT.value]
+    assert result.patient.supabase_user_id == invited_id
     assert result.monitoring_plan.patient_id == result.patient.id
     link = db.query(MonitoringProfessional).one()
     assert link.monitoring_plan_id == result.monitoring_plan.id
     assert link.professional_profile_id == profile.id
     assert link.role == "responsible"
+
+
+def test_professional_creates_patient_when_supabase_invite_fails(monkeypatch):
+    monkeypatch.setattr(professional_service_module, "invite_supabase_user", lambda email, name=None: None)
+    db = build_session()
+    professional, _ = create_professional(db)
+
+    result = ProfessionalService(db).create_patient(professional, patient_payload())
+
+    assert result.patient.supabase_user_id is None
+    assert db.query(MonitoringPlan).count() == 1
 
 
 def test_professional_patient_creation_rejects_duplicate_email():

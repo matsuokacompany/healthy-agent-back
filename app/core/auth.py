@@ -166,6 +166,58 @@ def supabase_refresh(refresh_token: str) -> dict[str, Any]:
     return response.json()
 
 
+def _admin_headers() -> dict[str, str]:
+    if not settings.SUPABASE_SERVICE_ROLE_KEY:
+        raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY must be configured for Supabase Auth admin calls")
+    return {
+        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+    }
+
+
+def invite_supabase_user(email: str, *, name: str | None = None) -> uuid.UUID | None:
+    """Create a Supabase Auth user for a pre-provisioned local record and email them an invite.
+
+    Best-effort: a pre-provisioned patient still works without a linked Supabase
+    identity (self-signup with the same email links it later via
+    `_resolve_or_create_user`), so any failure here is logged and swallowed
+    rather than blocking patient provisioning on Supabase Auth availability.
+    """
+    project_url = _supabase_project_url()
+    if not project_url or not settings.SUPABASE_SERVICE_ROLE_KEY:
+        logger.warning("Skipping Supabase invite for email=%s: Supabase Auth admin not configured", email)
+        return None
+
+    allowlist = [origin.strip().rstrip("/") for origin in settings.AUTH_REDIRECT_ALLOWLIST.split(",") if origin.strip()]
+    redirect_to = f"{allowlist[0]}/api/auth/callback" if allowlist else None
+    body: dict[str, Any] = {"email": email}
+    if name:
+        body["data"] = {"name": name}
+
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(
+                f"{project_url}/auth/v1/invite",
+                headers=_admin_headers(),
+                params={"redirect_to": redirect_to} if redirect_to else None,
+                json=body,
+            )
+    except (httpx.HTTPError, RuntimeError):
+        logger.warning("Supabase invite request failed for email=%s", email)
+        return None
+    if response.status_code >= 400:
+        logger.warning("Supabase invite rejected for email=%s status=%s", email, response.status_code)
+        return None
+
+    invited_id = response.json().get("id")
+    if not invited_id:
+        return None
+    try:
+        return uuid.UUID(str(invited_id))
+    except ValueError:
+        return None
+
+
 def _supabase_project_url() -> str | None:
     if not settings.SUPABASE_PROJECT_URL:
         return None

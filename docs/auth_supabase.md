@@ -23,6 +23,26 @@ pre-provisioned local record with no roles receives only the least-privileged
 `patient` role. Professional, admin, and super-admin access is never inferred
 from authentication and must still be explicitly provisioned.
 
+## Patients provisioned by a professional
+
+`POST /api/professional/patients` (`ProfessionalService.create_patient`) creates
+the local `users` row, initial `monitoring_plans` row, and professional link
+first, then calls the Supabase Auth admin `/auth/v1/invite` endpoint
+(`app.core.auth.invite_supabase_user`, using `SUPABASE_SERVICE_ROLE_KEY`) to
+create the matching Supabase Auth user and email them an invite to set a
+password. On success the returned Auth user id is written to
+`users.supabase_user_id` immediately.
+
+This call is best-effort: if `SUPABASE_SERVICE_ROLE_KEY`/`SUPABASE_PROJECT_URL`
+are not configured, or the invite request fails or is rejected (for example an
+Auth user with that email already exists), patient creation still succeeds
+with `supabase_user_id` left `NULL`. Nothing is broken in that case — the
+patient still self-links the first time they sign in to Supabase Auth with the
+same email, via the pre-provisioned-user-by-email path in
+`_resolve_or_create_user`. Check application logs for `Supabase invite ...`
+warnings if a professional reports that an invited patient never received an
+email.
+
 `super_admin` is the only role allowed to change user roles. `admin` and `super_admin` can access administrative endpoints guarded by `get_current_admin`.
 
 ## Bootstrap first super admin
