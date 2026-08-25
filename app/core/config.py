@@ -66,6 +66,18 @@ class Settings(BaseSettings):
     WHATSAPP_DAILY_TEMPLATE_NAME: str
     APP_SECRET: Optional[str] = None
 
+    # Asaas billing for the self-service (B2C) monitoring subscription.
+    # ASAAS_ENV selects the API base URL; use "sandbox" until the integration
+    # is verified end-to-end. ASAAS_WEBHOOK_TOKEN is the value you set when
+    # registering the webhook URL in the Asaas dashboard (Configurações >
+    # Integrações > Webhooks) — Asaas echoes it back on every webhook call for
+    # verification. ASAAS_SELF_MONITORING_PRICE_CENTS has no default on
+    # purpose: pricing must be an explicit decision, not a guessed default.
+    ASAAS_API_KEY: Optional[str] = None
+    ASAAS_ENV: str = "sandbox"
+    ASAAS_WEBHOOK_TOKEN: Optional[str] = None
+    ASAAS_SELF_MONITORING_PRICE_CENTS: Optional[int] = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

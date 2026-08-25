@@ -99,6 +99,10 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `SCHEDULER_TIMEZONE` | não | `America/Sao_Paulo` | Timezone dos jobs. |
 | `SCHEDULER_MORNING_HOUR` | não | `8` | Hora do check-in diário da manhã. |
 | `SCHEDULER_MORNING_MINUTE` | não | `0` | Minuto do check-in diário da manhã. |
+| `ASAAS_API_KEY` | sim para cobrança B2C | `$aact_...` | Chave de API do Asaas (comece pela do ambiente sandbox). |
+| `ASAAS_ENV` | não | `sandbox` | `sandbox` ou `production`; seleciona a base da API do Asaas. |
+| `ASAAS_WEBHOOK_TOKEN` | sim para cobrança B2C | `<segredo escolhido por você>` | Token definido ao cadastrar o webhook no painel do Asaas; validado em `POST /webhook/asaas`. |
+| `ASAAS_SELF_MONITORING_PRICE_CENTS` | sim para cobrança B2C | `2990` | Preço mensal do plano de automonitoramento, em centavos (sem valor padrão; precisa ser definido explicitamente). |
 
 ## Desenvolvimento local
 

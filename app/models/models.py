@@ -71,6 +71,13 @@ class MonitoringPlanOriginEnum(str, enum.Enum):
     SELF_SERVICE = "SELF_SERVICE"
 
 
+class SubscriptionStatusEnum(str, enum.Enum):
+    PENDING = "PENDING"
+    ACTIVE = "ACTIVE"
+    PAST_DUE = "PAST_DUE"
+    CANCELED = "CANCELED"
+
+
 class RoleNameEnum(str, enum.Enum):
     SUPER_ADMIN = "super_admin"
     ADMIN = "admin"
@@ -152,6 +159,7 @@ class User(Base):
         cascade="all, delete-orphan",
         foreign_keys="ClinicalAttachment.patient_id",
     )
+    subscription = relationship("Subscription", back_populates="user", cascade="all, delete-orphan", uselist=False)
 
     @property
     def roles(self) -> list[str]:
@@ -408,3 +416,34 @@ class AiReportCache(Base):
 
     patient = relationship("User", foreign_keys=[patient_id])
     professional_user = relationship("User", foreign_keys=[professional_user_id])
+
+
+class Subscription(Base):
+    """A self-service (B2C) patient's paid subscription to the monitoring plan.
+
+    One per user. Professional-managed patients never have one — billing for
+    them is handled outside the platform, between Julha and the clinic.
+    """
+
+    __tablename__ = "subscriptions"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_subscriptions_user_id"),
+        Index("ix_subscriptions_provider_subscription_id", "provider_subscription_id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    provider = Column(String, nullable=False, default="asaas")
+    status = Column(String, nullable=False, default=SubscriptionStatusEnum.PENDING.value)
+    provider_customer_id = Column(String, nullable=True)
+    provider_subscription_id = Column(String, nullable=True, unique=True)
+    current_period_end = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    user = relationship("User", back_populates="subscription")

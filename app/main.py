@@ -26,6 +26,7 @@ from app.routes import (
     insight_routes,
     monitoring_routes,
     patient_dashboard_routes,
+    payment_routes,
     professional_routes,
     report_routes,
     self_monitoring_routes,
@@ -174,3 +175,5 @@ app.include_router(self_monitoring_routes.router, prefix=f"{API_PREFIX}/self-mon
 app.include_router(user_routes.router, prefix=f"{API_PREFIX}/users")
 app.include_router(bot_webhook_routes.router)
 app.include_router(clinical_attachment_routes.router, prefix=f"{API_PREFIX}/clinical-attachments")
+app.include_router(payment_routes.router, prefix=f"{API_PREFIX}/billing")
+app.include_router(payment_routes.webhook_router)
