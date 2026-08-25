@@ -69,6 +69,7 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `DATABASE_RUNTIME_ROLE` | não | `healthy_agent_api` | Papel sem login criado pela migration de RLS e assumido pelas conexões da API. |
 | `SECRET_KEY` | sim | `change-me` | Segredo JWT legado. |
 | `SUPABASE_PROJECT_URL` | sim | `https://<PROJECT_REF>.supabase.co` | URL do projeto Supabase usada para validar o issuer `https://<PROJECT_REF>.supabase.co/auth/v1`. |
+| `API_PUBLIC_URL` | sim para cadastro/recuperação de senha/convite | `https://api.exemplo.com` | Origem pública **desta API** (não do front-end). Usada só para montar o `redirect_to` enviado ao Supabase em cadastro, recuperação de senha e convite, para que o link do e-mail volte para `GET /api/auth/callback` desta API em vez da origem do front (que não tem essa rota). Sem essa variável, o Supabase usa a Site URL padrão configurada no próprio projeto. |
 | `SUPABASE_JWT_SECRET` | sim | `<supabase-jwt-secret>` | JWT secret do Supabase usado para validar access tokens `HS256`. |
 | `SUPABASE_JWT_AUDIENCE` | não | `authenticated` | Audience exigida nos access tokens do Supabase. |
 | `SUPABASE_JWT_ISSUER` | não | `https://<PROJECT_REF>.supabase.co/auth/v1` | Issuer customizado; por padrão é derivado de `SUPABASE_PROJECT_URL`. |
@@ -233,6 +234,7 @@ SUPABASE_JWT_ISSUER=https://<PROJECT_REF>.supabase.co/auth/v1
 
 CORS_ORIGINS=https://app.exemplo.com
 AUTH_REDIRECT_ALLOWLIST=https://app.exemplo.com
+API_PUBLIC_URL=https://api.exemplo.com
 AUTH_COOKIE_SECURE=true
 AUTH_COOKIE_SAMESITE=lax
 
