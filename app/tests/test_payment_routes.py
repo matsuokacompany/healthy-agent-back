@@ -42,6 +42,16 @@ def build_app_and_db():
     return TestClient(app), db, user
 
 
+def test_get_subscription_creates_pending_record_on_first_call():
+    client, db, user = build_app_and_db()
+
+    response = client.get("/billing/subscription")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "PENDING"
+    assert db.query(Subscription).filter(Subscription.user_id == user.id).count() == 1
+
+
 def test_checkout_endpoint_returns_service_result(monkeypatch):
     client, db, user = build_app_and_db()
     monkeypatch.setattr(

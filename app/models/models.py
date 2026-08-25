@@ -128,6 +128,12 @@ class User(Base):
     gender = Column(String, nullable=True)
     birth_date = Column(Date, nullable=True)
     cpf = Column(String, nullable=True, unique=True)
+    # Only set by the self-service signup flow (POST /api/auth/signup).
+    # Professional-provisioned patients have no direct acceptance to record,
+    # since a professional is the one interacting with the platform on the
+    # patient's behalf, so this stays NULL for them by design.
+    terms_accepted_at = Column(DateTime(timezone=True), nullable=True)
+    terms_version = Column(String, nullable=True)
     is_admin = Column(Boolean, default=False, nullable=False)  # Deprecated: use roles/user_roles for authorization.
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
