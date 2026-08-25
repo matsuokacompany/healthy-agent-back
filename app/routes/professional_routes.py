@@ -2,12 +2,13 @@ from datetime import date
 from typing import Literal
 import os
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
 from app.core.config import settings
 from app.core.dependencies import get_db
+from app.core.rate_limit import limiter
 from app.models.models import User
 from app.models.schemas import (
     AnamneseBase,
@@ -124,7 +125,9 @@ def update_professional_patient_anamnese(
 
 
 @router.post("/patients/{patient_id}/ai-report", response_model=ProfessionalAiReportResponse)
+@limiter.limit("10/minute")
 def generate_professional_patient_ai_report(
+    request: Request,
     patient_id: int,
     payload: ProfessionalAiReportRequest,
     db: Session = Depends(get_db),
@@ -161,7 +164,9 @@ def preview_professional_patient_ai_report(
     "/patients/{patient_id}/ai-reports",
     response_model=CustomAiReportResponse,
 )
+@limiter.limit("10/minute")
 def generate_custom_professional_patient_ai_report(
+    request: Request,
     patient_id: int,
     payload: CustomAiReportCreateRequest,
     db: Session = Depends(get_db),

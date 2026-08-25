@@ -44,9 +44,12 @@ def update_professional_profile(
 def create_monitoring_plan(
     payload: MonitoringPlanCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    # Admin-only: this generic endpoint has no AccessPolicy/professional-link
+    # check, so it must not be reachable by an ordinary patient to self-create
+    # a plan (self-service patients use /api/self-monitoring/plan instead,
+    # which is scoped and marks origin=SELF_SERVICE).
+    _: User = Depends(get_current_admin),
 ):
-    require_access_user(current_user, payload.patient_id)
     return MonitoringPlanService(db).create(payload)
 
 

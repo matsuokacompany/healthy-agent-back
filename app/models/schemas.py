@@ -26,6 +26,11 @@ class DailyReportStatusEnum(str, Enum):
     EXPIRED = "EXPIRED"
 
 
+class MonitoringPlanOriginEnum(str, Enum):
+    PROFESSIONAL = "PROFESSIONAL"
+    SELF_SERVICE = "SELF_SERVICE"
+
+
 class NivelSuspeicaoEnum(str, Enum):
     BAIXO = "baixo"
     MODERADO = "moderado"
@@ -209,6 +214,7 @@ class MonitoringPlanUpdate(StrictRequestModel):
 class MonitoringPlanRead(MonitoringPlanBase, ORMModel):
     id: int
     patient_id: int
+    origin: MonitoringPlanOriginEnum = MonitoringPlanOriginEnum.PROFESSIONAL
     created_at: datetime
     updated_at: datetime
 

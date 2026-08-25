@@ -66,6 +66,11 @@ class ClinicalAttachmentSourceEnum(str, enum.Enum):
     PROFESSIONAL_PORTAL = "PROFESSIONAL_PORTAL"
 
 
+class MonitoringPlanOriginEnum(str, enum.Enum):
+    PROFESSIONAL = "PROFESSIONAL"
+    SELF_SERVICE = "SELF_SERVICE"
+
+
 class RoleNameEnum(str, enum.Enum):
     SUPER_ADMIN = "super_admin"
     ADMIN = "admin"
@@ -220,6 +225,7 @@ class MonitoringPlan(Base):
     active = Column(Boolean, default=True, nullable=False)
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
+    origin = Column(String, nullable=False, default=MonitoringPlanOriginEnum.PROFESSIONAL.value)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),

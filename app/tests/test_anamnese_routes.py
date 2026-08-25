@@ -2,7 +2,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
-from app.models.models import Anamnese, User
+from app.models.models import Anamnese, Role, RoleNameEnum, User
 from app.models.schemas import AnamneseCreate
 from app.routes.anamnese_routes import create_anamnese
 
@@ -45,7 +45,8 @@ class FakeSession:
 
 def test_create_anamnese_returns_conflict_when_unique_constraint_races(monkeypatch):
     db = FakeSession()
-    current_user = User(id=1, name="Paciente", email="paciente@example.com")
+    current_user = User(id=1, name="Admin", email="admin@example.com")
+    current_user.role_records = [Role(name=RoleNameEnum.ADMIN.value)]
     monkeypatch.setattr("app.routes.anamnese_routes.AnamneseClinicalService.write", lambda item, info: None)
 
     with pytest.raises(HTTPException) as exc:

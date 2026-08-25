@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from app.bot.channels.whatsapp_channel import WhatsAppBotChannel
 from app.core.auth import get_current_super_admin
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.bot.scheduler import send_prompt
 from app.bot.channels.bot_manager import BotManager
 from app.models.models import CheckTypeEnum, User
@@ -61,6 +62,7 @@ async def verify_webhook(request: Request):
 
 
 @router.post("/webhook/whatsapp")
+@limiter.limit("120/minute")
 async def whatsapp_webhook(
     request: Request,
     x_hub_signature_256: str | None = Header(default=None),

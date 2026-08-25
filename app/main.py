@@ -6,11 +6,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.bot.channels.bot_manager import BotManager
 from app.bot.channels.whatsapp_channel import WhatsAppBotChannel
 from app.bot.scheduler import start_scheduler, stop_scheduler, get_scheduler
 from app.core.config import settings
+from app.core.rate_limit import limiter
 
 from app.routes import (
     admin_routes,
@@ -24,6 +28,7 @@ from app.routes import (
     patient_dashboard_routes,
     professional_routes,
     report_routes,
+    self_monitoring_routes,
     user_routes,
 )
 
@@ -113,6 +118,10 @@ app = FastAPI(
 
 API_PREFIX = "/api"
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
 
 @app.middleware("http")
 async def csrf_and_origin_protection(request: Request, call_next):
@@ -161,6 +170,7 @@ app.include_router(monitoring_routes.router, prefix=f"{API_PREFIX}/monitoring")
 app.include_router(patient_dashboard_routes.router, prefix="/patient")
 app.include_router(professional_routes.router, prefix=f"{API_PREFIX}/professional")
 app.include_router(report_routes.router, prefix=f"{API_PREFIX}/reports")
+app.include_router(self_monitoring_routes.router, prefix=f"{API_PREFIX}/self-monitoring")
 app.include_router(user_routes.router, prefix=f"{API_PREFIX}/users")
 app.include_router(bot_webhook_routes.router)
 app.include_router(clinical_attachment_routes.router, prefix=f"{API_PREFIX}/clinical-attachments")
