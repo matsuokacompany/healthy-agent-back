@@ -5,7 +5,7 @@ import uuid
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.auth import assign_role
+from app.core.auth import assign_role, invite_supabase_user
 from app.core.permissions import is_super_admin
 from app.core.user_identity import validate_user_name
 from app.models.models import RoleNameEnum, User, UserRole
@@ -69,6 +69,19 @@ class UserService:
             assign_role(self.db, new_user, RoleNameEnum(role.value))
         self.db.commit()
         self.db.refresh(new_user)
+
+        if supabase_user_id is None:
+            # No existing Supabase identity was supplied: invite this user
+            # (professional, admin, or a directly-created patient) by email,
+            # same as ProfessionalService.create_patient does for
+            # professional-provisioned patients. Best-effort — see
+            # invite_supabase_user's docstring for the fallback if this fails.
+            invited_supabase_user_id = invite_supabase_user(new_user.email, name=new_user.name)
+            if invited_supabase_user_id:
+                new_user.supabase_user_id = invited_supabase_user_id
+                self.db.commit()
+                self.db.refresh(new_user)
+
         return new_user
 
     def get_user(self, user_id: int) -> User:
