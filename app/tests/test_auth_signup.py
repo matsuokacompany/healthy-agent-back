@@ -1,6 +1,7 @@
 import uuid
 
-from fastapi import FastAPI
+import pytest
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -9,12 +10,81 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import app.core.auth as auth_module
 import app.routes.auth_routes as auth_routes_module
 from app.core.dependencies import get_db
 from app.core.rate_limit import limiter
 from app.db.base_class import Base
 from app.models.models import User
 from app.routes import auth_routes
+
+
+class FakeSupabaseSignupResponse:
+    def __init__(self, status_code, payload):
+        self.status_code = status_code
+        self._payload = payload
+        self.headers = {"content-type": "application/json"}
+        self.text = str(payload)
+
+    def json(self):
+        return self._payload
+
+
+class FakeSupabaseClient:
+    def __init__(self, response):
+        self._response = response
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def post(self, url, headers=None, json=None):
+        return self._response
+
+
+def test_supabase_signup_returns_body_on_success(monkeypatch):
+    monkeypatch.setattr(auth_module, "_auth_headers", lambda: {})
+    monkeypatch.setattr(auth_module, "_auth_url", lambda path: "https://example.supabase.co/auth/v1" + path)
+    response = FakeSupabaseSignupResponse(200, {"access_token": "abc", "refresh_token": "def", "expires_in": 3600})
+    monkeypatch.setattr(auth_module.httpx, "Client", lambda timeout=10.0: FakeSupabaseClient(response))
+
+    result = auth_module.supabase_signup("a@example.com", "senha-forte-123")
+
+    assert result["access_token"] == "abc"
+
+
+def test_supabase_signup_raises_conflict_when_user_already_exists(monkeypatch):
+    monkeypatch.setattr(auth_module, "_auth_headers", lambda: {})
+    monkeypatch.setattr(auth_module, "_auth_url", lambda path: "https://example.supabase.co/auth/v1" + path)
+    response = FakeSupabaseSignupResponse(422, {"error_code": "user_already_exists", "msg": "User already registered"})
+    monkeypatch.setattr(auth_module.httpx, "Client", lambda timeout=10.0: FakeSupabaseClient(response))
+
+    with pytest.raises(HTTPException) as exc:
+        auth_module.supabase_signup("a@example.com", "senha-forte-123")
+
+    assert exc.value.status_code == 409
+
+
+def test_supabase_signup_does_not_report_conflict_for_unrelated_upstream_failure(monkeypatch):
+    # Regression test: a Supabase-side failure unrelated to the email (here,
+    # its built-in email sender hitting its own rate limit) must not be
+    # reported to the caller as "email already registered" — that was the
+    # actual bug that made a transient Supabase outage look like a duplicate
+    # signup.
+    monkeypatch.setattr(auth_module, "_auth_headers", lambda: {})
+    monkeypatch.setattr(auth_module, "_auth_url", lambda path: "https://example.supabase.co/auth/v1" + path)
+    response = FakeSupabaseSignupResponse(
+        500,
+        {"code": 500, "error_code": "unexpected_failure", "msg": "Error sending confirmation email"},
+    )
+    monkeypatch.setattr(auth_module.httpx, "Client", lambda timeout=10.0: FakeSupabaseClient(response))
+
+    with pytest.raises(HTTPException) as exc:
+        auth_module.supabase_signup("a@example.com", "senha-forte-123")
+
+    assert exc.value.status_code == 502
 
 
 def build_client():
