@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -37,7 +39,7 @@ def build_db_with_professional_and_patient():
     db.flush()
     db.add(UserRole(user_id=professional.id, role_id=professional_role.id))
     db.add(UserRole(user_id=patient.id, role_id=patient_role.id))
-    db.add(ProfessionalProfile(user_id=professional.id, active=True))
+    db.add(ProfessionalProfile(user_id=professional.id, active=True, free_until=date(2099, 1, 1)))
     db.commit()
     db.refresh(professional)
     db.refresh(patient)
