@@ -162,7 +162,15 @@ def _resolve_or_create_user(db: Session, payload: dict[str, Any]) -> User:
             # No free_until: brand-new self-signups get no grace period, only
             # accounts that already existed at the professional-billing
             # rollout were grandfathered (see migration 0019).
-            db.add(ProfessionalProfile(user_id=user.id, specialty=metadata.get("specialty") or None, active=True))
+            db.add(
+                ProfessionalProfile(
+                    user_id=user.id,
+                    specialty=metadata.get("specialty") or None,
+                    license_number=metadata.get("license_number") or None,
+                    license_state=metadata.get("license_state") or None,
+                    active=True,
+                )
+            )
         else:
             assign_role(db, user, RoleNameEnum.PATIENT)
     elif not user.role_records:

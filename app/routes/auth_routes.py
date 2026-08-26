@@ -25,8 +25,9 @@ from app.core.auth import (
 )
 from app.core.config import settings
 from app.core.dependencies import get_db
+from app.core.document_validation import CnpjLookupError, cnpj_exists
 from app.core.rate_limit import limiter
-from app.models.models import User
+from app.models.models import ProfessionalProfile, User
 from app.models.schemas import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
@@ -89,8 +90,9 @@ def signup(request: Request, payload: SignupRequest, response: Response, db: Ses
     normalized_phone = "".join(character for character in payload.phone if character.isdigit())
     if normalized_phone and db.query(User).filter(User.phone == normalized_phone).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Phone already registered")
-    normalized_cpf = "".join(character for character in payload.cpf if character.isdigit())
-    if normalized_cpf and db.query(User).filter(User.cpf == normalized_cpf).first():
+    # payload.cpf is already digits-only and checksum-validated (see
+    # SignupRequest.validate_cpf).
+    if db.query(User).filter(User.cpf == payload.cpf).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CPF already registered")
 
     # Carried in Supabase's user_metadata (not applied here directly) because
@@ -106,7 +108,7 @@ def signup(request: Request, payload: SignupRequest, response: Response, db: Ses
             "state": payload.state,
             "gender": payload.gender,
             "birth_date": payload.birth_date.isoformat(),
-            "cpf": normalized_cpf,
+            "cpf": payload.cpf,
             "terms_accepted_at": datetime.now(timezone.utc).isoformat(),
             "terms_version": payload.terms_version,
         },
@@ -145,9 +147,25 @@ def signup_professional(
     normalized_phone = "".join(character for character in payload.phone if character.isdigit())
     if normalized_phone and db.query(User).filter(User.phone == normalized_phone).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Phone already registered")
-    normalized_cpf = "".join(character for character in payload.cpf if character.isdigit())
-    if normalized_cpf and db.query(User).filter(User.cpf == normalized_cpf).first():
+    # payload.cpf is already digits-only and checksum-validated (see
+    # ProfessionalSignupRequest.validate_cpf) — 11 digits means CPF, 14 means CNPJ.
+    if db.query(User).filter(User.cpf == payload.cpf).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CPF already registered")
+    if (
+        db.query(ProfessionalProfile)
+        .filter(
+            ProfessionalProfile.license_number == payload.license_number,
+            ProfessionalProfile.license_state == payload.license_state,
+        )
+        .first()
+    ):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="License already registered")
+    if len(payload.cpf) == 14:
+        try:
+            if not cnpj_exists(payload.cpf):
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="CNPJ not found")
+        except CnpjLookupError:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="CNPJ_LOOKUP_UNAVAILABLE")
 
     session = supabase_signup(
         payload.email,
@@ -156,8 +174,10 @@ def signup_professional(
             "account_type": "professional",
             "name": payload.name,
             "phone": normalized_phone,
-            "cpf": normalized_cpf,
+            "cpf": payload.cpf,
             "specialty": payload.specialty,
+            "license_number": payload.license_number,
+            "license_state": payload.license_state,
             "terms_accepted_at": datetime.now(timezone.utc).isoformat(),
             "terms_version": payload.terms_version,
         },

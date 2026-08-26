@@ -5,6 +5,7 @@ from typing import ClassVar, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
+from app.core.document_validation import is_valid_cnpj, is_valid_cpf, only_digits
 from app.core.user_identity import validate_user_name
 from app.models.validated_fields import ClinicalPlainText, ShortPlainText
 
@@ -207,6 +208,7 @@ class SignupRequest(StrictRequestModel):
     name: ShortPlainText
     email: EmailStr
     password: str = Field(min_length=8, max_length=1024)
+    password_confirmation: str = Field(min_length=8, max_length=1024)
     phone: str = Field(min_length=1, max_length=32)
     city: ShortPlainText
     state: ShortPlainText
@@ -221,6 +223,14 @@ class SignupRequest(StrictRequestModel):
     def validate_name(cls, value: str) -> str:
         return validate_user_name(value)
 
+    @field_validator("cpf")
+    @classmethod
+    def validate_cpf(cls, value: str) -> str:
+        digits = only_digits(value)
+        if not is_valid_cpf(digits):
+            raise ValueError("Invalid CPF")
+        return digits
+
     @field_validator("terms_accepted")
     @classmethod
     def validate_terms_accepted(cls, value: bool) -> bool:
@@ -228,14 +238,28 @@ class SignupRequest(StrictRequestModel):
             raise ValueError("terms_accepted must be true")
         return value
 
+    @model_validator(mode="after")
+    def validate_passwords_match(self) -> "SignupRequest":
+        if self.password != self.password_confirmation:
+            raise ValueError("password and password_confirmation must match")
+        return self
+
 
 class ProfessionalSignupRequest(StrictRequestModel):
     name: ShortPlainText
     email: EmailStr
     password: str = Field(min_length=8, max_length=1024)
+    password_confirmation: str = Field(min_length=8, max_length=1024)
     phone: str = Field(min_length=1, max_length=32)
-    cpf: str = Field(min_length=1, max_length=32)
+    # Accepts either a CPF (11 digits) or a CNPJ (14 digits) — a professional
+    # may sign up as an individual or through a CNPJ (clínica/consultório).
+    # CNPJ existence against Receita Federal is verified separately in the
+    # signup route (requires an HTTP call, not doable in a sync validator);
+    # this only checks checksum/format.
+    cpf: str = Field(min_length=11, max_length=32)
     specialty: ShortPlainText
+    license_number: ShortPlainText
+    license_state: ShortPlainText
     terms_accepted: bool
     terms_version: str = Field(min_length=1, max_length=32)
 
@@ -244,12 +268,32 @@ class ProfessionalSignupRequest(StrictRequestModel):
     def validate_name(cls, value: str) -> str:
         return validate_user_name(value)
 
+    @field_validator("cpf")
+    @classmethod
+    def validate_cpf(cls, value: str) -> str:
+        digits = only_digits(value)
+        if len(digits) == 11:
+            if not is_valid_cpf(digits):
+                raise ValueError("Invalid CPF")
+        elif len(digits) == 14:
+            if not is_valid_cnpj(digits):
+                raise ValueError("Invalid CNPJ")
+        else:
+            raise ValueError("Must be a valid CPF (11 digits) or CNPJ (14 digits)")
+        return digits
+
     @field_validator("terms_accepted")
     @classmethod
     def validate_terms_accepted(cls, value: bool) -> bool:
         if not value:
             raise ValueError("terms_accepted must be true")
         return value
+
+    @model_validator(mode="after")
+    def validate_passwords_match(self) -> "ProfessionalSignupRequest":
+        if self.password != self.password_confirmation:
+            raise ValueError("password and password_confirmation must match")
+        return self
 
 
 class ForgotPasswordRequest(BaseModel):
