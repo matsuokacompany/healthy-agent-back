@@ -675,6 +675,46 @@ class CustomAiReportEligibility(BaseModel):
     used_bonus_credit: bool = False
 
 
+class AdminUserStatusEnum(str, Enum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+
+
+class AdminUserRead(BaseModel):
+    id: int
+    name: str
+    email: str
+    phone: Optional[str] = None
+    roles: List[str]
+    status: AdminUserStatusEnum
+    created_at: datetime
+
+
+class AdminCostSummary(BaseModel):
+    start_date: date
+    end_date: date
+    ai_report_count: int
+    ai_report_cost_usd: float
+    whatsapp_message_count: int
+    whatsapp_cost_per_message_cents: Optional[int] = None
+    whatsapp_cost_cents: Optional[int] = None
+
+
+class AdminWhatsappDailyPoint(BaseModel):
+    date: date
+    sent_count: int
+
+
+class AdminWhatsappStats(BaseModel):
+    period_days: int
+    start_date: date
+    end_date: date
+    total_sent: int
+    daily: List[AdminWhatsappDailyPoint]
+    cost_per_message_cents: Optional[int] = None
+    estimated_cost_cents: Optional[int] = None
+
+
 class CustomClinicalPeriodMetrics(BaseModel):
     total_checkins: int = Field(ge=0)
     completed_checkins: int = Field(ge=0)

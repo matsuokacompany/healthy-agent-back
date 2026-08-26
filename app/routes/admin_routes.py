@@ -1,14 +1,54 @@
-from fastapi import APIRouter, Depends
+from datetime import date
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_super_admin
 from app.core.dependencies import get_db
 from app.models.models import User
-from app.models.schemas import AiReportCooldownReleaseRequest, AiReportCooldownReleaseResponse
+from app.models.schemas import (
+    AdminCostSummary,
+    AdminUserRead,
+    AdminUserStatusEnum,
+    AdminWhatsappStats,
+    AiReportCooldownReleaseRequest,
+    AiReportCooldownReleaseResponse,
+)
+from app.services.admin_reporting_service import AdminReportingService
 from app.services.ai_report_cooldown_service import AiReportCooldownService
 
 
 router = APIRouter(tags=["Super Admin"])
+
+
+@router.get("/users", response_model=list[AdminUserRead])
+def list_admin_users(
+    role: str | None = None,
+    status: AdminUserStatusEnum | None = None,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_super_admin),
+):
+    return AdminReportingService(db).list_users(role=role, status=status, search=search)
+
+
+@router.get("/costs", response_model=AdminCostSummary)
+def get_admin_costs(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_super_admin),
+):
+    return AdminReportingService(db).cost_summary(start_date=start_date, end_date=end_date)
+
+
+@router.get("/whatsapp/stats", response_model=AdminWhatsappStats)
+def get_admin_whatsapp_stats(
+    days: int = Query(30, ge=1, le=180),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_super_admin),
+):
+    return AdminReportingService(db).whatsapp_stats(days=days)
 
 
 @router.post(
