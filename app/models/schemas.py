@@ -6,6 +6,7 @@ from typing import ClassVar, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.core.document_validation import is_valid_cnpj, is_valid_cpf, only_digits
+from app.core.phone_validation import is_valid_brazilian_mobile, normalize_brazilian_mobile
 from app.core.user_identity import validate_user_name
 from app.models.validated_fields import ClinicalPlainText, ShortPlainText
 
@@ -223,6 +224,17 @@ class SignupRequest(StrictRequestModel):
     def validate_name(cls, value: str) -> str:
         return validate_user_name(value)
 
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str) -> str:
+        # WhatsApp check-in delivery depends on this being a real, well-formed
+        # Brazilian mobile number — reject anything else at signup rather
+        # than silently storing a number the scheduler can never deliver to.
+        digits = normalize_brazilian_mobile(value)
+        if not is_valid_brazilian_mobile(digits):
+            raise ValueError("Invalid Brazilian mobile phone number")
+        return digits
+
     @field_validator("cpf")
     @classmethod
     def validate_cpf(cls, value: str) -> str:
@@ -390,6 +402,20 @@ class ProfessionalPatientCreate(UserBase):
     @classmethod
     def validate_name(cls, value: str) -> str:
         return validate_user_name(value)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: Optional[str]) -> Optional[str]:
+        # Same rule as SignupRequest.phone — WhatsApp check-in delivery
+        # depends on this being deliverable. Optional here (a professional
+        # may not have the patient's phone yet), but must be well-formed
+        # whenever it is provided.
+        if not value:
+            return value
+        digits = normalize_brazilian_mobile(value)
+        if not is_valid_brazilian_mobile(digits):
+            raise ValueError("Invalid Brazilian mobile phone number")
+        return digits
 
 
 class ProfessionalPatientCreateResponse(BaseModel):

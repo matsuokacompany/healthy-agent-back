@@ -207,6 +207,22 @@ def test_signup_rejects_invalid_cpf_checksum():
     assert response.status_code == 422
 
 
+def test_signup_rejects_invalid_ddd():
+    client, _ = build_client()
+
+    response = client.post("/api/auth/signup", json=signup_payload(phone="+55 (00) 91234-5678"))
+
+    assert response.status_code == 422
+
+
+def test_signup_rejects_landline_shaped_phone():
+    client, _ = build_client()
+
+    response = client.post("/api/auth/signup", json=signup_payload(phone="+55 (11) 31234-5678"))
+
+    assert response.status_code == 422
+
+
 def test_signup_with_immediate_session_creates_user_and_sets_cookies(monkeypatch):
     client, db = build_client()
     supabase_user_id = uuid.uuid4()
