@@ -135,6 +135,7 @@ async def csrf_and_origin_protection(request: Request, call_next):
         csrf_exempt = {
             f"{API_PREFIX}/auth/login",
             f"{API_PREFIX}/auth/signup",
+            f"{API_PREFIX}/auth/signup-professional",
             f"{API_PREFIX}/auth/forgot-password",
             f"{API_PREFIX}/auth/callback",
         }

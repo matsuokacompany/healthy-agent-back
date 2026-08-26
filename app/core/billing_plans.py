@@ -21,18 +21,33 @@ class SelfMonitoringPlan:
     price_cents: int
 
 
-def get_self_monitoring_plans() -> list[SelfMonitoringPlan]:
-    catalog = (
-        ("monthly", "Mensal", "MONTHLY", 1, settings.ASAAS_SELF_MONITORING_PRICE_CENTS),
-        ("semiannual", "Semestral", "SEMIANNUALLY", 6, settings.ASAAS_SELF_MONITORING_SEMIANNUAL_PRICE_CENTS),
-        ("annual", "Anual", "YEARLY", 12, settings.ASAAS_SELF_MONITORING_ANNUAL_PRICE_CENTS),
-    )
+def _build_catalog(entries) -> list[SelfMonitoringPlan]:
     return [
         SelfMonitoringPlan(id=plan_id, label=label, cycle=cycle, months=months, price_cents=price_cents)
-        for plan_id, label, cycle, months, price_cents in catalog
+        for plan_id, label, cycle, months, price_cents in entries
         if price_cents
     ]
 
 
+def get_self_monitoring_plans() -> list[SelfMonitoringPlan]:
+    return _build_catalog((
+        ("monthly", "Mensal", "MONTHLY", 1, settings.ASAAS_SELF_MONITORING_PRICE_CENTS),
+        ("semiannual", "Semestral", "SEMIANNUALLY", 6, settings.ASAAS_SELF_MONITORING_SEMIANNUAL_PRICE_CENTS),
+        ("annual", "Anual", "YEARLY", 12, settings.ASAAS_SELF_MONITORING_ANNUAL_PRICE_CENTS),
+    ))
+
+
 def get_self_monitoring_plan(plan_id: str) -> Optional[SelfMonitoringPlan]:
     return next((plan for plan in get_self_monitoring_plans() if plan.id == plan_id), None)
+
+
+def get_professional_plans() -> list[SelfMonitoringPlan]:
+    return _build_catalog((
+        ("monthly", "Mensal", "MONTHLY", 1, settings.ASAAS_PROFESSIONAL_MONTHLY_PRICE_CENTS),
+        ("semiannual", "Semestral", "SEMIANNUALLY", 6, settings.ASAAS_PROFESSIONAL_SEMIANNUAL_PRICE_CENTS),
+        ("annual", "Anual", "YEARLY", 12, settings.ASAAS_PROFESSIONAL_ANNUAL_PRICE_CENTS),
+    ))
+
+
+def get_professional_plan(plan_id: str) -> Optional[SelfMonitoringPlan]:
+    return next((plan for plan in get_professional_plans() if plan.id == plan_id), None)

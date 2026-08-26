@@ -29,14 +29,21 @@ def build_session():
     return sessionmaker(bind=engine)()
 
 
-def create_professional(db):
+_GRANDFATHERED_FREE_UNTIL = date(2099, 1, 1)
+
+
+def create_professional(db, *, free_until=_GRANDFATHERED_FREE_UNTIL):
+    # Grandfathered by default (matches the migration backfill for
+    # pre-existing profiles) so these fixtures aren't blocked by the
+    # professional-billing gate — pass free_until=None explicitly to exercise
+    # a non-grandfathered/unpaid profile (see test_professional_billing.py).
     professional_role = Role(name=RoleNameEnum.PROFESSIONAL.value)
     patient_role = Role(name=RoleNameEnum.PATIENT.value)
     professional = User(name="Dra. Ana", email="ana@example.com")
     db.add_all([professional_role, patient_role, professional])
     db.flush()
     db.add(UserRole(user_id=professional.id, role_id=professional_role.id))
-    profile = ProfessionalProfile(user_id=professional.id, active=True)
+    profile = ProfessionalProfile(user_id=professional.id, active=True, free_until=free_until)
     db.add(profile)
     db.commit()
     db.refresh(professional)

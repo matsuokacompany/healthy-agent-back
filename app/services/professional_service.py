@@ -42,6 +42,7 @@ from app.services.custom_report_generation_service import CustomReportCostPolicy
 from app.services.custom_report_history_service import CustomReportHistoryService
 from app.services.patient_dashboard_service import PaginationParams, PatientDashboardService, ReportFilters
 from app.db.security_context import set_database_service_context
+from app.services.payment_service import PaymentService
 from app.services.report_service import ReportService
 from app.services.anamnese_clinical_service import AnamneseClinicalService
 
@@ -65,6 +66,7 @@ class ProfessionalService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Active professional profile required",
             )
+        self._require_billing_access(profile)
         # Provisioning must check global uniqueness and create the patient,
         # plan, role, and initial professional link atomically before a normal
         # patient access relationship exists.
@@ -255,6 +257,7 @@ class ProfessionalService:
     ) -> ProfessionalAiReportResponse:
         self._require_report_role(current_user)
         self._require_patient_access(current_user, patient_id)
+        self._require_billing_access(self._get_access_profile(current_user))
         clinical_summary = self._build_clinical_summary(patient_id, periodo)
         week_start = self._current_week_start()
         cached_report = (
@@ -311,6 +314,7 @@ class ProfessionalService:
     ) -> CustomAiReportPreviewResponse:
         self._require_report_role(current_user)
         self._require_patient_access(current_user, patient_id)
+        self._require_billing_access(self._get_access_profile(current_user))
         if not token_secret or len(token_secret) < CustomReportPreviewService.MINIMUM_TOKEN_SECRET_LENGTH:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -339,6 +343,7 @@ class ProfessionalService:
     ) -> CustomAiReportResponse:
         self._require_report_role(current_user)
         self._require_patient_access(current_user, patient_id)
+        self._require_billing_access(self._get_access_profile(current_user))
         if (
             not token_secret
             or len(token_secret) < CustomReportPreviewService.MINIMUM_TOKEN_SECRET_LENGTH
@@ -412,6 +417,26 @@ class ProfessionalService:
 
     def _get_access_profile(self, current_user: User) -> ProfessionalProfile | None:
         return AccessPolicy(self.db, current_user).require_active_professional_profile()
+
+    def _require_billing_access(self, profile: ProfessionalProfile | None) -> None:
+        """Soft-lock non-paying professionals out of new-patient/report actions.
+
+        None means the caller is an admin acting without a professional
+        profile (see require_active_professional_profile) — admins always
+        pass. Read-only professional actions (list_patients, get_dashboard,
+        get_checkins, get_anamnese, list/get custom reports) intentionally
+        never call this: a professional past their grace period keeps full
+        visibility into patients they already have, and the WhatsApp
+        scheduler is untouched — only new-patient creation and new AI report
+        generation are gated.
+        """
+        if profile is None:
+            return
+        if not PaymentService(self.db).has_professional_access(profile):
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="PROFESSIONAL_SUBSCRIPTION_REQUIRED",
+            )
 
     @staticmethod
     def _require_report_role(current_user: User) -> None:
