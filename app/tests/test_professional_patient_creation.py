@@ -3,6 +3,7 @@ from datetime import date
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -63,6 +64,16 @@ def patient_payload(**overrides):
     }
     data.update(overrides)
     return ProfessionalPatientCreate(**data)
+
+
+def test_patient_create_rejects_invalid_phone():
+    with pytest.raises(ValidationError):
+        patient_payload(phone="+55 (00) 91234-5678")
+
+
+def test_patient_create_allows_omitted_phone():
+    payload = patient_payload(phone=None)
+    assert payload.phone is None
 
 
 def test_professional_creates_patient_plan_and_own_link_atomically(monkeypatch):
