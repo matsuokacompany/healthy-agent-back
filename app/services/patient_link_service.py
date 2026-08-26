@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.email import send_email
 from app.db.security_context import set_database_service_context
 from app.models.models import (
     MonitoringPlan,
@@ -112,6 +113,18 @@ class PatientLinkService:
         self.db.add(link_request)
         self.db.commit()
         self.db.refresh(link_request)
+
+        send_email(
+            to=patient.email,
+            subject="Pedido de vínculo com um profissional na Julha",
+            body=(
+                f"Olá, {patient.name}!\n\n"
+                f"{current_user.name} pediu para acompanhar seu monitoramento na Julha.\n\n"
+                "Entre na plataforma para aceitar ou recusar esse pedido — nada muda até você decidir.\n\n"
+                "Equipe Julha"
+            ),
+        )
+
         return self._to_sent_dict(link_request, patient)
 
     def list_sent_requests(self, current_user: User) -> list[dict]:

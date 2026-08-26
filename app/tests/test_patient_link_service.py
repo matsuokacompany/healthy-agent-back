@@ -130,6 +130,23 @@ def test_create_request_succeeds_and_lists_for_professional():
     assert sent[0]["patient_name"] == patient.name
 
 
+def test_create_request_notifies_patient_by_email(monkeypatch):
+    db = build_session()
+    professional, _ = create_professional(db)
+    patient = create_patient(db)
+    calls = []
+    monkeypatch.setattr(
+        "app.services.patient_link_service.send_email",
+        lambda **kwargs: calls.append(kwargs) or True,
+    )
+
+    PatientLinkService(db).create_request(professional, patient.email)
+
+    assert len(calls) == 1
+    assert calls[0]["to"] == patient.email
+    assert professional.name in calls[0]["body"]
+
+
 def test_create_request_rejects_duplicate_pending_request():
     db = build_session()
     professional, _ = create_professional(db)

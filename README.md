@@ -107,6 +107,11 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `ASAAS_SELF_MONITORING_SEMIANNUAL_PRICE_CENTS` | não | `9990` | Preço do plano **semestral**, em centavos. Sem valor padrão — o plano só aparece em `GET /api/billing/plans` depois de configurado. |
 | `ASAAS_SELF_MONITORING_ANNUAL_PRICE_CENTS` | não | `17990` | Preço do plano **anual**, em centavos. Sem valor padrão — mesma regra do semestral. |
 | `ASAAS_SELF_MONITORING_TRIAL_DAYS` | não | `30` | Duração do período de teste grátis do automonitoramento self-service, em dias. |
+| `SMTP_HOST` | sim para notificação por e-mail de pedido de vínculo | `smtp.hostinger.com` | Servidor SMTP usado pelo backend para e-mails próprios (separado do SMTP configurado no Supabase Auth, mesmo que aponte pra mesma caixa). |
+| `SMTP_PORT` | não | `465` | Porta SMTP; `465` usa SSL implícito (é o que o backend espera — não use `587`/STARTTLS sem também trocar o código). |
+| `SMTP_USER` | sim para notificação por e-mail de pedido de vínculo | `contato@julha.com.br` | Usuário de login SMTP. |
+| `SMTP_PASSWORD` | sim para notificação por e-mail de pedido de vínculo | `<senha da caixa>` | Senha de login SMTP. |
+| `SMTP_FROM_EMAIL` | sim para notificação por e-mail de pedido de vínculo | `contato@julha.com.br` | Endereço que aparece como remetente. |
 
 ## Desenvolvimento local
 
