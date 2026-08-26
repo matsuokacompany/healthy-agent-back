@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 import app.core.auth as auth_module
 import app.routes.auth_routes as auth_routes_module
 from app.core.dependencies import get_db
+from app.core.document_validation import CnpjLookupError
 from app.core.rate_limit import limiter
 from app.db.base_class import Base
 from app.models.models import ProfessionalProfile, User
@@ -138,12 +139,13 @@ def signup_payload(**overrides):
         "name": "Paciente Autonomo",
         "email": "autonomo@example.com",
         "password": "senha-forte-123",
+        "password_confirmation": "senha-forte-123",
         "phone": "+55 (11) 91234-5678",
         "city": "Londrina",
         "state": "PR",
         "gender": "feminino",
         "birth_date": "1990-05-20",
-        "cpf": "123.456.789-00",
+        "cpf": "111.444.777-35",
         "terms_accepted": True,
         "terms_version": "2026-08-25",
     }
@@ -185,6 +187,22 @@ def test_signup_requires_terms_accepted():
     client, _ = build_client()
 
     response = client.post("/api/auth/signup", json=signup_payload(terms_accepted=False))
+
+    assert response.status_code == 422
+
+
+def test_signup_rejects_mismatched_password_confirmation():
+    client, _ = build_client()
+
+    response = client.post("/api/auth/signup", json=signup_payload(password_confirmation="outra-senha"))
+
+    assert response.status_code == 422
+
+
+def test_signup_rejects_invalid_cpf_checksum():
+    client, _ = build_client()
+
+    response = client.post("/api/auth/signup", json=signup_payload(cpf="123.456.789-00"))
 
     assert response.status_code == 422
 
@@ -231,12 +249,12 @@ def test_signup_with_immediate_session_creates_user_and_sets_cookies(monkeypatch
     assert user.state == "PR"
     assert user.gender == "feminino"
     assert user.birth_date.isoformat() == "1990-05-20"
-    assert user.cpf == "12345678900"
+    assert user.cpf == "11144477735"
 
 
 def test_signup_rejects_duplicate_cpf(monkeypatch):
     client, db = build_client()
-    db.add(User(name="Existente", email="outro2@example.com", cpf="12345678900"))
+    db.add(User(name="Existente", email="outro2@example.com", cpf="11144477735"))
     db.commit()
     monkeypatch.setattr(
         auth_routes_module,
@@ -301,7 +319,7 @@ def test_signup_phone_and_terms_survive_deferred_confirmation_then_login(monkeyp
     assert user.phone == "5511912345678"
     assert user.terms_version == "2026-08-25"
     assert user.terms_accepted_at is not None
-    assert user.cpf == "12345678900"
+    assert user.cpf == "11144477735"
     assert user.birth_date.isoformat() == "1990-05-20"
 
 
@@ -310,8 +328,9 @@ def professional_signup_payload(**overrides):
         "name": "Dr. Autonomo",
         "email": "profissional-autonomo@example.com",
         "password": "senha-forte-123",
+        "password_confirmation": "senha-forte-123",
         "phone": "+55 (11) 91234-5678",
-        "cpf": "123.456.789-00",
+        "cpf": "111.444.777-35",
         "specialty": "Nutrição",
         "license_number": "CRN-12345",
         "license_state": "PR",
@@ -354,6 +373,105 @@ def test_signup_professional_creates_professional_role_and_profile(monkeypatch):
     assert profile.license_number == "CRN-12345"
     assert profile.license_state == "PR"
     assert profile.free_until is None, "new self-signups get no billing grace period"
+
+
+def test_signup_professional_rejects_mismatched_password_confirmation():
+    client, _ = build_client()
+
+    response = client.post(
+        "/api/auth/signup-professional",
+        json=professional_signup_payload(password_confirmation="outra-senha"),
+    )
+
+    assert response.status_code == 422
+
+
+def test_signup_professional_rejects_invalid_cpf_checksum():
+    client, _ = build_client()
+
+    response = client.post("/api/auth/signup-professional", json=professional_signup_payload(cpf="123.456.789-00"))
+
+    assert response.status_code == 422
+
+
+def test_signup_professional_rejects_invalid_cnpj_checksum():
+    client, _ = build_client()
+
+    response = client.post(
+        "/api/auth/signup-professional",
+        json=professional_signup_payload(cpf="11.222.333/0001-99"),
+    )
+
+    assert response.status_code == 422
+
+
+def test_signup_professional_accepts_cnpj_verified_to_exist(monkeypatch):
+    client, db = build_client()
+    supabase_user_id = uuid.uuid4()
+    captured_metadata: dict = {}
+
+    def fake_supabase_signup(email, password, metadata=None):
+        captured_metadata.update(metadata or {})
+        return {"access_token": "fake-access-token", "refresh_token": "fake-refresh-token", "expires_in": 3600}
+
+    monkeypatch.setattr(auth_routes_module, "cnpj_exists", lambda digits: True)
+    monkeypatch.setattr(auth_routes_module, "supabase_signup", fake_supabase_signup)
+    monkeypatch.setattr(
+        auth_routes_module,
+        "_decode_supabase_token",
+        lambda token: {
+            "sub": str(supabase_user_id),
+            "email": "clinica-autonoma@example.com",
+            "user_metadata": captured_metadata,
+        },
+    )
+
+    response = client.post(
+        "/api/auth/signup-professional",
+        json=professional_signup_payload(email="clinica-autonoma@example.com", cpf="11.222.333/0001-81"),
+    )
+
+    assert response.status_code == 200
+    user = db.query(User).filter(User.email == "clinica-autonoma@example.com").one()
+    assert user.cpf == "11222333000181"
+
+
+def test_signup_professional_rejects_cnpj_not_found(monkeypatch):
+    client, _ = build_client()
+    monkeypatch.setattr(auth_routes_module, "cnpj_exists", lambda digits: False)
+    monkeypatch.setattr(
+        auth_routes_module,
+        "supabase_signup",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not call Supabase for a nonexistent CNPJ")),
+    )
+
+    response = client.post(
+        "/api/auth/signup-professional",
+        json=professional_signup_payload(cpf="11.222.333/0001-81"),
+    )
+
+    assert response.status_code == 422
+
+
+def test_signup_professional_returns_503_when_cnpj_lookup_unavailable(monkeypatch):
+    client, _ = build_client()
+
+    def raise_lookup_error(digits):
+        raise CnpjLookupError("boom")
+
+    monkeypatch.setattr(auth_routes_module, "cnpj_exists", raise_lookup_error)
+    monkeypatch.setattr(
+        auth_routes_module,
+        "supabase_signup",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not call Supabase when CNPJ lookup fails")),
+    )
+
+    response = client.post(
+        "/api/auth/signup-professional",
+        json=professional_signup_payload(cpf="11.222.333/0001-81"),
+    )
+
+    assert response.status_code == 503
 
 
 def test_signup_professional_rejects_duplicate_license(monkeypatch):
