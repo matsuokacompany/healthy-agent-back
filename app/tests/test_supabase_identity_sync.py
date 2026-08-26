@@ -281,6 +281,11 @@ def test_resolve_or_create_user_applies_signup_metadata_on_brand_new_user():
             "user_metadata": {
                 "name": "Novo Usuario",
                 "phone": "5511987654321",
+                "city": "Londrina",
+                "state": "PR",
+                "gender": "masculino",
+                "birth_date": "1985-03-10",
+                "cpf": "12345678900",
                 "terms_accepted_at": "2026-08-25T12:00:00+00:00",
                 "terms_version": "2026-08-25",
             },
@@ -288,6 +293,11 @@ def test_resolve_or_create_user_applies_signup_metadata_on_brand_new_user():
     )
 
     assert user.phone == "5511987654321"
+    assert user.city == "Londrina"
+    assert user.state == "PR"
+    assert user.gender == "masculino"
+    assert user.birth_date.isoformat() == "1985-03-10"
+    assert user.cpf == "12345678900"
     assert user.terms_version == "2026-08-25"
     assert user.terms_accepted_at is not None
 

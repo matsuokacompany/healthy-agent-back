@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from functools import lru_cache
 import logging
 import traceback
@@ -116,15 +116,21 @@ def _resolve_or_create_user(db: Session, payload: dict[str, Any]) -> User:
             user.supabase_user_id = supabase_user_id
     if not user:
         # Self-service signup (see supabase_signup / POST /api/auth/signup)
-        # stashes phone/terms-acceptance in Supabase's user_metadata precisely
-        # because this branch — not the signup request/response cycle — is
-        # where the local row actually gets created whenever the Supabase
-        # project requires e-mail confirmation. That can happen much later,
-        # via the confirmation link's callback or a plain first login, long
-        # after the original signup HTTP response was already sent — the
-        # phone/terms values submitted on that form would otherwise be lost.
+        # stashes the whole signup form (phone, demographics, terms
+        # acceptance) in Supabase's user_metadata precisely because this
+        # branch — not the signup request/response cycle — is where the
+        # local row actually gets created whenever the Supabase project
+        # requires e-mail confirmation. That can happen much later, via the
+        # confirmation link's callback or a plain first login, long after the
+        # original signup HTTP response was already sent — those form values
+        # would otherwise be lost.
         metadata = payload.get("user_metadata") or {}
         signup_phone = metadata.get("phone")
+        signup_city = metadata.get("city")
+        signup_state = metadata.get("state")
+        signup_gender = metadata.get("gender")
+        signup_birth_date = metadata.get("birth_date")
+        signup_cpf = metadata.get("cpf")
         signup_terms_accepted_at = metadata.get("terms_accepted_at")
         signup_terms_version = metadata.get("terms_version")
         user = User(
@@ -132,8 +138,17 @@ def _resolve_or_create_user(db: Session, payload: dict[str, Any]) -> User:
             name=email.split("@")[0],
             supabase_user_id=supabase_user_id,
             phone=str(signup_phone) if signup_phone else None,
+            city=str(signup_city) if signup_city else None,
+            state=str(signup_state) if signup_state else None,
+            gender=str(signup_gender) if signup_gender else None,
+            cpf=str(signup_cpf) if signup_cpf else None,
             terms_version=str(signup_terms_version) if signup_terms_version else None,
         )
+        if signup_birth_date:
+            try:
+                user.birth_date = date.fromisoformat(str(signup_birth_date))
+            except ValueError:
+                logger.warning("Ignoring unparseable birth_date in user_metadata for email=%s", email)
         if signup_terms_accepted_at:
             try:
                 user.terms_accepted_at = datetime.fromisoformat(str(signup_terms_accepted_at))
