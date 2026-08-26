@@ -502,3 +502,26 @@ class PatientLinkRequest(Base):
 
     professional_profile = relationship("ProfessionalProfile")
     patient = relationship("User", foreign_keys=[patient_user_id])
+
+
+class AdminCostEntry(Base):
+    """A manually recorded operational cost line the admin adds themselves —
+    for spend this app has no other visibility into (contracts, tooling,
+    support), alongside the AI report / WhatsApp costs computed from data
+    the app already tracks.
+    """
+
+    __tablename__ = "admin_cost_entries"
+    __table_args__ = (
+        Index("ix_admin_cost_entries_incurred_on", "incurred_on"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    description = Column(String, nullable=False)
+    category = Column(String, nullable=True)
+    amount_cents = Column(Integer, nullable=False)
+    incurred_on = Column(Date, nullable=False)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    created_by = relationship("User", foreign_keys=[created_by_user_id])

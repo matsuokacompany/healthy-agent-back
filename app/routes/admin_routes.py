@@ -7,6 +7,8 @@ from app.core.auth import get_current_super_admin
 from app.core.dependencies import get_db
 from app.models.models import User
 from app.models.schemas import (
+    AdminCostEntryCreate,
+    AdminCostEntryRead,
     AdminCostSummary,
     AdminUserRead,
     AdminUserStatusEnum,
@@ -40,6 +42,35 @@ def get_admin_costs(
     current_user: User = Depends(get_current_super_admin),
 ):
     return AdminReportingService(db).cost_summary(start_date=start_date, end_date=end_date)
+
+
+@router.get("/costs/entries", response_model=list[AdminCostEntryRead])
+def list_admin_cost_entries(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_super_admin),
+):
+    return AdminReportingService(db).list_cost_entries(start_date=start_date, end_date=end_date)
+
+
+@router.post("/costs/entries", response_model=AdminCostEntryRead, status_code=201)
+def create_admin_cost_entry(
+    payload: AdminCostEntryCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_super_admin),
+):
+    return AdminReportingService(db).create_cost_entry(current_user, payload)
+
+
+@router.delete("/costs/entries/{entry_id}", status_code=204)
+def delete_admin_cost_entry(
+    entry_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_super_admin),
+):
+    AdminReportingService(db).delete_cost_entry(entry_id)
+    return None
 
 
 @router.get("/whatsapp/stats", response_model=AdminWhatsappStats)

@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -20,7 +21,7 @@ from app.models.models import (
     User,
     UserRole,
 )
-from app.models.schemas import AdminUserStatusEnum
+from app.models.schemas import AdminCostEntryCreate, AdminUserStatusEnum
 from app.services.admin_reporting_service import AdminReportingService
 
 
@@ -224,3 +225,54 @@ def test_whatsapp_stats_builds_daily_series_with_zero_filled_gaps(monkeypatch):
     assert by_date[today.date()] == 1
     assert by_date[(today - timedelta(days=2)).date()] == 1
     assert by_date[(today - timedelta(days=1)).date()] == 0
+
+
+def test_create_list_and_delete_cost_entry():
+    db = build_session()
+    admin = create_admin(db, email="admin@example.com")
+    service = AdminReportingService(db)
+
+    created = service.create_cost_entry(
+        admin,
+        AdminCostEntryCreate(description="Contrato de suporte", category="Operações", amount_cents=15000, incurred_on=date(2026, 8, 1)),
+    )
+    assert created.created_by_user_id == admin.id
+
+    entries = service.list_cost_entries(start_date=date(2026, 8, 1), end_date=date(2026, 8, 31))
+    assert len(entries) == 1
+    assert entries[0].description == "Contrato de suporte"
+
+    outside_range = service.list_cost_entries(start_date=date(2026, 9, 1), end_date=date(2026, 9, 30))
+    assert outside_range == []
+
+    service.delete_cost_entry(created.id)
+    assert service.list_cost_entries() == []
+
+
+def test_delete_cost_entry_raises_404_when_missing():
+    db = build_session()
+
+    with pytest.raises(HTTPException) as exc:
+        AdminReportingService(db).delete_cost_entry(999)
+
+    assert exc.value.status_code == 404
+
+
+def test_cost_summary_includes_manual_cost_entries():
+    db = build_session()
+    admin = create_admin(db, email="admin@example.com")
+    service = AdminReportingService(db)
+    service.create_cost_entry(
+        admin,
+        AdminCostEntryCreate(description="Infra", category="Tecnologia", amount_cents=5000, incurred_on=date(2026, 8, 10)),
+    )
+    service.create_cost_entry(
+        admin,
+        AdminCostEntryCreate(description="Fora do período", category=None, amount_cents=9999, incurred_on=date(2026, 1, 1)),
+    )
+
+    summary = service.cost_summary(start_date=date(2026, 8, 1), end_date=date(2026, 8, 31))
+
+    assert summary.manual_cost_total_cents == 5000
+    assert len(summary.manual_cost_entries) == 1
+    assert summary.manual_cost_entries[0].description == "Infra"

@@ -713,6 +713,23 @@ class AdminUserRead(BaseModel):
     created_at: datetime
 
 
+class AdminCostEntryCreate(StrictRequestModel):
+    description: ShortPlainText
+    category: Optional[ShortPlainText] = None
+    amount_cents: int = Field(gt=0)
+    incurred_on: date
+
+
+class AdminCostEntryRead(ORMModel):
+    id: int
+    description: str
+    category: Optional[str] = None
+    amount_cents: int
+    incurred_on: date
+    created_by_user_id: int
+    created_at: datetime
+
+
 class AdminCostSummary(BaseModel):
     start_date: date
     end_date: date
@@ -721,6 +738,8 @@ class AdminCostSummary(BaseModel):
     whatsapp_message_count: int
     whatsapp_cost_per_message_cents: Optional[float] = None
     whatsapp_cost_cents: Optional[float] = None
+    manual_cost_entries: List[AdminCostEntryRead] = Field(default_factory=list)
+    manual_cost_total_cents: int = 0
 
 
 class AdminWhatsappDailyPoint(BaseModel):
