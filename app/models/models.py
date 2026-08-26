@@ -79,6 +79,13 @@ class SubscriptionStatusEnum(str, enum.Enum):
     CANCELED = "CANCELED"
 
 
+class PatientLinkRequestStatusEnum(str, enum.Enum):
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+    EXPIRED = "EXPIRED"
+
+
 class RoleNameEnum(str, enum.Enum):
     SUPER_ADMIN = "super_admin"
     ADMIN = "admin"
@@ -456,3 +463,31 @@ class Subscription(Base):
     )
 
     user = relationship("User", back_populates="subscription")
+
+
+class PatientLinkRequest(Base):
+    """A professional's request to become responsible for an existing patient account.
+
+    Used when a professional tries to add a patient whose email already
+    belongs to a self-service (or otherwise unlinked) account — instead of
+    silently taking over the account, the professional sends a request the
+    patient must accept before any MonitoringPlan/MonitoringProfessional link
+    is created.
+    """
+
+    __tablename__ = "patient_link_requests"
+    __table_args__ = (
+        Index("ix_patient_link_requests_patient_status", "patient_user_id", "status"),
+        Index("ix_patient_link_requests_professional_status", "professional_profile_id", "status"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    professional_profile_id = Column(Integer, ForeignKey("professional_profiles.id"), nullable=False)
+    patient_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String, nullable=False, default=PatientLinkRequestStatusEnum.PENDING.value)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    responded_at = Column(DateTime(timezone=True), nullable=True)
+
+    professional_profile = relationship("ProfessionalProfile")
+    patient = relationship("User", foreign_keys=[patient_user_id])
