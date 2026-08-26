@@ -14,6 +14,7 @@ from app.core.auth import (
     _auth_url,
     _decode_supabase_token,
     _resolve_or_create_user,
+    callback_redirect_to,
     clear_auth_cookies,
     get_current_user,
     set_auth_cookies,
@@ -163,9 +164,12 @@ def logout(request: Request, response: Response):
 def forgot_password(request: Request, payload: ForgotPasswordRequest, response: Response):
     set_no_store(response)
     try:
-        redirect_to = _allowed_redirect(None).rstrip("/") + "/api/auth/callback"
+        body: dict = {"email": payload.email}
+        redirect_to = callback_redirect_to()
+        if redirect_to:
+            body["redirect_to"] = redirect_to
         with httpx.Client(timeout=10.0) as client:
-            client.post(_auth_url("/recover"), headers=_auth_headers(), json={"email": payload.email, "redirect_to": redirect_to})
+            client.post(_auth_url("/recover"), headers=_auth_headers(), json=body)
     except Exception:
         pass
     return {"message": "If the email exists, password recovery instructions will be sent."}

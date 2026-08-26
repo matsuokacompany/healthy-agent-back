@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     AUTH_CSRF_COOKIE_NAME: str = "ha_csrf"
     AUTH_CSRF_HEADER_NAME: str = "X-CSRF-Token"
     AUTH_REDIRECT_ALLOWLIST: str = "http://localhost:3000,https://app.julha.com.br"
+    # This API's own public origin (e.g. https://api.julha.com.br) — distinct
+    # from AUTH_REDIRECT_ALLOWLIST, which lists allowed *frontend* origins.
+    # Used only to build the redirect_to sent to Supabase for signup/password
+    # recovery links, so Supabase redirects the browser back to this API's
+    # own GET /api/auth/callback (not the frontend, which has no such route)
+    # after it confirms the email/verifies the recovery code. Optional so a
+    # missing value degrades to Supabase's own default Site URL instead of
+    # crashing the app on startup.
+    API_PUBLIC_URL: Optional[str] = None
 
     SCHEDULER_TIMEZONE: str = "UTC"
 

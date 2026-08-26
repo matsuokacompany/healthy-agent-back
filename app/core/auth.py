@@ -151,6 +151,20 @@ def supabase_password_login(email: str, password: str) -> dict[str, Any]:
     return response.json()
 
 
+def callback_redirect_to() -> str | None:
+    """The redirect_to sent to Supabase so it lands back on this API's GET /callback.
+
+    Deliberately built from API_PUBLIC_URL (this API's own origin), not
+    AUTH_REDIRECT_ALLOWLIST (allowed *frontend* origins) — those are
+    different things, and conflating them previously sent Supabase's
+    signup/recovery/invite confirmation links to the frontend's origin,
+    where /api/auth/callback doesn't exist.
+    """
+    if not settings.API_PUBLIC_URL:
+        return None
+    return settings.API_PUBLIC_URL.rstrip("/") + "/api/auth/callback"
+
+
 def supabase_signup(email: str, password: str, *, name: str | None = None) -> dict[str, Any]:
     """Create a new Supabase Auth user via the public /signup endpoint (anon key).
 
@@ -164,11 +178,10 @@ def supabase_signup(email: str, password: str, *, name: str | None = None) -> di
     if name:
         body["data"] = {"name": name}
     # Without this, the confirmation email (when the project requires one)
-    # links back to Supabase's default Site URL instead of our callback,
-    # same reasoning as forgot_password's redirect_to in auth_routes.py.
-    allowlist = [origin.strip().rstrip("/") for origin in settings.AUTH_REDIRECT_ALLOWLIST.split(",") if origin.strip()]
-    if allowlist:
-        body["redirect_to"] = f"{allowlist[0]}/api/auth/callback"
+    # links back to Supabase's default Site URL instead of our callback.
+    redirect_to = callback_redirect_to()
+    if redirect_to:
+        body["redirect_to"] = redirect_to
     try:
         with httpx.Client(timeout=10.0) as client:
             response = client.post(_auth_url("/signup"), headers=_auth_headers(), json=body)
@@ -237,8 +250,7 @@ def invite_supabase_user(email: str, *, name: str | None = None) -> uuid.UUID | 
         logger.warning("Skipping Supabase invite for email=%s: Supabase Auth admin not configured", email)
         return None
 
-    allowlist = [origin.strip().rstrip("/") for origin in settings.AUTH_REDIRECT_ALLOWLIST.split(",") if origin.strip()]
-    redirect_to = f"{allowlist[0]}/api/auth/callback" if allowlist else None
+    redirect_to = callback_redirect_to()
     body: dict[str, Any] = {"email": email}
     if name:
         body["data"] = {"name": name}

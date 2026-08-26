@@ -19,6 +19,24 @@ from app.models.models import User
 from app.routes import auth_routes
 
 
+def test_callback_redirect_to_uses_api_public_url_not_frontend_allowlist(monkeypatch):
+    # Regression test: this previously reused AUTH_REDIRECT_ALLOWLIST (the
+    # frontend's origin) to build the link Supabase sends users back to,
+    # pointing signup/recovery/invite confirmation emails at a frontend URL
+    # that has no /api/auth/callback route.
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "API_PUBLIC_URL", "https://api.example.com")
+    assert auth_module.callback_redirect_to() == "https://api.example.com/api/auth/callback"
+
+
+def test_callback_redirect_to_is_none_when_not_configured(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "API_PUBLIC_URL", None)
+    assert auth_module.callback_redirect_to() is None
+
+
 class FakeSupabaseSignupResponse:
     def __init__(self, status_code, payload):
         self.status_code = status_code
