@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -29,7 +29,7 @@ def build_session():
     return sessionmaker(bind=engine)()
 
 
-def create_professional(db, *, email="ana@example.com", active=True):
+def create_professional(db, *, email="ana@example.com", active=True, free_until=date(2099, 1, 1)):
     professional_role = db.query(Role).filter(Role.name == RoleNameEnum.PROFESSIONAL.value).first()
     if not professional_role:
         professional_role = Role(name=RoleNameEnum.PROFESSIONAL.value)
@@ -39,7 +39,7 @@ def create_professional(db, *, email="ana@example.com", active=True):
     db.add(professional)
     db.flush()
     db.add(UserRole(user_id=professional.id, role_id=professional_role.id))
-    profile = ProfessionalProfile(user_id=professional.id, active=active, specialty="Nutricionista")
+    profile = ProfessionalProfile(user_id=professional.id, active=active, specialty="Nutricionista", free_until=free_until)
     db.add(profile)
     db.commit()
     db.refresh(professional)
@@ -73,6 +73,17 @@ def test_create_request_requires_active_professional_profile():
         PatientLinkService(db).create_request(non_professional, patient.email)
 
     assert exc.value.status_code == 403
+
+
+def test_create_request_blocked_without_professional_billing_access():
+    db = build_session()
+    professional, _ = create_professional(db, free_until=None)
+    patient = create_patient(db)
+
+    with pytest.raises(HTTPException) as exc:
+        PatientLinkService(db).create_request(professional, patient.email)
+
+    assert exc.value.status_code == 402
 
 
 def test_create_request_requires_existing_patient_email():

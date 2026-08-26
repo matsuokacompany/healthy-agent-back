@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.email import send_email
 from app.db.security_context import set_database_service_context
+from app.services.payment_service import PaymentService
 from app.models.models import (
     MonitoringPlan,
     MonitoringPlanOriginEnum,
@@ -80,6 +81,11 @@ class PatientLinkService:
 
     def create_request(self, current_user: User, email: str) -> dict:
         profile = self._require_active_professional_profile(current_user)
+        if not PaymentService(self.db).has_professional_access(profile):
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="PROFESSIONAL_SUBSCRIPTION_REQUIRED",
+            )
 
         patient = self.db.query(User).filter(User.email == email).first()
         if not patient:
