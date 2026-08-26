@@ -103,7 +103,10 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `ASAAS_API_KEY` | sim para cobrança B2C | `$aact_...` | Chave de API do Asaas (comece pela do ambiente sandbox). |
 | `ASAAS_ENV` | não | `sandbox` | `sandbox` ou `production`; seleciona a base da API do Asaas. |
 | `ASAAS_WEBHOOK_TOKEN` | sim para cobrança B2C | `<segredo escolhido por você>` | Token definido ao cadastrar o webhook no painel do Asaas; validado em `POST /webhook/asaas`. |
-| `ASAAS_SELF_MONITORING_PRICE_CENTS` | sim para cobrança B2C | `2990` | Preço mensal do plano de automonitoramento, em centavos (sem valor padrão; precisa ser definido explicitamente). |
+| `ASAAS_SELF_MONITORING_PRICE_CENTS` | sim para cobrança B2C | `1990` | Preço do plano **mensal** de automonitoramento, em centavos (sem valor padrão; precisa ser definido explicitamente). |
+| `ASAAS_SELF_MONITORING_SEMIANNUAL_PRICE_CENTS` | não | `9990` | Preço do plano **semestral**, em centavos. Sem valor padrão — o plano só aparece em `GET /api/billing/plans` depois de configurado. |
+| `ASAAS_SELF_MONITORING_ANNUAL_PRICE_CENTS` | não | `17990` | Preço do plano **anual**, em centavos. Sem valor padrão — mesma regra do semestral. |
+| `ASAAS_SELF_MONITORING_TRIAL_DAYS` | não | `30` | Duração do período de teste grátis do automonitoramento self-service, em dias. |
 
 ## Desenvolvimento local
 

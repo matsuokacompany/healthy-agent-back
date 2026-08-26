@@ -73,6 +73,7 @@ class MonitoringPlanOriginEnum(str, enum.Enum):
 
 class SubscriptionStatusEnum(str, enum.Enum):
     PENDING = "PENDING"
+    TRIALING = "TRIALING"
     ACTIVE = "ACTIVE"
     PAST_DUE = "PAST_DUE"
     CANCELED = "CANCELED"
@@ -444,6 +445,8 @@ class Subscription(Base):
     provider_customer_id = Column(String, nullable=True)
     provider_subscription_id = Column(String, nullable=True, unique=True)
     current_period_end = Column(DateTime(timezone=True), nullable=True)
+    trial_ends_at = Column(DateTime(timezone=True), nullable=True)
+    plan_id = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),

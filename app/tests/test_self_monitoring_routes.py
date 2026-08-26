@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -7,7 +9,16 @@ from sqlalchemy.pool import StaticPool
 from app.core.auth import get_current_admin, get_current_user
 from app.core.dependencies import get_db
 from app.db.base_class import Base
-from app.models.models import MonitoringPlan, MonitoringPlanOriginEnum, Role, RoleNameEnum, User, UserRole
+from app.models.models import (
+    MonitoringPlan,
+    MonitoringPlanOriginEnum,
+    Role,
+    RoleNameEnum,
+    Subscription,
+    SubscriptionStatusEnum,
+    User,
+    UserRole,
+)
 from app.routes import anamnese_routes, monitoring_routes, self_monitoring_routes
 from app.services.self_monitoring_service import SelfMonitoringService
 
@@ -81,6 +92,56 @@ def test_self_service_patient_can_get_evolution_report():
     body = response.json()
     assert body["period_days"] == 30
     assert body["metrics"]["total_checkins"] == 0
+
+
+def test_creating_plan_starts_free_trial():
+    client, db, patient = build_client()
+
+    client.post("/self-monitoring/plan")
+
+    subscription = db.query(Subscription).filter(Subscription.user_id == patient.id).one()
+    assert subscription.status == SubscriptionStatusEnum.TRIALING.value
+    assert subscription.trial_ends_at is not None
+
+
+def test_evolution_report_blocked_after_trial_expires():
+    client, db, patient = build_client()
+    client.post("/self-monitoring/plan")
+    subscription = db.query(Subscription).filter(Subscription.user_id == patient.id).one()
+    subscription.trial_ends_at = datetime.now(timezone.utc) - timedelta(days=1)
+    db.commit()
+
+    response = client.get("/self-monitoring/evolution-report")
+
+    assert response.status_code == 402
+
+
+def test_evolution_report_blocked_without_any_subscription():
+    client, db, patient = build_client()
+    plan = MonitoringPlan(
+        patient_id=patient.id,
+        title="Automonitoramento",
+        active=True,
+        origin=MonitoringPlanOriginEnum.SELF_SERVICE.value,
+    )
+    db.add(plan)
+    db.commit()
+
+    response = client.get("/self-monitoring/evolution-report")
+
+    assert response.status_code == 402
+
+
+def test_evolution_report_allowed_when_subscription_active():
+    client, db, patient = build_client()
+    client.post("/self-monitoring/plan")
+    subscription = db.query(Subscription).filter(Subscription.user_id == patient.id).one()
+    subscription.status = SubscriptionStatusEnum.ACTIVE.value
+    db.commit()
+
+    response = client.get("/self-monitoring/evolution-report")
+
+    assert response.status_code == 200
 
 
 def test_self_service_patient_cannot_create_anamnese_via_generic_route():
