@@ -77,3 +77,45 @@ def test_super_admin_can_list_users_and_read_costs_and_whatsapp_stats():
     whatsapp_response = client.get("/admin/whatsapp/stats?days=7")
     assert whatsapp_response.status_code == 200
     assert whatsapp_response.json()["period_days"] == 7
+
+
+def test_super_admin_can_create_list_and_delete_cost_entries():
+    db = build_db()
+    admin = create_super_admin(db)
+    client = build_app(db, admin)
+
+    create_response = client.post(
+        "/admin/costs/entries",
+        json={"description": "Contrato de suporte", "category": "Operações", "amount_cents": 15000, "incurred_on": "2026-08-01"},
+    )
+    assert create_response.status_code == 201
+    entry_id = create_response.json()["id"]
+    assert create_response.json()["created_by_user_id"] == admin.id
+
+    list_response = client.get("/admin/costs/entries")
+    assert list_response.status_code == 200
+    assert len(list_response.json()) == 1
+
+    summary_response = client.get("/admin/costs?start_date=2026-08-01&end_date=2026-08-31")
+    assert summary_response.json()["manual_cost_total_cents"] == 15000
+    assert len(summary_response.json()["manual_cost_entries"]) == 1
+
+    delete_response = client.delete(f"/admin/costs/entries/{entry_id}")
+    assert delete_response.status_code == 204
+    assert client.get("/admin/costs/entries").json() == []
+
+
+def test_non_admin_cannot_manage_cost_entries():
+    db = build_db()
+    patient = create_patient(db)
+    client = build_app(db, patient)
+
+    assert (
+        client.post(
+            "/admin/costs/entries",
+            json={"description": "x", "amount_cents": 100, "incurred_on": "2026-08-01"},
+        ).status_code
+        == 403
+    )
+    assert client.get("/admin/costs/entries").status_code == 403
+    assert client.delete("/admin/costs/entries/1").status_code == 403

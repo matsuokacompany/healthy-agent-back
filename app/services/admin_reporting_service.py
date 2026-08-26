@@ -1,10 +1,12 @@
 from datetime import date, datetime, timedelta, timezone
 
+from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.models import (
+    AdminCostEntry,
     AiReportCache,
     AiReportStatusEnum,
     DailyReport,
@@ -14,6 +16,8 @@ from app.models.models import (
     User,
 )
 from app.models.schemas import (
+    AdminCostEntryCreate,
+    AdminCostEntryRead,
     AdminCostSummary,
     AdminUserRead,
     AdminUserStatusEnum,
@@ -117,6 +121,9 @@ class AdminReportingService:
         cost_per_message = settings.WHATSAPP_COST_PER_MESSAGE_CENTS
         whatsapp_cost_cents = whatsapp_message_count * cost_per_message if cost_per_message else None
 
+        manual_entries = self.list_cost_entries(start_date=resolved_start, end_date=resolved_end)
+        manual_cost_total_cents = sum(entry.amount_cents for entry in manual_entries)
+
         return AdminCostSummary(
             start_date=resolved_start,
             end_date=resolved_end,
@@ -125,7 +132,38 @@ class AdminReportingService:
             whatsapp_message_count=whatsapp_message_count,
             whatsapp_cost_per_message_cents=cost_per_message,
             whatsapp_cost_cents=whatsapp_cost_cents,
+            manual_cost_entries=manual_entries,
+            manual_cost_total_cents=manual_cost_total_cents,
         )
+
+    def list_cost_entries(self, *, start_date: date | None = None, end_date: date | None = None) -> list[AdminCostEntryRead]:
+        query = self.db.query(AdminCostEntry)
+        if start_date:
+            query = query.filter(AdminCostEntry.incurred_on >= start_date)
+        if end_date:
+            query = query.filter(AdminCostEntry.incurred_on <= end_date)
+        entries = query.order_by(AdminCostEntry.incurred_on.desc(), AdminCostEntry.id.desc()).all()
+        return [AdminCostEntryRead.model_validate(entry) for entry in entries]
+
+    def create_cost_entry(self, current_user: User, payload: AdminCostEntryCreate) -> AdminCostEntryRead:
+        entry = AdminCostEntry(
+            description=payload.description,
+            category=payload.category,
+            amount_cents=payload.amount_cents,
+            incurred_on=payload.incurred_on,
+            created_by_user_id=current_user.id,
+        )
+        self.db.add(entry)
+        self.db.commit()
+        self.db.refresh(entry)
+        return AdminCostEntryRead.model_validate(entry)
+
+    def delete_cost_entry(self, entry_id: int) -> None:
+        entry = self.db.query(AdminCostEntry).filter(AdminCostEntry.id == entry_id).first()
+        if not entry:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cost entry not found")
+        self.db.delete(entry)
+        self.db.commit()
 
     def whatsapp_stats(self, *, days: int = 30) -> AdminWhatsappStats:
         today = datetime.now(timezone.utc).date()
