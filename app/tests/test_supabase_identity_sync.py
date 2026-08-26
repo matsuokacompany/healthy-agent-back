@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.core.auth import _sync_supabase_profile
+from app.core.auth import _resolve_or_create_user, _sync_supabase_profile
 from app.db.base_class import Base
 from app.models.models import RoleNameEnum, User
 
@@ -260,6 +260,59 @@ def test_sync_still_updates_name_with_valid_non_email_metadata():
     db.refresh(user)
 
     assert user.name == "Maria Silva"
+
+
+def test_resolve_or_create_user_applies_signup_metadata_on_brand_new_user():
+    # Regression test: a self-service signup whose Supabase project requires
+    # e-mail confirmation returns 202 with no session — the local row isn't
+    # created until a *later* request (confirmation callback, or simply the
+    # user's first plain login) calls _resolve_or_create_user. Without this,
+    # the phone/terms values submitted on the original signup form were
+    # silently lost, because they were only ever applied in the immediate-
+    # session branch of POST /api/auth/signup itself.
+    db = build_session()
+    supabase_user_id = uuid.uuid4()
+
+    user = _resolve_or_create_user(
+        db,
+        {
+            "sub": str(supabase_user_id),
+            "email": "novo@example.com",
+            "user_metadata": {
+                "name": "Novo Usuario",
+                "phone": "5511987654321",
+                "terms_accepted_at": "2026-08-25T12:00:00+00:00",
+                "terms_version": "2026-08-25",
+            },
+        },
+    )
+
+    assert user.phone == "5511987654321"
+    assert user.terms_version == "2026-08-25"
+    assert user.terms_accepted_at is not None
+
+
+def test_resolve_or_create_user_does_not_overwrite_preprovisioned_user_phone():
+    # A professional-provisioned patient already has a phone set by the
+    # professional; a later self-service signup linking the same e-mail must
+    # not silently overwrite it with whatever the signup form happened to
+    # submit.
+    db = build_session()
+    supabase_user_id = uuid.uuid4()
+    user = User(name="Paciente", email="paciente@example.com", phone="5511900000000")
+    db.add(user)
+    db.commit()
+
+    resolved = _resolve_or_create_user(
+        db,
+        {
+            "sub": str(supabase_user_id),
+            "email": "paciente@example.com",
+            "user_metadata": {"phone": "5511911111111"},
+        },
+    )
+
+    assert resolved.phone == "5511900000000"
 
 
 def test_shared_name_validator_rejects_email_like_values():

@@ -115,7 +115,30 @@ def _resolve_or_create_user(db: Session, payload: dict[str, Any]) -> User:
         if user and user.supabase_user_id is None:
             user.supabase_user_id = supabase_user_id
     if not user:
-        user = User(email=email, name=email.split("@")[0], supabase_user_id=supabase_user_id)
+        # Self-service signup (see supabase_signup / POST /api/auth/signup)
+        # stashes phone/terms-acceptance in Supabase's user_metadata precisely
+        # because this branch — not the signup request/response cycle — is
+        # where the local row actually gets created whenever the Supabase
+        # project requires e-mail confirmation. That can happen much later,
+        # via the confirmation link's callback or a plain first login, long
+        # after the original signup HTTP response was already sent — the
+        # phone/terms values submitted on that form would otherwise be lost.
+        metadata = payload.get("user_metadata") or {}
+        signup_phone = metadata.get("phone")
+        signup_terms_accepted_at = metadata.get("terms_accepted_at")
+        signup_terms_version = metadata.get("terms_version")
+        user = User(
+            email=email,
+            name=email.split("@")[0],
+            supabase_user_id=supabase_user_id,
+            phone=str(signup_phone) if signup_phone else None,
+            terms_version=str(signup_terms_version) if signup_terms_version else None,
+        )
+        if signup_terms_accepted_at:
+            try:
+                user.terms_accepted_at = datetime.fromisoformat(str(signup_terms_accepted_at))
+            except ValueError:
+                logger.warning("Ignoring unparseable terms_accepted_at in user_metadata for email=%s", email)
         db.add(user)
         db.flush()
         assign_role(db, user, RoleNameEnum.PATIENT)
@@ -165,7 +188,7 @@ def callback_redirect_to() -> str | None:
     return settings.API_PUBLIC_URL.rstrip("/") + "/api/auth/callback"
 
 
-def supabase_signup(email: str, password: str, *, name: str | None = None) -> dict[str, Any]:
+def supabase_signup(email: str, password: str, *, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     """Create a new Supabase Auth user via the public /signup endpoint (anon key).
 
     Returns Supabase's response body. If the project auto-confirms new users,
@@ -173,10 +196,17 @@ def supabase_signup(email: str, password: str, *, name: str | None = None) -> di
     exchanged into our own cookies exactly like login. If the project requires
     email confirmation, the body has a user but no session — the caller must
     handle that case (no local session can be established yet).
+
+    `metadata` is stored as Supabase's user_metadata and comes back verbatim
+    on every subsequent token payload (login, refresh, callback) — used to
+    carry signup-form fields (phone, terms acceptance) through to whichever
+    request actually creates the local row in _resolve_or_create_user, since
+    that can happen well after this call returns when e-mail confirmation is
+    required.
     """
     body: dict[str, Any] = {"email": email, "password": password}
-    if name:
-        body["data"] = {"name": name}
+    if metadata:
+        body["data"] = metadata
     # Without this, the confirmation email (when the project requires one)
     # links back to Supabase's default Site URL instead of our callback.
     redirect_to = callback_redirect_to()
