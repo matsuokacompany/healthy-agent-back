@@ -57,13 +57,31 @@ def test_checkout_endpoint_returns_service_result(monkeypatch):
     monkeypatch.setattr(
         PaymentService,
         "start_checkout",
-        lambda self, current_user: {"checkout_url": "https://asaas.test/i/abc", "status": "PENDING"},
+        lambda self, current_user, plan_id: {
+            "checkout_url": "https://asaas.test/i/abc",
+            "status": "PENDING",
+            "plan_id": plan_id,
+        },
     )
 
-    response = client.post("/billing/subscription")
+    response = client.post("/billing/subscription", json={"plan_id": "monthly"})
 
     assert response.status_code == 200
-    assert response.json() == {"checkout_url": "https://asaas.test/i/abc", "status": "PENDING"}
+    assert response.json() == {"checkout_url": "https://asaas.test/i/abc", "status": "PENDING", "plan_id": "monthly"}
+
+
+def test_list_plans_returns_configured_plans(monkeypatch):
+    monkeypatch.setattr(settings, "ASAAS_SELF_MONITORING_PRICE_CENTS", 1990)
+    monkeypatch.setattr(settings, "ASAAS_SELF_MONITORING_SEMIANNUAL_PRICE_CENTS", None)
+    monkeypatch.setattr(settings, "ASAAS_SELF_MONITORING_ANNUAL_PRICE_CENTS", None)
+    client, _, _ = build_app_and_db()
+
+    response = client.get("/billing/plans")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [plan["id"] for plan in body] == ["monthly"]
+    assert body[0]["price_cents"] == 1990
 
 
 def test_webhook_rejects_missing_token(monkeypatch):

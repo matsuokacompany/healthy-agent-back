@@ -9,8 +9,9 @@ from sqlalchemy import or_, text
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.db.security_context import set_database_service_context
-from app.models.models import CheckTypeEnum, MonitoringPlan, User
+from app.models.models import CheckTypeEnum, MonitoringPlan, MonitoringPlanOriginEnum, Subscription, User
 from app.services.daily_report_service import DailyReportService
+from app.services.payment_service import subscription_grants_access
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,12 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
         for plan in plans:
             user = plan.patient
             try:
+                if plan.origin == MonitoringPlanOriginEnum.SELF_SERVICE.value:
+                    subscription = db.query(Subscription).filter(Subscription.user_id == user.id).first()
+                    if not subscription_grants_access(subscription):
+                        plans_skipped += 1
+                        continue
+
                 channel = bot_manager.get_channel_for_user(user)
                 if not channel or not user.phone:
                     plans_skipped += 1

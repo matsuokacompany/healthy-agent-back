@@ -6,17 +6,28 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
+from app.core.billing_plans import get_self_monitoring_plans
 from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.rate_limit import limiter
 from app.models.models import User
-from app.models.schemas import SelfMonitoringCheckoutResponse, SelfMonitoringSubscriptionRead
+from app.models.schemas import (
+    SelfMonitoringCheckoutRequest,
+    SelfMonitoringCheckoutResponse,
+    SelfMonitoringPlanRead,
+    SelfMonitoringSubscriptionRead,
+)
 from app.services.payment_service import PaymentService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Billing"])
 webhook_router = APIRouter(tags=["Billing"])
+
+
+@router.get("/plans", response_model=list[SelfMonitoringPlanRead])
+def list_self_monitoring_plans():
+    return get_self_monitoring_plans()
 
 
 @router.get("/subscription", response_model=SelfMonitoringSubscriptionRead)
@@ -31,10 +42,11 @@ def get_self_monitoring_subscription(
 @limiter.limit("5/minute")
 def create_self_monitoring_checkout(
     request: Request,
+    payload: SelfMonitoringCheckoutRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return PaymentService(db).start_checkout(current_user)
+    return PaymentService(db).start_checkout(current_user, payload.plan_id)
 
 
 @webhook_router.post("/webhook/asaas", status_code=status.HTTP_204_NO_CONTENT)

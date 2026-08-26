@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine
@@ -6,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 from app.db.base_class import Base
 from app.models.models import Subscription, SubscriptionStatusEnum, User
-from app.services.payment_service import PaymentService
+from app.services.payment_service import PaymentService, subscription_grants_access
 
 
 def build_session():
@@ -72,15 +74,15 @@ def asaas_settings(monkeypatch):
     monkeypatch.setattr(settings, "ASAAS_WEBHOOK_TOKEN", "shared-secret")
 
 
-def test_start_checkout_requires_price_configured(monkeypatch):
+def test_start_checkout_requires_valid_plan(monkeypatch):
     monkeypatch.setattr(settings, "ASAAS_SELF_MONITORING_PRICE_CENTS", None)
     db = build_session()
     user = create_user(db)
 
     with pytest.raises(HTTPException) as exc:
-        PaymentService(db).start_checkout(user)
+        PaymentService(db).start_checkout(user, "monthly")
 
-    assert exc.value.status_code == 503
+    assert exc.value.status_code == 400
 
 
 def test_start_checkout_requires_cpf():
@@ -88,7 +90,7 @@ def test_start_checkout_requires_cpf():
     user = create_user(db, cpf=None)
 
     with pytest.raises(HTTPException) as exc:
-        PaymentService(db).start_checkout(user)
+        PaymentService(db).start_checkout(user, "monthly")
 
     assert exc.value.status_code == 422
 
@@ -99,12 +101,14 @@ def test_start_checkout_creates_customer_and_subscription(monkeypatch):
     fake_client = FakeAsaasClient()
     monkeypatch.setattr("app.services.payment_service.httpx.Client", lambda timeout=10.0: fake_client)
 
-    result = PaymentService(db).start_checkout(user)
+    result = PaymentService(db).start_checkout(user, "monthly")
 
     assert result["checkout_url"] == fake_client.invoice_url
+    assert result["plan_id"] == "monthly"
     subscription = db.query(Subscription).filter(Subscription.user_id == user.id).one()
     assert subscription.provider_customer_id == fake_client.customer_id
     assert subscription.provider_subscription_id == fake_client.subscription_id
+    assert subscription.plan_id == "monthly"
 
 
 def test_start_checkout_reuses_existing_asaas_subscription(monkeypatch):
@@ -113,13 +117,50 @@ def test_start_checkout_reuses_existing_asaas_subscription(monkeypatch):
     fake_client = FakeAsaasClient()
     monkeypatch.setattr("app.services.payment_service.httpx.Client", lambda timeout=10.0: fake_client)
 
-    PaymentService(db).start_checkout(user)
+    PaymentService(db).start_checkout(user, "monthly")
     post_calls_after_first = len([c for c in fake_client.calls if c[0].endswith("/subscriptions")])
-    PaymentService(db).start_checkout(user)
+    PaymentService(db).start_checkout(user, "monthly")
     post_calls_after_second = len([c for c in fake_client.calls if c[0].endswith("/subscriptions")])
 
     assert post_calls_after_first == 1
     assert post_calls_after_second == 1, "should not create a second Asaas subscription"
+
+
+def test_start_checkout_creates_new_asaas_subscription_when_plan_changes(monkeypatch):
+    monkeypatch.setattr(settings, "ASAAS_SELF_MONITORING_SEMIANNUAL_PRICE_CENTS", 9990)
+    db = build_session()
+    user = create_user(db)
+    fake_client = FakeAsaasClient()
+    monkeypatch.setattr("app.services.payment_service.httpx.Client", lambda timeout=10.0: fake_client)
+
+    PaymentService(db).start_checkout(user, "monthly")
+    PaymentService(db).start_checkout(user, "semiannual")
+
+    subscription = db.query(Subscription).filter(Subscription.user_id == user.id).one()
+    assert subscription.plan_id == "semiannual"
+    subscription_calls = [c for c in fake_client.calls if c[0].endswith("/subscriptions")]
+    assert len(subscription_calls) == 2
+    assert subscription_calls[1][1]["cycle"] == "SEMIANNUALLY"
+
+
+def test_start_checkout_blocks_plan_change_while_active(monkeypatch):
+    monkeypatch.setattr(settings, "ASAAS_SELF_MONITORING_SEMIANNUAL_PRICE_CENTS", 9990)
+    db = build_session()
+    user = create_user(db)
+    db.add(
+        Subscription(
+            user_id=user.id,
+            status=SubscriptionStatusEnum.ACTIVE.value,
+            provider_subscription_id="sub_123",
+            plan_id="monthly",
+        )
+    )
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        PaymentService(db).start_checkout(user, "semiannual")
+
+    assert exc.value.status_code == 409
 
 
 def test_webhook_payment_confirmed_activates_subscription():
@@ -179,12 +220,62 @@ def test_webhook_for_unknown_subscription_is_ignored():
     assert db.query(Subscription).count() == 0
 
 
-def test_is_active_reflects_subscription_status():
+def test_has_access_reflects_subscription_status():
     db = build_session()
     user = create_user(db)
-    assert PaymentService(db).is_active(user) is False
+    assert PaymentService(db).has_access(user) is False
 
     db.add(Subscription(user_id=user.id, status=SubscriptionStatusEnum.ACTIVE.value))
     db.commit()
 
-    assert PaymentService(db).is_active(user) is True
+    assert PaymentService(db).has_access(user) is True
+
+
+def test_subscription_grants_access_for_none():
+    assert subscription_grants_access(None) is False
+
+
+def test_subscription_grants_access_during_trial():
+    subscription = Subscription(
+        status=SubscriptionStatusEnum.TRIALING.value,
+        trial_ends_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    assert subscription_grants_access(subscription) is True
+
+
+def test_subscription_denies_access_after_trial_expires():
+    subscription = Subscription(
+        status=SubscriptionStatusEnum.TRIALING.value,
+        trial_ends_at=datetime.now(timezone.utc) - timedelta(days=1),
+    )
+    assert subscription_grants_access(subscription) is False
+
+
+def test_subscription_denies_access_when_past_due_or_canceled():
+    assert subscription_grants_access(Subscription(status=SubscriptionStatusEnum.PAST_DUE.value)) is False
+    assert subscription_grants_access(Subscription(status=SubscriptionStatusEnum.CANCELED.value)) is False
+
+
+def test_start_trial_if_needed_starts_trial_once():
+    db = build_session()
+    user = create_user(db)
+
+    subscription = PaymentService(db).start_trial_if_needed(user)
+
+    assert subscription.status == SubscriptionStatusEnum.TRIALING.value
+    assert subscription.trial_ends_at is not None
+    trial_ends_at = subscription.trial_ends_at.replace(tzinfo=timezone.utc)
+    expected = datetime.now(timezone.utc) + timedelta(days=settings.ASAAS_SELF_MONITORING_TRIAL_DAYS)
+    assert abs((trial_ends_at - expected).total_seconds()) < 5
+
+
+def test_start_trial_if_needed_is_a_noop_once_active():
+    db = build_session()
+    user = create_user(db)
+    db.add(Subscription(user_id=user.id, status=SubscriptionStatusEnum.ACTIVE.value, trial_ends_at=None))
+    db.commit()
+
+    subscription = PaymentService(db).start_trial_if_needed(user)
+
+    assert subscription.status == SubscriptionStatusEnum.ACTIVE.value
+    assert subscription.trial_ends_at is None

@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     ASAAS_ENV: str = "sandbox"
     ASAAS_WEBHOOK_TOKEN: Optional[str] = None
     ASAAS_SELF_MONITORING_PRICE_CENTS: Optional[int] = None
+    # Same "no default" rule as the monthly price above: each plan only shows
+    # up in GET /api/billing/plans once its price is explicitly configured.
+    ASAAS_SELF_MONITORING_SEMIANNUAL_PRICE_CENTS: Optional[int] = None
+    ASAAS_SELF_MONITORING_ANNUAL_PRICE_CENTS: Optional[int] = None
+    ASAAS_SELF_MONITORING_TRIAL_DAYS: int = 30
 
     model_config = SettingsConfigDict(
         env_file=".env",

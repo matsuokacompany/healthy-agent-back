@@ -23,11 +23,34 @@ import httpx
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.billing_plans import SelfMonitoringPlan, get_self_monitoring_plan
 from app.core.config import settings
 from app.db.security_context import set_database_service_context
 from app.models.models import Subscription, SubscriptionStatusEnum, User
 
 logger = logging.getLogger(__name__)
+
+
+def subscription_grants_access(subscription: Subscription | None) -> bool:
+    """Whether a subscription currently entitles its user to self-monitoring.
+
+    Computed live from trial_ends_at rather than a stored "expired" status,
+    so there's no cron job needed to flip state exactly when a trial lapses.
+    """
+    if not subscription:
+        return False
+    if subscription.status == SubscriptionStatusEnum.ACTIVE.value:
+        return True
+    if subscription.status == SubscriptionStatusEnum.TRIALING.value:
+        trial_ends_at = subscription.trial_ends_at
+        if not trial_ends_at:
+            return False
+        # SQLite (tests) drops tzinfo on round-trip even for DateTime(timezone=True)
+        # columns; every value we write here is UTC, so treat a naive read-back as UTC.
+        if trial_ends_at.tzinfo is None:
+            trial_ends_at = trial_ends_at.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) < trial_ends_at
+    return False
 
 ASAAS_BASE_URLS = {
     "sandbox": "https://sandbox.asaas.com/api/v3",
@@ -59,13 +82,31 @@ class PaymentService:
         self.db.refresh(subscription)
         return subscription
 
-    def start_checkout(self, user: User) -> dict[str, Any]:
+    def start_trial_if_needed(self, user: User) -> Subscription:
+        """Start the free trial the moment a patient begins self-monitoring.
+
+        Only flips a freshly-created PENDING record (no trial_ends_at yet) to
+        TRIALING — a no-op for anyone already TRIALING/ACTIVE/PAST_DUE/
+        CANCELED, so this is safe to call every time create_or_reactivate_plan
+        runs, not just the first time.
+        """
+        subscription = self.get_or_create_subscription_record(user)
+        if subscription.status == SubscriptionStatusEnum.PENDING.value and not subscription.trial_ends_at:
+            subscription.status = SubscriptionStatusEnum.TRIALING.value
+            subscription.trial_ends_at = datetime.now(timezone.utc) + timedelta(days=settings.ASAAS_SELF_MONITORING_TRIAL_DAYS)
+            self.db.commit()
+            self.db.refresh(subscription)
+        return subscription
+
+    def has_access(self, user: User) -> bool:
+        subscription = self.db.query(Subscription).filter(Subscription.user_id == user.id).first()
+        return subscription_grants_access(subscription)
+
+    def start_checkout(self, user: User, plan_id: str) -> dict[str, Any]:
         """Create (or reuse) the Asaas customer + subscription and return a payment link."""
-        if not settings.ASAAS_SELF_MONITORING_PRICE_CENTS:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="SELF_MONITORING_BILLING_NOT_CONFIGURED",
-            )
+        plan = get_self_monitoring_plan(plan_id)
+        if not plan:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="INVALID_PLAN")
         if not user.cpf:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -74,21 +115,34 @@ class PaymentService:
 
         subscription = self.get_or_create_subscription_record(user)
 
+        if subscription.status == SubscriptionStatusEnum.ACTIVE.value and subscription.plan_id != plan.id:
+            # Changing plans on an already-paying subscriber isn't supported
+            # yet — that needs cancel-then-resubscribe handling on the Asaas
+            # side to avoid double-charging. Keep this explicit rather than
+            # silently ignoring the requested plan.
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="PLAN_CHANGE_NOT_SUPPORTED")
+
         if not subscription.provider_customer_id:
             subscription.provider_customer_id = self._create_customer(user)
             self.db.commit()
 
-        if subscription.provider_subscription_id and subscription.status != SubscriptionStatusEnum.CANCELED.value:
+        reuse_existing = (
+            subscription.provider_subscription_id
+            and subscription.status != SubscriptionStatusEnum.CANCELED.value
+            and subscription.plan_id == plan.id
+        )
+        if reuse_existing:
             invoice_url = self._fetch_latest_invoice_url(subscription.provider_subscription_id)
         else:
-            asaas_subscription = self._create_subscription(subscription.provider_customer_id)
+            asaas_subscription = self._create_subscription(subscription.provider_customer_id, plan)
             subscription.provider_subscription_id = asaas_subscription["id"]
+            subscription.plan_id = plan.id
             self.db.commit()
             invoice_url = asaas_subscription.get("invoiceUrl") or self._fetch_latest_invoice_url(
                 asaas_subscription["id"]
             )
 
-        return {"checkout_url": invoice_url, "status": subscription.status}
+        return {"checkout_url": invoice_url, "status": subscription.status, "plan_id": plan.id}
 
     def _create_customer(self, user: User) -> str:
         with httpx.Client(timeout=10.0) as client:
@@ -108,8 +162,8 @@ class PaymentService:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="BILLING_PROVIDER_ERROR")
         return response.json()["id"]
 
-    def _create_subscription(self, customer_id: str) -> dict[str, Any]:
-        value = round(settings.ASAAS_SELF_MONITORING_PRICE_CENTS / 100, 2)
+    def _create_subscription(self, customer_id: str, plan: SelfMonitoringPlan) -> dict[str, Any]:
+        value = round(plan.price_cents / 100, 2)
         next_due_date = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
         with httpx.Client(timeout=10.0) as client:
             response = client.post(
@@ -120,10 +174,10 @@ class PaymentService:
                     # UNDEFINED lets the customer pick PIX/boleto/card on
                     # Asaas's hosted invoice page instead of us collecting it.
                     "billingType": "UNDEFINED",
-                    "cycle": "MONTHLY",
+                    "cycle": plan.cycle,
                     "value": value,
                     "nextDueDate": next_due_date,
-                    "description": "Julha - Automonitoramento de sintomas",
+                    "description": f"Julha - Automonitoramento de sintomas ({plan.label})",
                 },
             )
         if response.status_code >= 400:
@@ -184,7 +238,3 @@ class PaymentService:
             return
 
         self.db.commit()
-
-    def is_active(self, user: User) -> bool:
-        subscription = self.db.query(Subscription).filter(Subscription.user_id == user.id).first()
-        return bool(subscription and subscription.status == SubscriptionStatusEnum.ACTIVE.value)

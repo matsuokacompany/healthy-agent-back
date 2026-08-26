@@ -33,14 +33,28 @@ class MonitoringPlanOriginEnum(str, Enum):
 
 class SubscriptionStatusEnum(str, Enum):
     PENDING = "PENDING"
+    TRIALING = "TRIALING"
     ACTIVE = "ACTIVE"
     PAST_DUE = "PAST_DUE"
     CANCELED = "CANCELED"
 
 
+class SelfMonitoringCheckoutRequest(StrictRequestModel):
+    plan_id: str
+
+
 class SelfMonitoringCheckoutResponse(BaseModel):
     checkout_url: Optional[str] = None
     status: SubscriptionStatusEnum
+    plan_id: Optional[str] = None
+
+
+class SelfMonitoringPlanRead(BaseModel):
+    id: str
+    label: str
+    cycle: str
+    months: int
+    price_cents: int
 
 
 class NivelSuspeicaoEnum(str, Enum):
@@ -77,6 +91,8 @@ class ORMModel(BaseModel):
 class SelfMonitoringSubscriptionRead(ORMModel):
     status: SubscriptionStatusEnum
     current_period_end: Optional[datetime] = None
+    trial_ends_at: Optional[datetime] = None
+    plan_id: Optional[str] = None
 
 
 class UserBase(StrictRequestModel):
