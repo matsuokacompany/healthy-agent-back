@@ -12,6 +12,8 @@ from app.models.models import (
     DailyReport,
     DailyReportStatusEnum,
     MonitoringPlan,
+    MonitoringProfessional,
+    ProfessionalProfile,
     User,
 )
 from app.models.schemas import CustomAiReportPreviewRequest
@@ -222,6 +224,46 @@ def test_preview_blocks_patient_with_report_in_progress():
     assert preview.eligibility.can_generate is False
     assert preview.eligibility.reason == "REPORT_IN_PROGRESS"
     assert preview.preview_token is None
+
+
+def test_preview_bonus_credit_bypasses_monthly_limit():
+    db = build_session()
+    patient, professional, plan = create_users_and_plan(db)
+    end_date = date.today()
+    start_date = end_date - timedelta(days=29)
+    create_completed_checkins(db, patient=patient, plan=plan, start_date=start_date)
+    now = datetime.now(timezone.utc)
+    create_cached_report(
+        db,
+        patient=patient,
+        professional=professional,
+        status=AiReportStatusEnum.COMPLETED,
+        generated_at=now - timedelta(days=10),
+        next_generation_at=now + timedelta(days=20),
+    )
+    professional_profile = ProfessionalProfile(user_id=professional.id, active=True)
+    db.add(professional_profile)
+    db.flush()
+    db.add(
+        MonitoringProfessional(
+            monitoring_plan_id=plan.id,
+            professional_profile_id=professional_profile.id,
+            active=True,
+            bonus_report_credits=1,
+        )
+    )
+    db.commit()
+
+    preview = CustomReportPreviewService(db, TOKEN_SECRET).preview(
+        patient_id=patient.id,
+        requested_by_user_id=professional.id,
+        payload=preview_payload(start_date, end_date),
+        now=now,
+    )
+
+    assert preview.eligibility.can_generate is True
+    assert preview.eligibility.used_bonus_credit is True
+    assert preview.preview_token
 
 
 def test_preview_allows_new_generation_at_thirty_day_boundary():

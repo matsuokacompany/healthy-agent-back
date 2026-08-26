@@ -22,6 +22,8 @@ from app.models.schemas import (
     DailyReportStatusEnum,
     PatientDashboardCheckinsResponse,
     PatientDashboardResponseV2,
+    PatientLinkRequestCreate,
+    PatientLinkRequestSentRead,
     ProfessionalAiReportRequest,
     ProfessionalAiReportResponse,
     ProfessionalPatientRead,
@@ -29,6 +31,7 @@ from app.models.schemas import (
     ProfessionalPatientCreateResponse,
 )
 from app.services.patient_dashboard_service import PaginationParams, ReportFilters
+from app.services.patient_link_service import PatientLinkService
 from app.services.professional_service import ProfessionalService
 
 router = APIRouter(tags=["Professional"])
@@ -53,6 +56,29 @@ def list_professional_patients(
     current_user: User = Depends(get_current_user),
 ):
     return ProfessionalService(db).list_patients(current_user)
+
+
+@router.post(
+    "/patient-links",
+    response_model=PatientLinkRequestSentRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_patient_link_request(
+    payload: PatientLinkRequestCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Request to become responsible for an existing patient account (e.g. a
+    self-service one) instead of erroring on a duplicate email/phone."""
+    return PatientLinkService(db).create_request(current_user, payload.email)
+
+
+@router.get("/patient-links", response_model=list[PatientLinkRequestSentRead])
+def list_patient_link_requests(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return PatientLinkService(db).list_sent_requests(current_user)
 
 
 @router.get("/patients/{patient_id}/dashboard", response_model=PatientDashboardResponseV2)

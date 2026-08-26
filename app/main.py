@@ -26,6 +26,7 @@ from app.routes import (
     insight_routes,
     monitoring_routes,
     patient_dashboard_routes,
+    patient_link_routes,
     payment_routes,
     professional_routes,
     report_routes,
@@ -170,6 +171,7 @@ app.include_router(daily_reports_routes.router, prefix=f"{API_PREFIX}/daily-repo
 app.include_router(insight_routes.router, prefix=f"{API_PREFIX}/insights")
 app.include_router(monitoring_routes.router, prefix=f"{API_PREFIX}/monitoring")
 app.include_router(patient_dashboard_routes.router, prefix="/patient")
+app.include_router(patient_link_routes.router, prefix=f"{API_PREFIX}/patient-links")
 app.include_router(professional_routes.router, prefix=f"{API_PREFIX}/professional")
 app.include_router(report_routes.router, prefix=f"{API_PREFIX}/reports")
 app.include_router(self_monitoring_routes.router, prefix=f"{API_PREFIX}/self-monitoring")

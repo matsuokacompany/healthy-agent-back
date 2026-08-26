@@ -16,6 +16,7 @@ from app.services.custom_report_service import CustomReportService
 from app.services.insight_service import InsightService
 from app.services.anamnese_clinical_service import AnamneseClinicalService
 from app.services.ai_report_clinical_service import AiReportClinicalService
+from app.services.patient_link_service import find_link_with_bonus_credit
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,10 @@ class CustomReportGenerationService:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=preview.eligibility.reason)
         if token_payload["summary_hash"] != self.preview_service.summary_hash(preview.summary):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="PREVIEW_DATA_CHANGED")
+
+        bonus_link = None
+        if preview.eligibility.used_bonus_credit:
+            bonus_link = find_link_with_bonus_credit(self.db, patient_id=patient_id, professional_user_id=requested_by_user_id)
 
         clinical_summary = self._build_clinical_text(patient_id, preview.summary)
         estimated_input_tokens = self._estimate_input_tokens(clinical_summary)
@@ -127,6 +132,8 @@ class CustomReportGenerationService:
             report.generated_at = generated_at
             report.next_generation_at = generated_at + timedelta(days=30)
             report.status = AiReportStatusEnum.COMPLETED.value
+            if bonus_link:
+                bonus_link.bonus_report_credits -= 1
             self.db.commit()
             self.db.refresh(report)
             return self._response(report)
