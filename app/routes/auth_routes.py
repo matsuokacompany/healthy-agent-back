@@ -82,8 +82,28 @@ def signup(request: Request, payload: SignupRequest, response: Response, db: Ses
     normalized_phone = "".join(character for character in payload.phone if character.isdigit())
     if normalized_phone and db.query(User).filter(User.phone == normalized_phone).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Phone already registered")
+    normalized_cpf = "".join(character for character in payload.cpf if character.isdigit())
+    if normalized_cpf and db.query(User).filter(User.cpf == normalized_cpf).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CPF already registered")
 
-    session = supabase_signup(payload.email, payload.password, name=payload.name)
+    # Carried in Supabase's user_metadata (not applied here directly) because
+    # e-mail confirmation can defer local row creation to a later request —
+    # see _resolve_or_create_user's docstring-level comment for why.
+    session = supabase_signup(
+        payload.email,
+        payload.password,
+        metadata={
+            "name": payload.name,
+            "phone": normalized_phone,
+            "city": payload.city,
+            "state": payload.state,
+            "gender": payload.gender,
+            "birth_date": payload.birth_date.isoformat(),
+            "cpf": normalized_cpf,
+            "terms_accepted_at": datetime.now(timezone.utc).isoformat(),
+            "terms_version": payload.terms_version,
+        },
+    )
     if not session.get("access_token"):
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,
@@ -91,11 +111,6 @@ def signup(request: Request, payload: SignupRequest, response: Response, db: Ses
         )
 
     user = _session_from_supabase_payload(session, db)
-    user.phone = normalized_phone or user.phone
-    user.terms_accepted_at = datetime.now(timezone.utc)
-    user.terms_version = payload.terms_version
-    db.commit()
-    db.refresh(user)
     set_auth_cookies(
         response,
         access_token=session["access_token"],

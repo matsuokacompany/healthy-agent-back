@@ -19,6 +19,18 @@ from app.models.models import User
 from app.routes import auth_routes
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    # @limiter.limit(...) in auth_routes.py closes over the shared `limiter`
+    # singleton at import time and enforces via that instance's own storage
+    # directly (self._check_request_limit(...)) — it never consults
+    # request.app.state.limiter. So counters persist across every test in
+    # this file (and module) regardless of what's assigned to app.state;
+    # reset the singleton's storage before each test to isolate them.
+    limiter.reset()
+    yield
+
+
 def test_callback_redirect_to_uses_api_public_url_not_frontend_allowlist(monkeypatch):
     # Regression test: this previously reused AUTH_REDIRECT_ALLOWLIST (the
     # frontend's origin) to build the link Supabase sends users back to,
@@ -127,6 +139,11 @@ def signup_payload(**overrides):
         "email": "autonomo@example.com",
         "password": "senha-forte-123",
         "phone": "+55 (11) 91234-5678",
+        "city": "Londrina",
+        "state": "PR",
+        "gender": "feminino",
+        "birth_date": "1990-05-20",
+        "cpf": "123.456.789-00",
         "terms_accepted": True,
         "terms_version": "2026-08-25",
     }
@@ -175,22 +192,25 @@ def test_signup_requires_terms_accepted():
 def test_signup_with_immediate_session_creates_user_and_sets_cookies(monkeypatch):
     client, db = build_client()
     supabase_user_id = uuid.uuid4()
-    monkeypatch.setattr(
-        auth_routes_module,
-        "supabase_signup",
-        lambda email, password, name=None: {
-            "access_token": "fake-access-token",
-            "refresh_token": "fake-refresh-token",
-            "expires_in": 3600,
-        },
-    )
+    # Real Supabase echoes back whatever `data` was sent at signup as
+    # user_metadata on the issued JWT — capture it here to verify the
+    # metadata round-trip that carries phone/terms through to
+    # _resolve_or_create_user, instead of asserting against values that
+    # happen to coincidentally match.
+    captured_metadata: dict = {}
+
+    def fake_supabase_signup(email, password, metadata=None):
+        captured_metadata.update(metadata or {})
+        return {"access_token": "fake-access-token", "refresh_token": "fake-refresh-token", "expires_in": 3600}
+
+    monkeypatch.setattr(auth_routes_module, "supabase_signup", fake_supabase_signup)
     monkeypatch.setattr(
         auth_routes_module,
         "_decode_supabase_token",
         lambda token: {
             "sub": str(supabase_user_id),
             "email": "autonomo@example.com",
-            "user_metadata": {"name": "Paciente Autonomo"},
+            "user_metadata": captured_metadata,
         },
     )
 
@@ -207,6 +227,26 @@ def test_signup_with_immediate_session_creates_user_and_sets_cookies(monkeypatch
     assert user.supabase_user_id == supabase_user_id
     assert user.terms_version == "2026-08-25"
     assert user.terms_accepted_at is not None
+    assert user.city == "Londrina"
+    assert user.state == "PR"
+    assert user.gender == "feminino"
+    assert user.birth_date.isoformat() == "1990-05-20"
+    assert user.cpf == "12345678900"
+
+
+def test_signup_rejects_duplicate_cpf(monkeypatch):
+    client, db = build_client()
+    db.add(User(name="Existente", email="outro2@example.com", cpf="12345678900"))
+    db.commit()
+    monkeypatch.setattr(
+        auth_routes_module,
+        "supabase_signup",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not call Supabase for a duplicate CPF")),
+    )
+
+    response = client.post("/api/auth/signup", json=signup_payload())
+
+    assert response.status_code == 409
 
 
 def test_signup_without_session_returns_202_and_creates_no_local_user(monkeypatch):
@@ -214,7 +254,7 @@ def test_signup_without_session_returns_202_and_creates_no_local_user(monkeypatc
     monkeypatch.setattr(
         auth_routes_module,
         "supabase_signup",
-        lambda email, password, name=None: {"user": {"id": "some-id"}},
+        lambda email, password, metadata=None: {"user": {"id": "some-id"}},
     )
 
     response = client.post("/api/auth/signup", json=signup_payload())
@@ -222,3 +262,44 @@ def test_signup_without_session_returns_202_and_creates_no_local_user(monkeypatc
     assert response.status_code == 202
     assert response.json()["message"] == "confirmation_email_sent"
     assert db.query(User).count() == 0
+
+
+def test_signup_phone_and_terms_survive_deferred_confirmation_then_login(monkeypatch):
+    # End-to-end regression test for the exact bug reported in production:
+    # signup requires e-mail confirmation (202, no local row yet), and the
+    # account only actually materializes later — here, via a plain login —
+    # through _resolve_or_create_user. phone/terms must still be applied.
+    client, db = build_client()
+    captured_metadata: dict = {}
+
+    def fake_supabase_signup(email, password, metadata=None):
+        captured_metadata.update(metadata or {})
+        return {"user": {"id": "some-id"}}  # no access_token: confirmation required
+
+    monkeypatch.setattr(auth_routes_module, "supabase_signup", fake_supabase_signup)
+
+    signup_response = client.post("/api/auth/signup", json=signup_payload())
+    assert signup_response.status_code == 202
+    assert db.query(User).count() == 0
+
+    supabase_user_id = uuid.uuid4()
+    monkeypatch.setattr(
+        auth_routes_module,
+        "supabase_password_login",
+        lambda email, password: {"access_token": "tok", "refresh_token": "ref", "expires_in": 3600},
+    )
+    monkeypatch.setattr(
+        auth_routes_module,
+        "_decode_supabase_token",
+        lambda token: {"sub": str(supabase_user_id), "email": "autonomo@example.com", "user_metadata": captured_metadata},
+    )
+
+    login_response = client.post("/api/auth/login", json={"email": "autonomo@example.com", "password": "senha-forte-123"})
+
+    assert login_response.status_code == 200
+    user = db.query(User).filter(User.email == "autonomo@example.com").one()
+    assert user.phone == "5511912345678"
+    assert user.terms_version == "2026-08-25"
+    assert user.terms_accepted_at is not None
+    assert user.cpf == "12345678900"
+    assert user.birth_date.isoformat() == "1990-05-20"

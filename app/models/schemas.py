@@ -159,6 +159,11 @@ class SignupRequest(StrictRequestModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=1024)
     phone: str = Field(min_length=1, max_length=32)
+    city: ShortPlainText
+    state: ShortPlainText
+    gender: ShortPlainText
+    birth_date: date
+    cpf: str = Field(min_length=1, max_length=32)
     terms_accepted: bool
     terms_version: str = Field(min_length=1, max_length=32)
 
