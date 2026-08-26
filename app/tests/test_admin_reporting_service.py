@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -165,6 +166,27 @@ def test_cost_summary_aggregates_ai_reports_and_whatsapp_messages(monkeypatch):
     assert summary.whatsapp_message_count == 2
     assert summary.whatsapp_cost_per_message_cents == 25
     assert summary.whatsapp_cost_cents == 50
+
+
+def test_cost_summary_supports_fractional_cost_per_message(monkeypatch):
+    # Real per-message WhatsApp cost is usually well under one cent (most
+    # traffic falls inside Meta's free service-conversation window) — the
+    # setting must be a float, not an int, or this always rounds to 0.
+    monkeypatch.setattr(settings, "WHATSAPP_COST_PER_MESSAGE_CENTS", 0.073)
+    db = build_session()
+    patient = create_patient(db, email="paciente@example.com", active_plan=True)
+    plan = db.query(MonitoringPlan).filter(MonitoringPlan.patient_id == patient.id).one()
+
+    today = datetime.now(timezone.utc)
+    _create_sent_daily_report(db, user=patient, plan=plan, report_date=today.date(), prompt_sent_at=today)
+
+    start = today.date()
+    end = today.date()
+    summary = AdminReportingService(db).cost_summary(start_date=start, end_date=end)
+
+    assert summary.whatsapp_message_count == 1
+    assert summary.whatsapp_cost_per_message_cents == 0.073
+    assert summary.whatsapp_cost_cents == pytest.approx(0.073)
 
 
 def test_cost_summary_leaves_whatsapp_cost_unset_when_rate_not_configured(monkeypatch):

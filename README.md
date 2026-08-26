@@ -112,10 +112,7 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `SMTP_USER` | sim para notificação por e-mail de pedido de vínculo | `contato@julha.com.br` | Usuário de login SMTP. |
 | `SMTP_PASSWORD` | sim para notificação por e-mail de pedido de vínculo | `<senha da caixa>` | Senha de login SMTP. |
 | `SMTP_FROM_EMAIL` | sim para notificação por e-mail de pedido de vínculo | `contato@julha.com.br` | Endereço que aparece como remetente. |
-| `ASAAS_PROFESSIONAL_MONTHLY_PRICE_CENTS` | sim para cobrança de profissionais | `3990` | Preço do plano **mensal** para contas de profissional, em centavos. Catálogo separado do automonitoramento (sem valor padrão). |
-| `ASAAS_PROFESSIONAL_SEMIANNUAL_PRICE_CENTS` | não | `19990` | Preço do plano **semestral** para profissionais. Mesma regra "sem padrão" acima. |
-| `ASAAS_PROFESSIONAL_ANNUAL_PRICE_CENTS` | não | `35990` | Preço do plano **anual** para profissionais. Mesma regra "sem padrão" acima. |
-| `WHATSAPP_COST_PER_MESSAGE_CENTS` | não | `3` | Custo estimado por mensagem de utilidade do WhatsApp enviada, em centavos, usado só para o painel de custos do admin (`GET /api/admin/costs`). Sem valor padrão — sem essa variável, o painel mostra a contagem real de mensagens mas não estima o custo. |
+| `WHATSAPP_COST_PER_MESSAGE_CENTS` | não | `0.07` | Custo estimado por mensagem de check-in enviada, em centavos de real (aceita casas decimais — a maior parte do tráfego cai na janela de atendimento grátis da Meta, então o custo real por mensagem costuma ficar bem abaixo de 1 centavo). Usado só para o painel de custos do admin. Sem valor padrão — sem essa variável, o painel mostra a contagem real de mensagens mas não estima o custo. |
 
 ## Desenvolvimento local
 
