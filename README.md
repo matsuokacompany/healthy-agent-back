@@ -107,6 +107,7 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `ASAAS_SELF_MONITORING_SEMIANNUAL_PRICE_CENTS` | não | `9990` | Preço do plano **semestral**, em centavos. Sem valor padrão — o plano só aparece em `GET /api/billing/plans` depois de configurado. |
 | `ASAAS_SELF_MONITORING_ANNUAL_PRICE_CENTS` | não | `17990` | Preço do plano **anual**, em centavos. Sem valor padrão — mesma regra do semestral. |
 | `ASAAS_SELF_MONITORING_TRIAL_DAYS` | não | `30` | Duração do período de teste grátis do automonitoramento self-service, em dias. |
+| `WHATSAPP_COST_PER_MESSAGE_CENTS` | não | `50` | Custo estimado por mensagem de check-in enviada, em centavos, usado só para o painel de custos do admin. Sem valor padrão — sem essa variável, o painel mostra a contagem real de mensagens mas não estima o custo. |
 
 ## Desenvolvimento local
 

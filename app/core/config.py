@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     ASAAS_SELF_MONITORING_ANNUAL_PRICE_CENTS: Optional[int] = None
     ASAAS_SELF_MONITORING_TRIAL_DAYS: int = 30
 
+    # No default on purpose (same rule as the Asaas prices above): Meta's
+    # actual per-message WhatsApp charge isn't available anywhere in this
+    # app, so the admin cost dashboard only estimates it once this is set
+    # explicitly — it never guesses a rate.
+    WHATSAPP_COST_PER_MESSAGE_CENTS: Optional[int] = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
