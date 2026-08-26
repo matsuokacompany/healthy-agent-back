@@ -37,6 +37,33 @@ def test_callback_redirect_to_is_none_when_not_configured(monkeypatch):
     assert auth_module.callback_redirect_to() is None
 
 
+def test_resend_confirmation_route_returns_generic_message(monkeypatch):
+    monkeypatch.setattr(auth_routes_module, "supabase_resend_confirmation", lambda email: None)
+    app = FastAPI()
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
+    app.include_router(auth_routes.router, prefix="/api/auth")
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(bind=engine)
+    app.dependency_overrides[get_db] = lambda: sessionmaker(bind=engine)()
+
+    response = TestClient(app).post("/api/auth/resend-confirmation", json={"email": "a@example.com"})
+
+    assert response.status_code == 202
+    assert "message" in response.json()
+
+
+def test_supabase_resend_confirmation_swallows_upstream_errors(monkeypatch):
+    monkeypatch.setattr(auth_module, "_auth_headers", lambda: {})
+    monkeypatch.setattr(auth_module, "_auth_url", lambda path: "https://example.supabase.co/auth/v1" + path)
+    response = FakeSupabaseSignupResponse(500, {"error_code": "unexpected_failure"})
+    monkeypatch.setattr(auth_module.httpx, "Client", lambda timeout=10.0: FakeSupabaseClient(response))
+
+    # Must not raise — same enumeration/availability reasoning as forgot_password.
+    auth_module.supabase_resend_confirmation("a@example.com")
+
+
 class FakeSupabaseSignupResponse:
     def __init__(self, status_code, payload):
         self.status_code = status_code

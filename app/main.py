@@ -135,6 +135,7 @@ async def csrf_and_origin_protection(request: Request, call_next):
             f"{API_PREFIX}/auth/login",
             f"{API_PREFIX}/auth/signup",
             f"{API_PREFIX}/auth/forgot-password",
+            f"{API_PREFIX}/auth/resend-confirmation",
             f"{API_PREFIX}/auth/callback",
         }
         access_cookie = request.cookies.get(settings.AUTH_ACCESS_COOKIE_NAME)

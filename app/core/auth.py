@@ -213,6 +213,27 @@ def supabase_signup(email: str, password: str, *, name: str | None = None) -> di
     return response.json()
 
 
+def supabase_resend_confirmation(email: str) -> None:
+    """Ask Supabase to resend the signup confirmation email, best-effort.
+
+    Never raises for the caller to distinguish "email doesn't exist" from
+    "already confirmed" from "send failed" — same enumeration-avoidance
+    reasoning as forgot_password, and the caller should return a generic
+    "if the email exists..." response regardless of outcome.
+    """
+    body: dict[str, Any] = {"type": "signup", "email": email}
+    redirect_to = callback_redirect_to()
+    if redirect_to:
+        body["redirect_to"] = redirect_to
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(_auth_url("/resend"), headers=_auth_headers(), json=body)
+        if response.status_code >= 400:
+            logger.info("Supabase resend-confirmation rejected status=%s", response.status_code)
+    except (httpx.HTTPError, RuntimeError):
+        logger.info("Supabase resend-confirmation request failed")
+
+
 def supabase_refresh(refresh_token: str) -> dict[str, Any]:
     try:
         with httpx.Client(timeout=10.0) as client:

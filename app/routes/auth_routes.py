@@ -21,6 +21,7 @@ from app.core.auth import (
     set_no_store,
     supabase_password_login,
     supabase_refresh,
+    supabase_resend_confirmation,
     supabase_signup,
 )
 from app.core.config import settings
@@ -173,6 +174,15 @@ def forgot_password(request: Request, payload: ForgotPasswordRequest, response: 
     except Exception:
         pass
     return {"message": "If the email exists, password recovery instructions will be sent."}
+
+
+@router.post("/resend-confirmation", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("3/minute")
+def resend_confirmation(request: Request, payload: ForgotPasswordRequest, response: Response):
+    """Resend the signup confirmation email for an unconfirmed self-service account."""
+    set_no_store(response)
+    supabase_resend_confirmation(payload.email)
+    return {"message": "If the email exists and is unconfirmed, a new confirmation email will be sent."}
 
 
 @router.get("/callback")
