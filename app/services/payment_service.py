@@ -102,40 +102,6 @@ class PaymentService:
         subscription = self.db.query(Subscription).filter(Subscription.user_id == user.id).first()
         return subscription_grants_access(subscription)
 
-    def cancel_subscription(self, subscription: Subscription) -> None:
-        """Cancel a self-service subscription — e.g. once a professional takes
-        over billing for that patient, so they're not charged for both.
-
-        Only marks the subscription CANCELED in our DB once the Asaas side
-        actually confirms it (or there was nothing to cancel there yet, e.g.
-        a trial that never reached checkout) — on a provider error, it logs
-        and leaves the subscription's status untouched rather than lying
-        about it, so it stays visible for manual follow-up instead of
-        silently letting the patient keep getting billed. Does not commit;
-        the caller controls the transaction.
-        """
-        if subscription.provider_subscription_id:
-            try:
-                with httpx.Client(timeout=10.0) as client:
-                    response = client.delete(
-                        f"{_asaas_base_url()}/subscriptions/{subscription.provider_subscription_id}",
-                        headers=_asaas_headers(),
-                    )
-            except Exception:
-                logger.exception(
-                    "Asaas subscription cancellation errored | subscription_id=%s",
-                    subscription.provider_subscription_id,
-                )
-                return
-            if response.status_code >= 400:
-                logger.error(
-                    "Asaas subscription cancellation failed | subscription_id=%s status=%s",
-                    subscription.provider_subscription_id,
-                    response.status_code,
-                )
-                return
-        subscription.status = SubscriptionStatusEnum.CANCELED.value
-
     def start_checkout(self, user: User, plan_id: str) -> dict[str, Any]:
         """Create (or reuse) the Asaas customer + subscription and return a payment link."""
         plan = get_self_monitoring_plan(plan_id)

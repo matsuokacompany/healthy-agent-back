@@ -183,7 +183,7 @@ def test_respond_accept_creates_plan_and_link():
     assert link.active is True
 
 
-def test_respond_accept_deactivates_self_service_plan_and_cancels_trial(monkeypatch):
+def test_respond_accept_deactivates_self_service_plan_but_keeps_subscription():
     db = build_session()
     professional, _ = create_professional(db)
     patient = create_patient(db)
@@ -197,8 +197,38 @@ def test_respond_accept_deactivates_self_service_plan_and_cancels_trial(monkeypa
 
     db.refresh(self_service_plan)
     assert self_service_plan.active is False
+    # The self-service subscription is left running — the platform never
+    # cancels a patient's own paid subscription on their behalf.
     subscription = db.query(Subscription).filter(Subscription.user_id == patient.id).one()
-    assert subscription.status == SubscriptionStatusEnum.CANCELED.value
+    assert subscription.status == SubscriptionStatusEnum.TRIALING.value
+
+
+def test_respond_accept_grants_professional_bonus_credit_when_patient_pays():
+    db = build_session()
+    professional, profile = create_professional(db)
+    patient = create_patient(db)
+    db.add(Subscription(user_id=patient.id, status=SubscriptionStatusEnum.ACTIVE.value))
+    db.commit()
+
+    created = PatientLinkService(db).create_request(professional, patient.email)
+    PatientLinkService(db).respond(patient, created["id"], True)
+
+    plan = db.query(MonitoringPlan).filter(MonitoringPlan.patient_id == patient.id, MonitoringPlan.active.is_(True)).one()
+    link = db.query(MonitoringProfessional).filter(MonitoringProfessional.monitoring_plan_id == plan.id).one()
+    assert link.bonus_report_credits == 1
+
+
+def test_respond_accept_grants_no_bonus_credit_without_paid_subscription():
+    db = build_session()
+    professional, _ = create_professional(db)
+    patient = create_patient(db)
+
+    created = PatientLinkService(db).create_request(professional, patient.email)
+    PatientLinkService(db).respond(patient, created["id"], True)
+
+    plan = db.query(MonitoringPlan).filter(MonitoringPlan.patient_id == patient.id, MonitoringPlan.active.is_(True)).one()
+    link = db.query(MonitoringProfessional).filter(MonitoringProfessional.monitoring_plan_id == plan.id).one()
+    assert link.bonus_report_credits == 0
 
 
 def test_respond_accept_fails_when_already_linked_to_another_professional():

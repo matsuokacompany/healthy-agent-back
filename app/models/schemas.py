@@ -669,6 +669,10 @@ class CustomAiReportEligibility(BaseModel):
     minimum_required: int = Field(default=10, ge=1)
     latest_report_id: Optional[int] = None
     last_generated_at: Optional[datetime] = None
+    # True when can_generate only became true because a bonus report credit
+    # (see MonitoringProfessional.bonus_report_credits) covered what would
+    # otherwise be a monthly-cooldown block.
+    used_bonus_credit: bool = False
 
 
 class CustomClinicalPeriodMetrics(BaseModel):

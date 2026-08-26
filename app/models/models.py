@@ -280,6 +280,12 @@ class MonitoringProfessional(Base):
     professional_profile_id = Column(Integer, ForeignKey("professional_profiles.id"), nullable=False)
     role = Column(String, nullable=True)
     active = Column(Boolean, default=True, nullable=False)
+    # Granted when this link is created by a patient accepting a
+    # PatientLinkRequest while they still have a paying self-service
+    # subscription — lets the professional bypass the monthly AI report
+    # cooldown for this patient that many times, instead of the platform
+    # cancelling the patient's subscription outright.
+    bonus_report_credits = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     monitoring_plan = relationship("MonitoringPlan", back_populates="professional_links")

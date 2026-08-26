@@ -16,9 +16,32 @@ from app.models.models import (
     SubscriptionStatusEnum,
     User,
 )
-from app.services.payment_service import PaymentService
 
 LINK_REQUEST_EXPIRY_DAYS = 7
+
+# Granted to the professional once, on accept, when the patient still has a
+# paying self-service subscription — instead of cancelling that subscription,
+# it lets the professional generate one AI report for this patient ahead of
+# the normal monthly cooldown (see find_link_with_bonus_credit below).
+BONUS_REPORT_CREDITS_ON_LINK = 1
+
+
+def find_link_with_bonus_credit(db: Session, *, patient_id: int, professional_user_id: int) -> MonitoringProfessional | None:
+    """The active MonitoringProfessional link between this professional and
+    patient that still has an unused bonus report credit, if any."""
+    return (
+        db.query(MonitoringProfessional)
+        .join(MonitoringPlan, MonitoringPlan.id == MonitoringProfessional.monitoring_plan_id)
+        .join(ProfessionalProfile, ProfessionalProfile.id == MonitoringProfessional.professional_profile_id)
+        .filter(
+            MonitoringPlan.patient_id == patient_id,
+            MonitoringPlan.active.is_(True),
+            MonitoringProfessional.active.is_(True),
+            ProfessionalProfile.user_id == professional_user_id,
+            MonitoringProfessional.bonus_report_credits > 0,
+        )
+        .first()
+    )
 
 
 class PatientLinkService:
@@ -157,16 +180,16 @@ class PatientLinkService:
             MonitoringPlan.active.is_(True),
         ).update({"active": False})
 
-        # Professional-managed patients aren't billed through this platform —
-        # cancel any self-service subscription so the patient isn't paying
-        # for something the professional now covers.
+        # The patient's self-service subscription (if any) is left alone —
+        # they keep whatever they're paying for. As a thank-you for bringing
+        # a paying subscription, the professional instead gets a bonus AI
+        # report generation for this patient (see BONUS_REPORT_CREDITS_ON_LINK).
         subscription = self.db.query(Subscription).filter(Subscription.user_id == current_user.id).first()
-        if subscription and subscription.status in {
-            SubscriptionStatusEnum.TRIALING.value,
-            SubscriptionStatusEnum.ACTIVE.value,
-            SubscriptionStatusEnum.PAST_DUE.value,
-        }:
-            PaymentService(self.db).cancel_subscription(subscription)
+        patient_has_paid_subscription = bool(
+            subscription
+            and subscription.status
+            in {SubscriptionStatusEnum.TRIALING.value, SubscriptionStatusEnum.ACTIVE.value, SubscriptionStatusEnum.PAST_DUE.value}
+        )
 
         plan = MonitoringPlan(
             patient_id=current_user.id,
@@ -183,6 +206,7 @@ class PatientLinkService:
                 professional_profile_id=link_request.professional_profile_id,
                 role="responsável",
                 active=True,
+                bonus_report_credits=BONUS_REPORT_CREDITS_ON_LINK if patient_has_paid_subscription else 0,
             )
         )
 
