@@ -92,6 +92,17 @@ class Settings(BaseSettings):
     ASAAS_SELF_MONITORING_ANNUAL_PRICE_CENTS: Optional[int] = None
     ASAAS_SELF_MONITORING_TRIAL_DAYS: int = 30
 
+    # SMTP for backend-originated transactional email (e.g. patient link
+    # request notifications) — separate from Supabase Auth's own SMTP
+    # settings (which only cover Supabase's own auth emails), even though in
+    # practice both point at the same mailbox. Same Hostinger account, port
+    # 465 (implicit SSL), matching what's already verified working there.
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 465
+    SMTP_USER: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_EMAIL: Optional[str] = None
+
     # No default on purpose (same rule as the Asaas prices above): Meta's
     # actual per-message WhatsApp charge isn't available anywhere in this
     # app, so the admin cost dashboard only estimates it once this is set
