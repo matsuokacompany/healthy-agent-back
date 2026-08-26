@@ -15,6 +15,7 @@ from app.models.schemas import (
     CustomClinicalSummary,
 )
 from app.services.custom_report_service import CustomReportService
+from app.services.patient_link_service import find_link_with_bonus_credit
 
 
 class CustomReportPreviewService:
@@ -41,7 +42,7 @@ class CustomReportPreviewService:
             payload.start_date,
             payload.end_date,
         )
-        eligibility = self._build_eligibility(patient_id, payload.modo, summary, now)
+        eligibility = self._build_eligibility(patient_id, requested_by_user_id, payload.modo, summary, now)
         if not eligibility.can_generate:
             return CustomAiReportPreviewResponse(
                 modo=payload.modo,
@@ -73,6 +74,7 @@ class CustomReportPreviewService:
     def _build_eligibility(
         self,
         patient_id: int,
+        requested_by_user_id: int,
         modo: str,
         summary: CustomClinicalSummary,
         now: datetime,
@@ -101,10 +103,14 @@ class CustomReportPreviewService:
             )
 
         reason = None
+        used_bonus_credit = False
         if active_report:
             reason = "REPORT_IN_PROGRESS"
         elif next_generation_at and self._as_utc(next_generation_at) > self._as_utc(now):
-            reason = "PATIENT_MONTHLY_LIMIT_REACHED"
+            if find_link_with_bonus_credit(self.db, patient_id=patient_id, professional_user_id=requested_by_user_id):
+                used_bonus_credit = True
+            else:
+                reason = "PATIENT_MONTHLY_LIMIT_REACHED"
         elif not summary.sufficient_data:
             reason = "INSUFFICIENT_DATA"
 
@@ -117,6 +123,7 @@ class CustomReportPreviewService:
             minimum_required=summary.minimum_completed_checkins,
             latest_report_id=latest_report.id if latest_report else None,
             last_generated_at=latest_report.generated_at if latest_report else None,
+            used_bonus_credit=used_bonus_credit,
         )
 
     def decode_token(self, token: str, now: datetime | None = None) -> dict:

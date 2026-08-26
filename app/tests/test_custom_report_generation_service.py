@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 from fastapi import HTTPException
 
-from app.models.models import AiReportCache, AiReportStatusEnum
+from app.models.models import AiReportCache, AiReportStatusEnum, MonitoringProfessional, ProfessionalProfile
 from app.models.schemas import CustomAiReportCreateRequest
 from app.services.custom_report_generation_service import (
     CustomReportCostPolicy,
@@ -15,6 +15,7 @@ from app.services.insight_service import InsightGenerationResult
 from app.tests.test_custom_report_preview_service import (
     TOKEN_SECRET,
     build_session,
+    create_cached_report,
     create_completed_checkins,
     create_users_and_plan,
     preview_payload,
@@ -74,6 +75,68 @@ def eligible_context():
         preview_token=preview.preview_token,
     )
     return db, patient, professional, payload, now
+
+
+def test_generation_consumes_bonus_credit_when_cooldown_bypassed(monkeypatch):
+    db = build_session()
+    patient, professional, plan = create_users_and_plan(db)
+    end_date = date.today()
+    start_date = end_date - timedelta(days=29)
+    create_completed_checkins(db, patient=patient, plan=plan, start_date=start_date)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    create_cached_report(
+        db,
+        patient=patient,
+        professional=professional,
+        status=AiReportStatusEnum.COMPLETED,
+        generated_at=now - timedelta(days=10),
+        next_generation_at=now + timedelta(days=20),
+    )
+    professional_profile = ProfessionalProfile(user_id=professional.id, active=True)
+    db.add(professional_profile)
+    db.flush()
+    link = MonitoringProfessional(
+        monitoring_plan_id=plan.id,
+        professional_profile_id=professional_profile.id,
+        active=True,
+        bonus_report_credits=1,
+    )
+    db.add(link)
+    db.commit()
+
+    preview = CustomReportPreviewService(db, TOKEN_SECRET).preview(
+        patient_id=patient.id,
+        requested_by_user_id=professional.id,
+        payload=preview_payload(start_date, end_date),
+        now=now,
+    )
+    assert preview.eligibility.used_bonus_credit is True
+    payload = CustomAiReportCreateRequest(
+        start_date=start_date,
+        end_date=end_date,
+        modo="avaliacao_clinica",
+        preview_token=preview.preview_token,
+    )
+    monkeypatch.setattr(
+        "app.services.custom_report_generation_service.InsightService",
+        SuccessfulInsightService,
+    )
+
+    response = CustomReportGenerationService(
+        db,
+        token_secret=TOKEN_SECRET,
+        api_key="test-key",
+        cost_policy=cost_policy(),
+    ).generate(
+        patient_id=patient.id,
+        requested_by_user_id=professional.id,
+        payload=payload,
+        now=now,
+    )
+
+    assert response.status == AiReportStatusEnum.COMPLETED
+    db.refresh(link)
+    assert link.bonus_report_credits == 0
 
 
 def test_generation_completes_and_records_usage_cost_and_quota(monkeypatch):

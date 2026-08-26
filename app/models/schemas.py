@@ -57,6 +57,39 @@ class SelfMonitoringPlanRead(BaseModel):
     price_cents: int
 
 
+class PatientLinkRequestStatusEnum(str, Enum):
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+    EXPIRED = "EXPIRED"
+
+
+class PatientLinkRequestCreate(StrictRequestModel):
+    email: EmailStr
+
+
+class PatientLinkRequestRespond(StrictRequestModel):
+    accept: bool
+
+
+class PatientLinkRequestRead(BaseModel):
+    id: int
+    status: PatientLinkRequestStatusEnum
+    created_at: datetime
+    expires_at: datetime
+    responded_at: Optional[datetime] = None
+
+
+class PatientLinkRequestSentRead(PatientLinkRequestRead):
+    patient_name: str
+    patient_email: str
+
+
+class PatientLinkRequestIncomingRead(PatientLinkRequestRead):
+    professional_name: str
+    professional_specialty: Optional[str] = None
+
+
 class NivelSuspeicaoEnum(str, Enum):
     BAIXO = "baixo"
     MODERADO = "moderado"
@@ -636,6 +669,10 @@ class CustomAiReportEligibility(BaseModel):
     minimum_required: int = Field(default=10, ge=1)
     latest_report_id: Optional[int] = None
     last_generated_at: Optional[datetime] = None
+    # True when can_generate only became true because a bonus report credit
+    # (see MonitoringProfessional.bonus_report_credits) covered what would
+    # otherwise be a monthly-cooldown block.
+    used_bonus_credit: bool = False
 
 
 class CustomClinicalPeriodMetrics(BaseModel):

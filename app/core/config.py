@@ -92,6 +92,17 @@ class Settings(BaseSettings):
     ASAAS_SELF_MONITORING_ANNUAL_PRICE_CENTS: Optional[int] = None
     ASAAS_SELF_MONITORING_TRIAL_DAYS: int = 30
 
+    # SMTP for backend-originated transactional email (e.g. patient link
+    # request notifications) — separate from Supabase Auth's own SMTP
+    # settings (which only cover Supabase's own auth emails), even though in
+    # practice both point at the same mailbox. Same Hostinger account, port
+    # 465 (implicit SSL), matching what's already verified working there.
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 465
+    SMTP_USER: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_EMAIL: Optional[str] = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
