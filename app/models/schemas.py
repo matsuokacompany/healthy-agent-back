@@ -696,8 +696,8 @@ class AdminCostSummary(BaseModel):
     ai_report_count: int
     ai_report_cost_usd: float
     whatsapp_message_count: int
-    whatsapp_cost_per_message_cents: Optional[int] = None
-    whatsapp_cost_cents: Optional[int] = None
+    whatsapp_cost_per_message_cents: Optional[float] = None
+    whatsapp_cost_cents: Optional[float] = None
 
 
 class AdminWhatsappDailyPoint(BaseModel):
@@ -711,8 +711,8 @@ class AdminWhatsappStats(BaseModel):
     end_date: date
     total_sent: int
     daily: List[AdminWhatsappDailyPoint]
-    cost_per_message_cents: Optional[int] = None
-    estimated_cost_cents: Optional[int] = None
+    cost_per_message_cents: Optional[float] = None
+    estimated_cost_cents: Optional[float] = None
 
 
 class CustomClinicalPeriodMetrics(BaseModel):

@@ -106,8 +106,11 @@ class Settings(BaseSettings):
     # No default on purpose (same rule as the Asaas prices above): Meta's
     # actual per-message WhatsApp charge isn't available anywhere in this
     # app, so the admin cost dashboard only estimates it once this is set
-    # explicitly — it never guesses a rate.
-    WHATSAPP_COST_PER_MESSAGE_CENTS: Optional[int] = None
+    # explicitly — it never guesses a rate. float (not int): most of Julha's
+    # WhatsApp traffic falls inside Meta's free service-conversation window,
+    # so the real blended cost per message sent is well under one cent
+    # (e.g. R$0,0007) — an integer-cents field would always round that to 0.
+    WHATSAPP_COST_PER_MESSAGE_CENTS: Optional[float] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

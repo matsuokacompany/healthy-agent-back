@@ -112,7 +112,7 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `SMTP_USER` | sim para notificação por e-mail de pedido de vínculo | `contato@julha.com.br` | Usuário de login SMTP. |
 | `SMTP_PASSWORD` | sim para notificação por e-mail de pedido de vínculo | `<senha da caixa>` | Senha de login SMTP. |
 | `SMTP_FROM_EMAIL` | sim para notificação por e-mail de pedido de vínculo | `contato@julha.com.br` | Endereço que aparece como remetente. |
-| `WHATSAPP_COST_PER_MESSAGE_CENTS` | não | `50` | Custo estimado por mensagem de check-in enviada, em centavos, usado só para o painel de custos do admin. Sem valor padrão — sem essa variável, o painel mostra a contagem real de mensagens mas não estima o custo. |
+| `WHATSAPP_COST_PER_MESSAGE_CENTS` | não | `0.07` | Custo estimado por mensagem de check-in enviada, em centavos de real (aceita casas decimais — a maior parte do tráfego cai na janela de atendimento grátis da Meta, então o custo real por mensagem costuma ficar bem abaixo de 1 centavo). Usado só para o painel de custos do admin. Sem valor padrão — sem essa variável, o painel mostra a contagem real de mensagens mas não estima o custo. |
 
 ## Desenvolvimento local
 
