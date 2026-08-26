@@ -215,6 +215,11 @@ class ProfessionalProfile(Base):
     specialty = Column(String, nullable=True)
     bio = Column(Text, nullable=True)
     active = Column(Boolean, default=True, nullable=False)
+    # Grandfathering + grace period for professional billing. Existing
+    # profiles (as of the professional-billing rollout) are backfilled to a
+    # fixed date; new self-signups get NULL (no grace — access depends on
+    # their Subscription from day one). See payment_service.professional_has_access.
+    free_until = Column(Date, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),

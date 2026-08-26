@@ -103,6 +103,16 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: Optional[str] = None
     SMTP_FROM_EMAIL: Optional[str] = None
 
+    # Asaas billing for PROFESSIONAL accounts — a separate catalog/pricing
+    # from the patient self-service plans above. Same "no default" rule: a
+    # plan only shows up once its price is explicitly configured. Existing
+    # professional accounts (as of this feature's rollout) are grandfathered
+    # with free access via ProfessionalProfile.free_until; new signups have
+    # no trial and must subscribe to keep full platform access.
+    ASAAS_PROFESSIONAL_MONTHLY_PRICE_CENTS: Optional[int] = None
+    ASAAS_PROFESSIONAL_SEMIANNUAL_PRICE_CENTS: Optional[int] = None
+    ASAAS_PROFESSIONAL_ANNUAL_PRICE_CENTS: Optional[int] = None
+
     # No default on purpose (same rule as the Asaas prices above): Meta's
     # actual per-message WhatsApp charge isn't available anywhere in this
     # app, so the admin cost dashboard only estimates it once this is set
