@@ -15,7 +15,7 @@ import app.routes.auth_routes as auth_routes_module
 from app.core.dependencies import get_db
 from app.core.rate_limit import limiter
 from app.db.base_class import Base
-from app.models.models import User
+from app.models.models import ProfessionalProfile, User
 from app.routes import auth_routes
 
 
@@ -303,3 +303,65 @@ def test_signup_phone_and_terms_survive_deferred_confirmation_then_login(monkeyp
     assert user.terms_accepted_at is not None
     assert user.cpf == "12345678900"
     assert user.birth_date.isoformat() == "1990-05-20"
+
+
+def professional_signup_payload(**overrides):
+    data = {
+        "name": "Dr. Autonomo",
+        "email": "profissional-autonomo@example.com",
+        "password": "senha-forte-123",
+        "phone": "+55 (11) 91234-5678",
+        "cpf": "123.456.789-00",
+        "specialty": "Nutrição",
+        "terms_accepted": True,
+        "terms_version": "2026-08-25",
+    }
+    data.update(overrides)
+    return data
+
+
+def test_signup_professional_creates_professional_role_and_profile(monkeypatch):
+    client, db = build_client()
+    supabase_user_id = uuid.uuid4()
+    captured_metadata: dict = {}
+
+    def fake_supabase_signup(email, password, metadata=None):
+        captured_metadata.update(metadata or {})
+        return {"access_token": "fake-access-token", "refresh_token": "fake-refresh-token", "expires_in": 3600}
+
+    monkeypatch.setattr(auth_routes_module, "supabase_signup", fake_supabase_signup)
+    monkeypatch.setattr(
+        auth_routes_module,
+        "_decode_supabase_token",
+        lambda token: {
+            "sub": str(supabase_user_id),
+            "email": "profissional-autonomo@example.com",
+            "user_metadata": captured_metadata,
+        },
+    )
+
+    response = client.post("/api/auth/signup-professional", json=professional_signup_payload())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["roles"] == ["professional"]
+
+    user = db.query(User).filter(User.email == "profissional-autonomo@example.com").one()
+    profile = db.query(ProfessionalProfile).filter(ProfessionalProfile.user_id == user.id).one()
+    assert profile.specialty == "Nutrição"
+    assert profile.free_until is None, "new self-signups get no billing grace period"
+
+
+def test_signup_professional_rejects_duplicate_email(monkeypatch):
+    client, db = build_client()
+    db.add(User(name="Existente", email="profissional-autonomo@example.com"))
+    db.commit()
+    monkeypatch.setattr(
+        auth_routes_module,
+        "supabase_signup",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not call Supabase for a duplicate email")),
+    )
+
+    response = client.post("/api/auth/signup-professional", json=professional_signup_payload())
+
+    assert response.status_code == 409

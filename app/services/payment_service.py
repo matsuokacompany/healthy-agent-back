@@ -23,10 +23,11 @@ import httpx
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.billing_plans import SelfMonitoringPlan, get_self_monitoring_plan
+from app.core.billing_plans import SelfMonitoringPlan, get_professional_plan, get_self_monitoring_plan
 from app.core.config import settings
+from app.core.permissions import has_role
 from app.db.security_context import set_database_service_context
-from app.models.models import Subscription, SubscriptionStatusEnum, User
+from app.models.models import ProfessionalProfile, RoleNameEnum, Subscription, SubscriptionStatusEnum, User
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,20 @@ def subscription_grants_access(subscription: Subscription | None) -> bool:
             trial_ends_at = trial_ends_at.replace(tzinfo=timezone.utc)
         return datetime.now(timezone.utc) < trial_ends_at
     return False
+
+
+def professional_has_access(profile: ProfessionalProfile, subscription: Subscription | None) -> bool:
+    """Whether a professional currently has full (unlocked) platform access.
+
+    True while inside their grandfathered/grace `free_until` window, or while
+    their own Subscription grants access (same rule as patients — see
+    subscription_grants_access). Professionals never get a TRIALING
+    subscription today (nothing calls start_trial_if_needed for them), so in
+    practice this resolves to "grace period, or ACTIVE subscription".
+    """
+    if profile.free_until is not None and datetime.now(timezone.utc).date() <= profile.free_until:
+        return True
+    return subscription_grants_access(subscription)
 
 ASAAS_BASE_URLS = {
     "sandbox": "https://sandbox.asaas.com/api/v3",
@@ -102,9 +117,19 @@ class PaymentService:
         subscription = self.db.query(Subscription).filter(Subscription.user_id == user.id).first()
         return subscription_grants_access(subscription)
 
+    def has_professional_access(self, profile: ProfessionalProfile) -> bool:
+        subscription = self.db.query(Subscription).filter(Subscription.user_id == profile.user_id).first()
+        return professional_has_access(profile, subscription)
+
     def start_checkout(self, user: User, plan_id: str) -> dict[str, Any]:
-        """Create (or reuse) the Asaas customer + subscription and return a payment link."""
-        plan = get_self_monitoring_plan(plan_id)
+        """Create (or reuse) the Asaas customer + subscription and return a payment link.
+
+        Which catalog is offered (patient self-monitoring vs. professional)
+        is derived from the caller's own role — never a client-supplied flag
+        — so a patient can never buy a professional plan or vice versa.
+        """
+        is_professional_plan = has_role(user, RoleNameEnum.PROFESSIONAL)
+        plan = (get_professional_plan if is_professional_plan else get_self_monitoring_plan)(plan_id)
         if not plan:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="INVALID_PLAN")
         if not user.cpf:
@@ -134,7 +159,9 @@ class PaymentService:
         if reuse_existing:
             invoice_url = self._fetch_latest_invoice_url(subscription.provider_subscription_id)
         else:
-            asaas_subscription = self._create_subscription(subscription.provider_customer_id, plan)
+            asaas_subscription = self._create_subscription(
+                subscription.provider_customer_id, plan, professional=is_professional_plan
+            )
             subscription.provider_subscription_id = asaas_subscription["id"]
             subscription.plan_id = plan.id
             self.db.commit()
@@ -162,9 +189,16 @@ class PaymentService:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="BILLING_PROVIDER_ERROR")
         return response.json()["id"]
 
-    def _create_subscription(self, customer_id: str, plan: SelfMonitoringPlan) -> dict[str, Any]:
+    def _create_subscription(
+        self, customer_id: str, plan: SelfMonitoringPlan, *, professional: bool = False
+    ) -> dict[str, Any]:
         value = round(plan.price_cents / 100, 2)
         next_due_date = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
+        description = (
+            f"Julha - Assinatura profissional ({plan.label})"
+            if professional
+            else f"Julha - Automonitoramento de sintomas ({plan.label})"
+        )
         with httpx.Client(timeout=10.0) as client:
             response = client.post(
                 f"{_asaas_base_url()}/subscriptions",
@@ -177,7 +211,7 @@ class PaymentService:
                     "cycle": plan.cycle,
                     "value": value,
                     "nextDueDate": next_due_date,
-                    "description": f"Julha - Automonitoramento de sintomas ({plan.label})",
+                    "description": description,
                 },
             )
         if response.status_code >= 400:

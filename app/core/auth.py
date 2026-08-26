@@ -19,7 +19,7 @@ from app.core.dependencies import get_db
 from app.core.permissions import has_role, is_admin, is_super_admin
 from app.core.user_identity import is_email_like
 from app.db.security_context import set_database_identity_context
-from app.models.models import Role, RoleNameEnum, User, UserRole
+from app.models.models import ProfessionalProfile, Role, RoleNameEnum, User, UserRole
 
 ALGORITHMS = ["HS256", "RS256", "ES256"]
 
@@ -133,6 +133,7 @@ def _resolve_or_create_user(db: Session, payload: dict[str, Any]) -> User:
         signup_cpf = metadata.get("cpf")
         signup_terms_accepted_at = metadata.get("terms_accepted_at")
         signup_terms_version = metadata.get("terms_version")
+        account_type = metadata.get("account_type", "patient")
         user = User(
             email=email,
             name=email.split("@")[0],
@@ -156,7 +157,14 @@ def _resolve_or_create_user(db: Session, payload: dict[str, Any]) -> User:
                 logger.warning("Ignoring unparseable terms_accepted_at in user_metadata for email=%s", email)
         db.add(user)
         db.flush()
-        assign_role(db, user, RoleNameEnum.PATIENT)
+        if account_type == "professional":
+            assign_role(db, user, RoleNameEnum.PROFESSIONAL)
+            # No free_until: brand-new self-signups get no grace period, only
+            # accounts that already existed at the professional-billing
+            # rollout were grandfathered (see migration 0019).
+            db.add(ProfessionalProfile(user_id=user.id, specialty=metadata.get("specialty") or None, active=True))
+        else:
+            assign_role(db, user, RoleNameEnum.PATIENT)
     elif not user.role_records:
         # Legacy/pre-provisioned records may have an identity but no application
         # role. Authentication succeeded in that case, but clients could not

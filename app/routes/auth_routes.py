@@ -27,7 +27,14 @@ from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.rate_limit import limiter
 from app.models.models import User
-from app.models.schemas import ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, SignupRequest, UserRead
+from app.models.schemas import (
+    ChangePasswordRequest,
+    ForgotPasswordRequest,
+    LoginRequest,
+    ProfessionalSignupRequest,
+    SignupRequest,
+    UserRead,
+)
 
 router = APIRouter(tags=["Auth"])
 
@@ -100,6 +107,57 @@ def signup(request: Request, payload: SignupRequest, response: Response, db: Ses
             "gender": payload.gender,
             "birth_date": payload.birth_date.isoformat(),
             "cpf": normalized_cpf,
+            "terms_accepted_at": datetime.now(timezone.utc).isoformat(),
+            "terms_version": payload.terms_version,
+        },
+    )
+    if not session.get("access_token"):
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={"message": "confirmation_email_sent"},
+        )
+
+    user = _session_from_supabase_payload(session, db)
+    set_auth_cookies(
+        response,
+        access_token=session["access_token"],
+        refresh_token=session["refresh_token"],
+        expires_in=int(session.get("expires_in") or 3600),
+    )
+    return user
+
+
+@router.post("/signup-professional", response_model=UserRead)
+@limiter.limit("5/minute")
+def signup_professional(
+    request: Request, payload: ProfessionalSignupRequest, response: Response, db: Session = Depends(get_db)
+):
+    """Self-service account creation for professionals (parallel to /signup).
+
+    Same 200-with-cookies / 202-pending-confirmation split as /signup — see
+    that docstring. New professional accounts start with no billing grace
+    (ProfessionalProfile.free_until is NULL): only accounts that already
+    existed when professional billing shipped were grandfathered.
+    """
+    set_no_store(response)
+    if db.query(User).filter(User.email == payload.email).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+    normalized_phone = "".join(character for character in payload.phone if character.isdigit())
+    if normalized_phone and db.query(User).filter(User.phone == normalized_phone).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Phone already registered")
+    normalized_cpf = "".join(character for character in payload.cpf if character.isdigit())
+    if normalized_cpf and db.query(User).filter(User.cpf == normalized_cpf).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CPF already registered")
+
+    session = supabase_signup(
+        payload.email,
+        payload.password,
+        metadata={
+            "account_type": "professional",
+            "name": payload.name,
+            "phone": normalized_phone,
+            "cpf": normalized_cpf,
+            "specialty": payload.specialty,
             "terms_accepted_at": datetime.now(timezone.utc).isoformat(),
             "terms_version": payload.terms_version,
         },

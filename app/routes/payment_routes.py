@@ -6,11 +6,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
-from app.core.billing_plans import get_self_monitoring_plans
+from app.core.billing_plans import get_professional_plans, get_self_monitoring_plans
 from app.core.config import settings
 from app.core.dependencies import get_db
+from app.core.permissions import has_role
 from app.core.rate_limit import limiter
-from app.models.models import User
+from app.models.models import RoleNameEnum, User
 from app.models.schemas import (
     SelfMonitoringCheckoutRequest,
     SelfMonitoringCheckoutResponse,
@@ -26,7 +27,11 @@ webhook_router = APIRouter(tags=["Billing"])
 
 
 @router.get("/plans", response_model=list[SelfMonitoringPlanRead])
-def list_self_monitoring_plans():
+def list_self_monitoring_plans(current_user: User = Depends(get_current_user)):
+    """Plan catalog for the caller's own billing — professionals see the
+    professional catalog, patients see the self-monitoring catalog."""
+    if has_role(current_user, RoleNameEnum.PROFESSIONAL):
+        return get_professional_plans()
     return get_self_monitoring_plans()
 
 
