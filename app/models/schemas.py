@@ -236,6 +236,8 @@ class ProfessionalSignupRequest(StrictRequestModel):
     phone: str = Field(min_length=1, max_length=32)
     cpf: str = Field(min_length=1, max_length=32)
     specialty: ShortPlainText
+    license_number: ShortPlainText
+    license_state: ShortPlainText
     terms_accepted: bool
     terms_version: str = Field(min_length=1, max_length=32)
 

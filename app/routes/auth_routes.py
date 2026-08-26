@@ -26,7 +26,7 @@ from app.core.auth import (
 from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.rate_limit import limiter
-from app.models.models import User
+from app.models.models import ProfessionalProfile, User
 from app.models.schemas import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
@@ -148,6 +148,15 @@ def signup_professional(
     normalized_cpf = "".join(character for character in payload.cpf if character.isdigit())
     if normalized_cpf and db.query(User).filter(User.cpf == normalized_cpf).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CPF already registered")
+    if (
+        db.query(ProfessionalProfile)
+        .filter(
+            ProfessionalProfile.license_number == payload.license_number,
+            ProfessionalProfile.license_state == payload.license_state,
+        )
+        .first()
+    ):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="License already registered")
 
     session = supabase_signup(
         payload.email,
@@ -158,6 +167,8 @@ def signup_professional(
             "phone": normalized_phone,
             "cpf": normalized_cpf,
             "specialty": payload.specialty,
+            "license_number": payload.license_number,
+            "license_state": payload.license_state,
             "terms_accepted_at": datetime.now(timezone.utc).isoformat(),
             "terms_version": payload.terms_version,
         },

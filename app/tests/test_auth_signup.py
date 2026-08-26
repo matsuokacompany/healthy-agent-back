@@ -313,6 +313,8 @@ def professional_signup_payload(**overrides):
         "phone": "+55 (11) 91234-5678",
         "cpf": "123.456.789-00",
         "specialty": "Nutrição",
+        "license_number": "CRN-12345",
+        "license_state": "PR",
         "terms_accepted": True,
         "terms_version": "2026-08-25",
     }
@@ -349,7 +351,27 @@ def test_signup_professional_creates_professional_role_and_profile(monkeypatch):
     user = db.query(User).filter(User.email == "profissional-autonomo@example.com").one()
     profile = db.query(ProfessionalProfile).filter(ProfessionalProfile.user_id == user.id).one()
     assert profile.specialty == "Nutrição"
+    assert profile.license_number == "CRN-12345"
+    assert profile.license_state == "PR"
     assert profile.free_until is None, "new self-signups get no billing grace period"
+
+
+def test_signup_professional_rejects_duplicate_license(monkeypatch):
+    client, db = build_client()
+    existing_user = User(name="Existente", email="outro-profissional@example.com")
+    db.add(existing_user)
+    db.flush()
+    db.add(ProfessionalProfile(user_id=existing_user.id, license_number="CRN-12345", license_state="PR", active=True))
+    db.commit()
+    monkeypatch.setattr(
+        auth_routes_module,
+        "supabase_signup",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not call Supabase for a duplicate license")),
+    )
+
+    response = client.post("/api/auth/signup-professional", json=professional_signup_payload())
+
+    assert response.status_code == 409
 
 
 def test_signup_professional_rejects_duplicate_email(monkeypatch):
