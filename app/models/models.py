@@ -443,6 +443,36 @@ class AiReportCache(Base):
     professional_user = relationship("User", foreign_keys=[professional_user_id])
 
 
+class SelfMonitoringInsight(Base):
+    """AI-generated evolution summary for a self-service (self_made) patient.
+
+    One row per patient (upserted in place on regeneration), deliberately
+    kept separate from `ai_report_cache` because that table's RLS policy
+    only allows service/admin/professional reads — a self-service patient
+    has no professional and needs to read their own row directly.
+    """
+
+    __tablename__ = "self_monitoring_insights"
+    __table_args__ = (UniqueConstraint("patient_id", name="uq_self_monitoring_insights_patient"),)
+
+    id = Column(Integer, primary_key=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    insight_response = Column(JSON(none_as_null=True), nullable=True)
+    insight_response_encryption_envelope = Column(JSON, nullable=True)
+    input_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+    estimated_cost = Column(Numeric(12, 8), nullable=True)
+    actual_cost = Column(Numeric(12, 8), nullable=True)
+    model_name = Column(String, nullable=True)
+    generated_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    next_generation_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    patient = relationship("User", foreign_keys=[patient_id])
+
+
 class Subscription(Base):
     """A self-service (B2C) patient's paid subscription to the monitoring plan.
 
