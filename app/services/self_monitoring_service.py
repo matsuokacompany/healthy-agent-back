@@ -1,5 +1,9 @@
-from datetime import date, datetime, timedelta
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from zoneinfo import ZoneInfo
+import json
+import math
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -124,7 +128,7 @@ class SelfMonitoringService:
             raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="SUBSCRIPTION_REQUIRED")
 
         now = now or datetime.now(timezone.utc)
-        end_date = date.today()
+        end_date = datetime.now(ZoneInfo(settings.SCHEDULER_TIMEZONE)).date()
         start_date = end_date - timedelta(days=DEFAULT_EVOLUTION_PERIOD_DAYS - 1)
         summary = CustomReportService(self.db).build_summary(current_user.id, start_date, end_date)
 
