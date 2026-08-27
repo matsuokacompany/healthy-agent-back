@@ -24,6 +24,7 @@ from app.routes import (
     clinical_attachment_routes,
     daily_reports_routes,
     insight_routes,
+    legal_routes,
     monitoring_routes,
     patient_dashboard_routes,
     patient_link_routes,
@@ -170,6 +171,7 @@ app.include_router(auth_routes.router, prefix=f"{API_PREFIX}/auth")
 app.include_router(anamnese_routes.router, prefix=f"{API_PREFIX}/anamneses")
 app.include_router(daily_reports_routes.router, prefix=f"{API_PREFIX}/daily-reports")
 app.include_router(insight_routes.router, prefix=f"{API_PREFIX}/insights")
+app.include_router(legal_routes.router, prefix=f"{API_PREFIX}/legal")
 app.include_router(monitoring_routes.router, prefix=f"{API_PREFIX}/monitoring")
 app.include_router(patient_dashboard_routes.router, prefix="/patient")
 app.include_router(patient_link_routes.router, prefix=f"{API_PREFIX}/patient-links")
