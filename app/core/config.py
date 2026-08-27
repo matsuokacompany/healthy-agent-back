@@ -109,9 +109,18 @@ class Settings(BaseSettings):
     # professional accounts (as of this feature's rollout) are grandfathered
     # with free access via ProfessionalProfile.free_until; new signups have
     # no trial and must subscribe to keep full platform access.
+    # Base tier (up to 10 simultaneously active patients).
     ASAAS_PROFESSIONAL_MONTHLY_PRICE_CENTS: Optional[int] = None
     ASAAS_PROFESSIONAL_SEMIANNUAL_PRICE_CENTS: Optional[int] = None
     ASAAS_PROFESSIONAL_ANNUAL_PRICE_CENTS: Optional[int] = None
+    # Up to 25 simultaneously active patients.
+    ASAAS_PROFESSIONAL_TIER25_MONTHLY_PRICE_CENTS: Optional[int] = None
+    ASAAS_PROFESSIONAL_TIER25_SEMIANNUAL_PRICE_CENTS: Optional[int] = None
+    ASAAS_PROFESSIONAL_TIER25_ANNUAL_PRICE_CENTS: Optional[int] = None
+    # Up to 50 simultaneously active patients.
+    ASAAS_PROFESSIONAL_TIER50_MONTHLY_PRICE_CENTS: Optional[int] = None
+    ASAAS_PROFESSIONAL_TIER50_SEMIANNUAL_PRICE_CENTS: Optional[int] = None
+    ASAAS_PROFESSIONAL_TIER50_ANNUAL_PRICE_CENTS: Optional[int] = None
 
     # No default on purpose (same rule as the Asaas prices above): Meta's
     # actual per-message WhatsApp charge isn't available anywhere in this

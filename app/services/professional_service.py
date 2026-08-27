@@ -43,6 +43,7 @@ from app.services.custom_report_history_service import CustomReportHistoryServic
 from app.services.patient_dashboard_service import PaginationParams, PatientDashboardService, ReportFilters
 from app.db.security_context import set_database_service_context
 from app.services.payment_service import PaymentService
+from app.services.professional_capacity_service import require_patient_cap
 from app.services.report_service import ReportService
 from app.services.anamnese_clinical_service import AnamneseClinicalService
 
@@ -67,6 +68,7 @@ class ProfessionalService:
                 detail="Active professional profile required",
             )
         self._require_billing_access(profile)
+        require_patient_cap(self.db, profile)
         # Provisioning must check global uniqueness and create the patient,
         # plan, role, and initial professional link atomically before a normal
         # patient access relationship exists.

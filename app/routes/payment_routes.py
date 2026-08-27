@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.permissions import has_role
 from app.core.rate_limit import limiter
-from app.models.models import RoleNameEnum, User
+from app.models.models import ProfessionalProfile, RoleNameEnum, User
 from app.models.schemas import (
     SelfMonitoringCheckoutRequest,
     SelfMonitoringCheckoutResponse,
@@ -19,6 +19,7 @@ from app.models.schemas import (
     SelfMonitoringSubscriptionRead,
 )
 from app.services.payment_service import PaymentService
+from app.services.professional_capacity_service import count_active_patients, resolve_patient_cap
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,22 @@ def get_self_monitoring_subscription(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return PaymentService(db).get_or_create_subscription_record(current_user)
+    subscription = PaymentService(db).get_or_create_subscription_record(current_user)
+    max_patients = None
+    active_patient_count = None
+    if has_role(current_user, RoleNameEnum.PROFESSIONAL):
+        profile = db.query(ProfessionalProfile).filter(ProfessionalProfile.user_id == current_user.id).first()
+        if profile:
+            max_patients = resolve_patient_cap(db, profile)
+            active_patient_count = count_active_patients(db, profile.id)
+    return SelfMonitoringSubscriptionRead(
+        status=subscription.status,
+        current_period_end=subscription.current_period_end,
+        trial_ends_at=subscription.trial_ends_at,
+        plan_id=subscription.plan_id,
+        max_patients=max_patients,
+        active_patient_count=active_patient_count,
+    )
 
 
 @router.post("/subscription", response_model=SelfMonitoringCheckoutResponse)
