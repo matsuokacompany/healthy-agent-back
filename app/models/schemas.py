@@ -57,6 +57,7 @@ class SelfMonitoringPlanRead(BaseModel):
     cycle: str
     months: int
     price_cents: int
+    max_patients: Optional[int] = None
 
 
 class PatientLinkRequestStatusEnum(str, Enum):
@@ -128,6 +129,11 @@ class SelfMonitoringSubscriptionRead(ORMModel):
     current_period_end: Optional[datetime] = None
     trial_ends_at: Optional[datetime] = None
     plan_id: Optional[str] = None
+    # Professional-only (None for a patient's own subscription): the active-
+    # patient cap for their current plan tier (None also means "no cap",
+    # e.g. grandfathered) and how many active patients they currently have.
+    max_patients: Optional[int] = None
+    active_patient_count: Optional[int] = None
 
 
 class UserBase(StrictRequestModel):

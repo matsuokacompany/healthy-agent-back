@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.email import send_email
 from app.db.security_context import set_database_service_context
 from app.services.payment_service import PaymentService
+from app.services.professional_capacity_service import require_patient_cap
 from app.models.models import (
     MonitoringPlan,
     MonitoringPlanOriginEnum,
@@ -190,6 +191,23 @@ class PatientLinkService:
 
         if self._has_active_professional_link(self.db, current_user.id):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Already linked to a professional")
+
+        professional_profile = (
+            self.db.query(ProfessionalProfile)
+            .filter(ProfessionalProfile.id == link_request.professional_profile_id)
+            .first()
+        )
+        # A missing/inactive profile means the professional deactivated
+        # since sending the request -- surfaces as the same billing error a
+        # patient would see attempting to link with an unsubscribed
+        # professional, rather than a 500 on a null profile below.
+        if (
+            not professional_profile
+            or not professional_profile.active
+            or not PaymentService(self.db).has_professional_access(professional_profile)
+        ):
+            raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="PROFESSIONAL_SUBSCRIPTION_REQUIRED")
+        require_patient_cap(self.db, professional_profile)
 
         # Deactivate any existing self-service plan — the professional-owned
         # plan created below takes over.
