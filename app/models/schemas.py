@@ -897,6 +897,16 @@ class CustomAiReportResponse(BaseModel):
     failure_code: Optional[str] = None
 
 
+class SelfMonitoringInsightRead(BaseModel):
+    patient_id: int
+    start_date: date
+    end_date: date
+    sufficient_data: bool
+    insight: Optional[dict] = None
+    generated_at: Optional[datetime] = None
+    next_generation_at: Optional[datetime] = None
+
+
 class CustomAiReportListItem(BaseModel):
     report_id: int
     patient_id: int
