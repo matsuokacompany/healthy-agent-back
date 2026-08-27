@@ -1,8 +1,10 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.security_context import set_database_service_context
 from app.models.models import MonitoringPlan, MonitoringPlanOriginEnum, User
 from app.models.schemas import CustomClinicalSummary
@@ -51,7 +53,12 @@ class SelfMonitoringService:
             patient_id=current_user.id,
             title="Automonitoramento",
             active=True,
-            start_date=date.today(),
+            # Naive date.today() reads the server's OS clock (UTC on EC2), not
+            # Brazil's calendar day — during ~21h-24h BRT that's already
+            # "tomorrow" in UTC, which pushed start_date past today and made
+            # _get_active_plan's `start_date <= today` filter (computed in
+            # SCHEDULER_TIMEZONE) reject a plan created minutes earlier.
+            start_date=datetime.now(ZoneInfo(settings.SCHEDULER_TIMEZONE)).date(),
             origin=MonitoringPlanOriginEnum.SELF_SERVICE.value,
         )
         self.db.add(plan)
@@ -73,6 +80,6 @@ class SelfMonitoringService:
     ) -> CustomClinicalSummary:
         if not PaymentService(self.db).has_access(current_user):
             raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="SUBSCRIPTION_REQUIRED")
-        resolved_end = end_date or date.today()
+        resolved_end = end_date or datetime.now(ZoneInfo(settings.SCHEDULER_TIMEZONE)).date()
         resolved_start = start_date or (resolved_end - timedelta(days=DEFAULT_EVOLUTION_PERIOD_DAYS - 1))
         return CustomReportService(self.db).build_summary(current_user.id, resolved_start, resolved_end)

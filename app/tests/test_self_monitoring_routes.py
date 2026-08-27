@@ -20,6 +20,7 @@ from app.models.models import (
     UserRole,
 )
 from app.routes import anamnese_routes, monitoring_routes, self_monitoring_routes
+from app.services import self_monitoring_service as self_monitoring_service_module
 from app.services.self_monitoring_service import SelfMonitoringService
 
 
@@ -172,3 +173,24 @@ def test_create_or_reactivate_plan_reuses_existing_active_plan():
 
     assert first.id == second.id
     assert db.query(MonitoringPlan).count() == 1
+
+
+def test_create_plan_uses_brazil_calendar_day_not_server_utc_day(monkeypatch):
+    # 01:30 UTC on the 27th is still 22:30 on the 26th in America/Sao_Paulo
+    # (UTC-3) -- a plan created in this window on a UTC-clocked server must
+    # not get "tomorrow" as its start_date, or _get_active_plan's
+    # `start_date <= today` filter (computed in Brazil's timezone) rejects
+    # it until the calendar day catches up.
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            fixed_utc = datetime(2026, 8, 27, 1, 30, tzinfo=timezone.utc)
+            return fixed_utc if tz is None else fixed_utc.astimezone(tz)
+
+    monkeypatch.setattr(self_monitoring_service_module, "datetime", FixedDatetime)
+    _, db, patient = build_client()
+    service = SelfMonitoringService(db)
+
+    plan = service.create_or_reactivate_plan(patient)
+
+    assert plan.start_date.isoformat() == "2026-08-26"
