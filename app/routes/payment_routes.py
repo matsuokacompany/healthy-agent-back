@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.permissions import has_role
 from app.core.rate_limit import limiter
-from app.models.models import ProfessionalProfile, RoleNameEnum, User
+from app.models.models import ProfessionalProfile, RoleNameEnum, Subscription, User
 from app.models.schemas import (
     SelfMonitoringCheckoutRequest,
     SelfMonitoringCheckoutResponse,
@@ -36,12 +36,7 @@ def list_self_monitoring_plans(current_user: User = Depends(get_current_user)):
     return get_self_monitoring_plans()
 
 
-@router.get("/subscription", response_model=SelfMonitoringSubscriptionRead)
-def get_self_monitoring_subscription(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    subscription = PaymentService(db).get_or_create_subscription_record(current_user)
+def _subscription_response(db: Session, current_user: User, subscription: Subscription) -> SelfMonitoringSubscriptionRead:
     max_patients = None
     active_patient_count = None
     if has_role(current_user, RoleNameEnum.PROFESSIONAL):
@@ -54,9 +49,20 @@ def get_self_monitoring_subscription(
         current_period_end=subscription.current_period_end,
         trial_ends_at=subscription.trial_ends_at,
         plan_id=subscription.plan_id,
+        cancel_at_period_end=subscription.cancel_at_period_end,
+        first_paid_at=subscription.first_paid_at,
         max_patients=max_patients,
         active_patient_count=active_patient_count,
     )
+
+
+@router.get("/subscription", response_model=SelfMonitoringSubscriptionRead)
+def get_self_monitoring_subscription(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    subscription = PaymentService(db).get_or_create_subscription_record(current_user)
+    return _subscription_response(db, current_user, subscription)
 
 
 @router.post("/subscription", response_model=SelfMonitoringCheckoutResponse)
@@ -68,6 +74,28 @@ def create_self_monitoring_checkout(
     current_user: User = Depends(get_current_user),
 ):
     return PaymentService(db).start_checkout(current_user, payload.plan_id)
+
+
+@router.post("/subscription/cancel", response_model=SelfMonitoringSubscriptionRead)
+@limiter.limit("5/minute")
+def cancel_self_monitoring_subscription(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    subscription = PaymentService(db).cancel_subscription(current_user)
+    return _subscription_response(db, current_user, subscription)
+
+
+@router.post("/subscription/refund", response_model=SelfMonitoringSubscriptionRead)
+@limiter.limit("5/minute")
+def refund_self_monitoring_subscription(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    subscription = PaymentService(db).refund_subscription(current_user)
+    return _subscription_response(db, current_user, subscription)
 
 
 @webhook_router.post("/webhook/asaas", status_code=status.HTTP_204_NO_CONTENT)

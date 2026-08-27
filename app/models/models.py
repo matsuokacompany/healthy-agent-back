@@ -495,6 +495,15 @@ class Subscription(Base):
     current_period_end = Column(DateTime(timezone=True), nullable=True)
     trial_ends_at = Column(DateTime(timezone=True), nullable=True)
     plan_id = Column(String, nullable=True)
+    # True once the user cancels: no more Asaas charges will land, but access
+    # (subscription_grants_access) is still honored until current_period_end,
+    # matching "cancelamento com efeitos a partir do próximo ciclo" (Termos de
+    # Uso §8.2.c) rather than cutting access off immediately.
+    cancel_at_period_end = Column(Boolean, nullable=False, default=False)
+    # Set once, on the first PAYMENT_CONFIRMED/PAYMENT_RECEIVED webhook event —
+    # the anchor for the 7-day CDC art. 49 withdrawal window (Política de
+    # Reembolso §1), which is measured from first payment, not from signup.
+    first_paid_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),

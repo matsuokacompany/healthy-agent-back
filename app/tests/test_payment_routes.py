@@ -123,6 +123,50 @@ def test_webhook_accepts_correct_token_and_updates_subscription(monkeypatch):
     assert subscription.status == SubscriptionStatusEnum.ACTIVE.value
 
 
+def test_cancel_endpoint_delegates_to_service(monkeypatch):
+    client, db, user = build_app_and_db()
+    monkeypatch.setattr(
+        PaymentService,
+        "cancel_subscription",
+        lambda self, current_user: Subscription(user_id=current_user.id, status=SubscriptionStatusEnum.ACTIVE.value, cancel_at_period_end=True),
+    )
+
+    response = client.post("/billing/subscription/cancel")
+
+    assert response.status_code == 200
+    assert response.json()["cancel_at_period_end"] is True
+
+
+def test_refund_endpoint_delegates_to_service(monkeypatch):
+    client, db, user = build_app_and_db()
+    monkeypatch.setattr(
+        PaymentService,
+        "refund_subscription",
+        lambda self, current_user: Subscription(user_id=current_user.id, status=SubscriptionStatusEnum.CANCELED.value, cancel_at_period_end=False),
+    )
+
+    response = client.post("/billing/subscription/refund")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "CANCELED"
+
+
+def test_refund_endpoint_surfaces_service_error(monkeypatch):
+    from fastapi import HTTPException, status
+
+    client, db, user = build_app_and_db()
+
+    def raise_expired(self, current_user):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="REFUND_WINDOW_EXPIRED")
+
+    monkeypatch.setattr(PaymentService, "refund_subscription", raise_expired)
+
+    response = client.post("/billing/subscription/refund")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "REFUND_WINDOW_EXPIRED"
+
+
 def test_webhook_returns_500_when_not_configured(monkeypatch):
     monkeypatch.setattr(settings, "ASAAS_WEBHOOK_TOKEN", None)
     client, db, _ = build_app_and_db()

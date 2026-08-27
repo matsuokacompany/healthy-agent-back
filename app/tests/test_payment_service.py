@@ -37,10 +37,20 @@ class FakeResponse:
 class FakeAsaasClient:
     """Stands in for httpx.Client, routing by URL suffix like the real Asaas API paths."""
 
-    def __init__(self, *, customer_id="cus_123", subscription_id="sub_123", invoice_url="https://asaas.test/i/abc"):
+    def __init__(
+        self,
+        *,
+        customer_id="cus_123",
+        subscription_id="sub_123",
+        invoice_url="https://asaas.test/i/abc",
+        payment_id="pay_123",
+        payment_status="CONFIRMED",
+    ):
         self.customer_id = customer_id
         self.subscription_id = subscription_id
         self.invoice_url = invoice_url
+        self.payment_id = payment_id
+        self.payment_status = payment_status
         self.calls = []
 
     def __enter__(self):
@@ -57,13 +67,21 @@ class FakeAsaasClient:
         if url.endswith("/subscriptions"):
             assert json["customer"] == self.customer_id
             return FakeResponse(200, {"id": self.subscription_id, "invoiceUrl": self.invoice_url})
+        if url.endswith("/refund"):
+            return FakeResponse(200, {})
         raise AssertionError(f"Unexpected POST {url}")
 
     def get(self, url, headers=None, params=None):
         self.calls.append((url, params))
         if url.endswith("/payments"):
-            return FakeResponse(200, {"data": [{"invoiceUrl": self.invoice_url}]})
+            return FakeResponse(200, {"data": [{"id": self.payment_id, "invoiceUrl": self.invoice_url, "status": self.payment_status}]})
         raise AssertionError(f"Unexpected GET {url}")
+
+    def delete(self, url, headers=None):
+        self.calls.append((url, None))
+        if "/subscriptions/" in url:
+            return FakeResponse(200, {"deleted": True})
+        raise AssertionError(f"Unexpected DELETE {url}")
 
 
 @pytest.fixture(autouse=True)
@@ -279,3 +297,128 @@ def test_start_trial_if_needed_is_a_noop_once_active():
 
     assert subscription.status == SubscriptionStatusEnum.ACTIVE.value
     assert subscription.trial_ends_at is None
+
+
+def test_cancel_subscription_marks_cancel_at_period_end_and_calls_asaas(monkeypatch):
+    db = build_session()
+    user = create_user(db)
+    db.add(Subscription(user_id=user.id, status=SubscriptionStatusEnum.ACTIVE.value, provider_subscription_id="sub_123"))
+    db.commit()
+    fake_client = FakeAsaasClient()
+    monkeypatch.setattr("app.services.payment_service.httpx.Client", lambda timeout=10.0: fake_client)
+
+    subscription = PaymentService(db).cancel_subscription(user)
+
+    assert subscription.cancel_at_period_end is True
+    assert subscription.status == SubscriptionStatusEnum.ACTIVE.value
+    delete_calls = [c for c in fake_client.calls if "/subscriptions/" in c[0]]
+    assert len(delete_calls) == 1
+
+
+def test_cancel_subscription_is_idempotent(monkeypatch):
+    db = build_session()
+    user = create_user(db)
+    db.add(Subscription(user_id=user.id, status=SubscriptionStatusEnum.ACTIVE.value, provider_subscription_id="sub_123"))
+    db.commit()
+    fake_client = FakeAsaasClient()
+    monkeypatch.setattr("app.services.payment_service.httpx.Client", lambda timeout=10.0: fake_client)
+
+    PaymentService(db).cancel_subscription(user)
+    PaymentService(db).cancel_subscription(user)
+
+    delete_calls = [c for c in fake_client.calls if "/subscriptions/" in c[0]]
+    assert len(delete_calls) == 1, "should not call Asaas twice for an already-canceled subscription"
+
+
+def test_cancel_subscription_rejects_when_not_active():
+    db = build_session()
+    user = create_user(db)
+
+    with pytest.raises(HTTPException) as exc:
+        PaymentService(db).cancel_subscription(user)
+
+    assert exc.value.status_code == 409
+
+
+def test_subscription_grants_access_until_period_end_after_cancel():
+    subscription = Subscription(
+        status=SubscriptionStatusEnum.ACTIVE.value,
+        cancel_at_period_end=True,
+        current_period_end=datetime.now(timezone.utc) + timedelta(days=3),
+    )
+    assert subscription_grants_access(subscription) is True
+
+    subscription.current_period_end = datetime.now(timezone.utc) - timedelta(days=1)
+    assert subscription_grants_access(subscription) is False
+
+
+def test_refund_subscription_within_window_refunds_and_cancels(monkeypatch):
+    db = build_session()
+    user = create_user(db)
+    db.add(
+        Subscription(
+            user_id=user.id,
+            status=SubscriptionStatusEnum.ACTIVE.value,
+            provider_subscription_id="sub_123",
+            first_paid_at=datetime.now(timezone.utc) - timedelta(days=2),
+        )
+    )
+    db.commit()
+    fake_client = FakeAsaasClient()
+    monkeypatch.setattr("app.services.payment_service.httpx.Client", lambda timeout=10.0: fake_client)
+
+    subscription = PaymentService(db).refund_subscription(user)
+
+    assert subscription.status == SubscriptionStatusEnum.CANCELED.value
+    refund_calls = [c for c in fake_client.calls if c[0].endswith("/refund")]
+    assert len(refund_calls) == 1
+
+
+def test_refund_subscription_rejects_outside_window():
+    db = build_session()
+    user = create_user(db)
+    db.add(
+        Subscription(
+            user_id=user.id,
+            status=SubscriptionStatusEnum.ACTIVE.value,
+            provider_subscription_id="sub_123",
+            first_paid_at=datetime.now(timezone.utc) - timedelta(days=8),
+        )
+    )
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        PaymentService(db).refund_subscription(user)
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "REFUND_WINDOW_EXPIRED"
+
+
+def test_refund_subscription_rejects_without_any_payment():
+    db = build_session()
+    user = create_user(db)
+    db.add(Subscription(user_id=user.id, status=SubscriptionStatusEnum.PENDING.value))
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        PaymentService(db).refund_subscription(user)
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "NO_PAYMENT_TO_REFUND"
+
+
+def test_webhook_payment_confirmed_sets_first_paid_at_once():
+    db = build_session()
+    user = create_user(db)
+    subscription = Subscription(user_id=user.id, status=SubscriptionStatusEnum.PENDING.value, provider_subscription_id="sub_123")
+    db.add(subscription)
+    db.commit()
+
+    PaymentService(db).handle_webhook_event({"event": "PAYMENT_CONFIRMED", "payment": {"subscription": "sub_123", "dueDate": "2026-09-25"}})
+    db.refresh(subscription)
+    first_paid_at = subscription.first_paid_at
+    assert first_paid_at is not None
+
+    PaymentService(db).handle_webhook_event({"event": "PAYMENT_CONFIRMED", "payment": {"subscription": "sub_123", "dueDate": "2026-10-25"}})
+    db.refresh(subscription)
+    assert subscription.first_paid_at == first_paid_at, "first_paid_at should not move on a later renewal payment"
