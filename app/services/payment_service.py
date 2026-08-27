@@ -41,6 +41,11 @@ def subscription_grants_access(subscription: Subscription | None) -> bool:
     if not subscription:
         return False
     if subscription.status == SubscriptionStatusEnum.ACTIVE.value:
+        if subscription.cancel_at_period_end and subscription.current_period_end:
+            current_period_end = subscription.current_period_end
+            if current_period_end.tzinfo is None:
+                current_period_end = current_period_end.replace(tzinfo=timezone.utc)
+            return datetime.now(timezone.utc) < current_period_end
         return True
     if subscription.status == SubscriptionStatusEnum.TRIALING.value:
         trial_ends_at = subscription.trial_ends_at
@@ -66,6 +71,10 @@ def professional_has_access(profile: ProfessionalProfile, subscription: Subscrip
     if profile.free_until is not None and datetime.now(timezone.utc).date() <= profile.free_until:
         return True
     return subscription_grants_access(subscription)
+
+# CDC art. 49 -- consumer's unconditional right of withdrawal for contracts
+# made online, counted from the first payment (see Política de Reembolso §1).
+REFUND_WINDOW_DAYS = 7
 
 ASAAS_BASE_URLS = {
     "sandbox": "https://sandbox.asaas.com/api/v3",
@@ -157,6 +166,12 @@ class PaymentService:
             and subscription.plan_id == plan.id
         )
         if reuse_existing:
+            if subscription.cancel_at_period_end:
+                # Checking out again for the same plan they'd previously
+                # canceled reads as "I changed my mind" -- undo the
+                # cancel-at-period-end instead of leaving it pending.
+                subscription.cancel_at_period_end = False
+                self.db.commit()
             invoice_url = self._fetch_latest_invoice_url(subscription.provider_subscription_id)
         else:
             asaas_subscription = self._create_subscription(
@@ -170,6 +185,47 @@ class PaymentService:
             )
 
         return {"checkout_url": invoice_url, "status": subscription.status, "plan_id": plan.id}
+
+    def cancel_subscription(self, user: User) -> Subscription:
+        """Stop future renewals; access is kept until current_period_end,
+        matching the "cancelamento a qualquer momento, com efeitos a partir
+        do próximo ciclo" promised in Termos de Uso §8.2.c."""
+        subscription = self.get_or_create_subscription_record(user)
+        if subscription.status != SubscriptionStatusEnum.ACTIVE.value:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="NO_ACTIVE_SUBSCRIPTION")
+        if subscription.cancel_at_period_end:
+            return subscription
+        if subscription.provider_subscription_id:
+            self._delete_asaas_subscription(subscription.provider_subscription_id)
+        subscription.cancel_at_period_end = True
+        self.db.commit()
+        self.db.refresh(subscription)
+        return subscription
+
+    def refund_subscription(self, user: User) -> Subscription:
+        """Full refund of the most recent payment, only inside the CDC art.
+        49 withdrawal window (Política de Reembolso §1) -- 7 days from the
+        first successful payment, not from signup."""
+        subscription = self.get_or_create_subscription_record(user)
+        first_paid_at = subscription.first_paid_at
+        if not first_paid_at or not subscription.provider_subscription_id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="NO_PAYMENT_TO_REFUND")
+        if first_paid_at.tzinfo is None:
+            first_paid_at = first_paid_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - first_paid_at > timedelta(days=REFUND_WINDOW_DAYS):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="REFUND_WINDOW_EXPIRED")
+
+        payment = self._fetch_latest_payment(subscription.provider_subscription_id)
+        if not payment or payment.get("status") not in {"CONFIRMED", "RECEIVED"}:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="NO_PAYMENT_TO_REFUND")
+
+        self._refund_payment(payment["id"])
+        self._delete_asaas_subscription(subscription.provider_subscription_id)
+        subscription.status = SubscriptionStatusEnum.CANCELED.value
+        subscription.cancel_at_period_end = False
+        self.db.commit()
+        self.db.refresh(subscription)
+        return subscription
 
     def _create_customer(self, user: User) -> str:
         with httpx.Client(timeout=10.0) as client:
@@ -224,6 +280,10 @@ class PaymentService:
         return response.json()
 
     def _fetch_latest_invoice_url(self, asaas_subscription_id: str) -> str | None:
+        payment = self._fetch_latest_payment(asaas_subscription_id)
+        return payment.get("invoiceUrl") if payment else None
+
+    def _fetch_latest_payment(self, asaas_subscription_id: str) -> dict[str, Any] | None:
         with httpx.Client(timeout=10.0) as client:
             response = client.get(
                 f"{_asaas_base_url()}/payments",
@@ -233,7 +293,35 @@ class PaymentService:
         if response.status_code >= 400:
             return None
         payments = response.json().get("data") or []
-        return payments[0].get("invoiceUrl") if payments else None
+        return payments[0] if payments else None
+
+    def _delete_asaas_subscription(self, asaas_subscription_id: str) -> None:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.delete(
+                f"{_asaas_base_url()}/subscriptions/{asaas_subscription_id}",
+                headers=_asaas_headers(),
+            )
+        if response.status_code >= 400:
+            logger.error(
+                "Asaas subscription cancellation failed | subscription_id=%s status=%s",
+                asaas_subscription_id,
+                response.status_code,
+            )
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="BILLING_PROVIDER_ERROR")
+
+    def _refund_payment(self, asaas_payment_id: str) -> None:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(
+                f"{_asaas_base_url()}/payments/{asaas_payment_id}/refund",
+                headers=_asaas_headers(),
+            )
+        if response.status_code >= 400:
+            logger.error(
+                "Asaas payment refund failed | payment_id=%s status=%s",
+                asaas_payment_id,
+                response.status_code,
+            )
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="BILLING_PROVIDER_ERROR")
 
     def handle_webhook_event(self, payload: dict[str, Any]) -> None:
         set_database_service_context(self.db, "asaas_webhook")
@@ -260,6 +348,8 @@ class PaymentService:
 
         if event in {"PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"}:
             subscription.status = SubscriptionStatusEnum.ACTIVE.value
+            if subscription.first_paid_at is None:
+                subscription.first_paid_at = datetime.now(timezone.utc)
             due_date = payment.get("dueDate")
             if due_date:
                 subscription.current_period_end = datetime.fromisoformat(due_date).replace(tzinfo=timezone.utc)
