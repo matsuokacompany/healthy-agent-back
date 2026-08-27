@@ -1,6 +1,6 @@
 # Política de Privacidade — Julha
 
-**Última atualização:** 25 de agosto de 2026
+**Última atualização:** 27 de agosto de 2026
 
 > **Este documento é uma minuta técnica preparada com base no funcionamento real da plataforma Julha
 > e na Lei Geral de Proteção de Dados (Lei 13.709/2018 — LGPD). Não constitui aconselhamento
@@ -48,13 +48,16 @@ proteção reforçada:
 Identificador de sessão (via Supabase Auth), endereço de e-mail vinculado à conta, registros técnicos
 de acesso e uso da Plataforma para fins de segurança (ex.: detecção de tentativas de acesso indevido).
 
-### 3.4. Dados que não coletamos hoje
+### 3.4. Dados de cobrança
 
-A Plataforma, no modelo atual (B2B), **não coleta nem armazena dados de pagamento**, pois o Paciente
-não realiza pagamento direto à Julha. Caso a modalidade de autoacompanhamento pago (B2C) descrita nos
-Termos de Uso seja lançada, esta Política será atualizada antes do lançamento para descrever o
-tratamento de dados de pagamento, que será realizado por um processador de pagamentos terceirizado
-especializado, e não diretamente pela Julha.
+Para Usuários que contratam a modalidade paga (autoacompanhamento B2C ou assinatura profissional),
+coletamos CPF e utilizamos um identificador de cliente/assinatura junto ao processador de pagamentos.
+**A Julha não coleta nem armazena número de cartão de crédito ou outros dados sensíveis de pagamento**:
+esse processamento é feito diretamente pelo processador de pagamentos terceirizado (Cláusula 6),
+seguindo os padrões de segurança do setor (PCI-DSS). A Julha armazena apenas o status da assinatura
+(ativa, pendente, atrasada, cancelada), datas do ciclo de cobrança e um identificador de referência
+junto ao processador — necessários para liberar o acesso e processar solicitações de cancelamento e
+reembolso.
 
 ## 4. Como coletamos seus dados
 
@@ -74,7 +77,7 @@ especializado, e não diretamente pela Julha.
 | Gerar Relatórios de IA como apoio à análise do Profissional | Tutela da saúde (art. 11, II, "f"), com consentimento adicional do titular quando exigido |
 | Processar imagens clínicas enviadas voluntariamente | Consentimento específico e destacado do titular (art. 11, I) |
 | Prevenir fraude e proteger a segurança da Plataforma | Legítimo interesse (art. 7º, IX) e cumprimento de obrigação legal |
-| Cobrar pelo uso da Plataforma (modalidade B2C futura) | Execução de contrato (art. 7º, V) |
+| Cobrar pela assinatura (autoacompanhamento B2C ou assinatura profissional) | Execução de contrato (art. 7º, V) |
 
 Quando o Paciente for menor de idade, o tratamento de seus dados depende do consentimento específico e
 destacado de um dos pais ou de seu responsável legal, nos termos do art. 14 da LGPD, obtido no momento
@@ -94,6 +97,10 @@ exigido por lei:
   sintomas.
 - **Amazon Web Services (AWS KMS)** — gestão das chaves criptográficas usadas para proteger campos
   clínicos sensíveis (ver Cláusula 8); a AWS não tem acesso ao conteúdo clínico em texto claro.
+- **Asaas** — processamento de pagamentos e cobrança recorrente para as assinaturas pagas (Cláusula
+  3.4). Recebe nome, e-mail, telefone e CPF do titular da cobrança para emissão da fatura; a Julha não
+  tem acesso a dados de cartão de crédito, que são inseridos diretamente na página de pagamento do
+  Asaas.
 
 Nenhum desses operadores está autorizado a usar seus dados para finalidade própria ou de terceiros
 alheia à prestação do serviço à Julha.

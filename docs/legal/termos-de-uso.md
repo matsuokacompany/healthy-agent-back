@@ -1,6 +1,6 @@
 # Termos de Uso — Julha
 
-**Última atualização:** 25 de agosto de 2026
+**Última atualização:** 27 de agosto de 2026
 
 > **Este documento é uma minuta técnica preparada com base no funcionamento real da plataforma Julha.
 > Não constitui aconselhamento jurídico. Antes de publicar, submeta este texto à revisão de um
@@ -51,13 +51,12 @@ qualquer situação de urgência, o Usuário deve procurar imediatamente atendim
 ligar para os serviços de emergência (192 - SAMU, ou o número local aplicável). Não envie relatos de
 emergência apenas pelo WhatsApp da Plataforma.
 
-3.4. **Modelo de negócio atual e futuro.** Hoje a Julha opera em modelo B2B: profissionais e clínicas
-contratam o uso da Plataforma para acompanhar seus próprios pacientes, e o Paciente não realiza
-nenhum pagamento à Julha. A Julha pretende, no futuro, oferecer também um plano de uso direto ao
-consumidor (B2C), no qual a própria pessoa poderá contratar e pagar pelo acompanhamento de sua
-evolução de sintomas para fins de autoconhecimento e organização pessoal de saúde, **sem que isso
-configure diagnóstico médico ou substitua acompanhamento profissional**. A Cláusula 8 já prevê as
-regras aplicáveis a essa modalidade paga, para quando ela for lançada.
+3.4. **Modelo de negócio.** A Julha opera em dois modelos simultâneos: (a) modelo B2B, em que
+profissionais e clínicas contratam o uso da Plataforma para acompanhar seus próprios pacientes, caso em
+que o Paciente não realiza nenhum pagamento à Julha; e (b) modelo B2C de autoacompanhamento, em que a
+própria pessoa contrata e paga diretamente pelo acompanhamento de sua evolução de sintomas para fins de
+autoconhecimento e organização pessoal de saúde, **sem que isso configure diagnóstico médico ou
+substitua acompanhamento profissional**. A Cláusula 8 detalha as regras aplicáveis à modalidade paga.
 
 ## 4. Cadastro e elegibilidade
 
@@ -134,30 +133,40 @@ funcionamento da Plataforma.
 
 ## 8. Planos, pagamento e modalidade de autoacompanhamento (B2C)
 
-8.1. **Modelo atual (B2B).** O uso da Plataforma pelo Profissional/clínica está sujeito às condições
-comerciais acordadas separadamente entre a Julha e o contratante. O Paciente não paga pela Plataforma
-no modelo atual.
+8.1. **Modelo B2B.** O uso da Plataforma pelo Profissional/clínica está sujeito às condições comerciais
+de sua assinatura profissional, contratada diretamente na Plataforma (com faixas de preço conforme o
+número de pacientes simultaneamente ativos sob seu acompanhamento) ou acordadas separadamente com a
+Julha. O Paciente não paga pela Plataforma quando é acompanhado por um Profissional nesse modelo.
 
-8.2. **Modalidade futura de autoacompanhamento pago (B2C).** Quando disponibilizada, a contratação
-direta por pessoa física para acompanhamento de sua própria evolução de sintomas estará sujeita às
-seguintes regras, sem prejuízo de outras que venham a ser publicadas no momento do lançamento:
+8.2. **Modalidade de autoacompanhamento pago (B2C).** A contratação direta por pessoa física para
+acompanhamento de sua própria evolução de sintomas está sujeita às seguintes regras:
 
-a) os valores, periodicidade e forma de cobrança serão informados de forma clara antes da contratação;
+a) os valores, periodicidade e forma de cobrança são informados de forma clara antes da contratação, na
+própria Plataforma;
 
-b) nos termos do art. 49 do Código de Defesa do Consumidor, o consumidor que contratar fora do
-estabelecimento comercial (incluindo pela internet) poderá desistir da contratação em até **7 (sete)
-dias corridos** a partir da contratação ou do recebimento do serviço, com direito a reembolso integral
-dos valores eventualmente pagos;
+b) nos termos do art. 49 do Código de Defesa do Consumidor, o consumidor que contratar pela internet
+poderá desistir da contratação em até **7 (sete) dias corridos** a partir da contratação, com direito a
+reembolso integral dos valores pagos, conforme a Política de Reembolso;
 
-c) havendo renovação automática de assinatura, isso será informado de forma destacada, com opção
-simples de cancelamento a qualquer momento, com efeitos a partir do próximo ciclo;
+c) a assinatura é renovada automaticamente a cada ciclo (mensal, semestral ou anual, conforme o plano
+escolhido), com opção de cancelamento a qualquer momento pelo próprio Usuário na Plataforma, com
+efeitos a partir do próximo ciclo de cobrança;
 
-d) o cancelamento não gera reembolso proporcional do período já em curso, salvo disposição diversa
-informada no momento da contratação ou exigência legal aplicável.
+d) fora do prazo de arrependimento da alínea "b", o cancelamento não gera reembolso proporcional do
+período já em curso, salvo disposição diversa prevista na Política de Reembolso ou exigência legal
+aplicável.
 
-8.3. Esta modalidade reforça o disposto na Cláusula 3.2: mesmo quando paga diretamente pelo Paciente,
-a Plataforma **continua sem realizar diagnóstico médico**, servindo apenas para organização e
-acompanhamento pessoal de sintomas ao longo do tempo.
+8.3. As mesmas regras de arrependimento (alínea "b") e cancelamento (alínea "c") da Cláusula 8.2 se
+aplicam à assinatura profissional (B2B) quando contratada diretamente na Plataforma por pessoa física
+ou pessoa jurídica equiparada a consumidor, no que for cabível.
+
+8.4. As condições completas de reembolso — prazos, forma de solicitação e casos em que reembolso
+proporcional pode ser concedido a critério da Julha — estão descritas na
+[Política de Reembolso](./politica-de-reembolso.md), parte integrante destes Termos.
+
+8.5. Esta modalidade reforça o disposto na Cláusula 3.2: mesmo quando paga diretamente pelo Paciente ou
+pelo Profissional, a Plataforma **continua sem realizar diagnóstico médico**, servindo apenas para
+organização e acompanhamento de sintomas ao longo do tempo.
 
 ## 9. Propriedade intelectual
 
