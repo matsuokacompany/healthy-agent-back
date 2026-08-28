@@ -11,12 +11,14 @@ from app.db.session import SessionLocal
 from app.db.security_context import set_database_service_context
 from app.models.models import CheckTypeEnum, MonitoringPlan, MonitoringPlanOriginEnum, Subscription, User
 from app.services.daily_report_service import DailyReportService
+from app.services.dunning_service import DunningService
 from app.services.payment_service import subscription_grants_access
 
 logger = logging.getLogger(__name__)
 
 _scheduler: AsyncIOScheduler | None = None
 SCHEDULER_ADVISORY_LOCK_ID = 2026063001
+DUNNING_ADVISORY_LOCK_ID = 2026063002
 
 
 def _mask_identifier(value: str | None) -> str | None:
@@ -162,6 +164,31 @@ async def send_prompt(bot_manager, check_type: CheckTypeEnum) -> None:
     )
 
 
+async def run_dunning_reminders() -> None:
+    logger.info("DUNNING_REMINDERS START")
+
+    db = SessionLocal()
+    lock_acquired = False
+    try:
+        lock_acquired = _try_acquire_scheduler_lock(db, DUNNING_ADVISORY_LOCK_ID)
+        if not lock_acquired:
+            logger.info("DUNNING_REMINDERS SKIPPED | reason=advisory_lock_busy")
+            return
+
+        result = DunningService(db).run_daily_reminders()
+        logger.info("DUNNING_REMINDERS DONE | %s", result)
+    except Exception:
+        db.rollback()
+        logger.exception("FATAL ERROR run_dunning_reminders")
+    finally:
+        if lock_acquired:
+            try:
+                _release_scheduler_lock(db, DUNNING_ADVISORY_LOCK_ID)
+            except Exception:
+                logger.exception("Failed to release dunning advisory lock")
+        db.close()
+
+
 def start_scheduler(bot_manager):
     global _scheduler
 
@@ -188,6 +215,13 @@ def start_scheduler(bot_manager):
         ),
         args=[bot_manager, CheckTypeEnum.MORNING],
         id="morning",
+        replace_existing=True,
+    )
+
+    _scheduler.add_job(
+        run_dunning_reminders,
+        CronTrigger(hour=9, minute=0, timezone=tz),
+        id="dunning_reminders",
         replace_existing=True,
     )
 

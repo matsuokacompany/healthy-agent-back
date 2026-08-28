@@ -84,6 +84,45 @@ def test_list_plans_returns_configured_plans(monkeypatch):
     assert body[0]["price_cents"] == 1990
 
 
+def test_public_plans_endpoint_requires_no_auth(monkeypatch):
+    monkeypatch.setattr(settings, "ASAAS_SELF_MONITORING_PRICE_CENTS", 1990)
+    client, _, _ = build_app_and_db()
+    del client.app.dependency_overrides[get_current_user]
+
+    response = client.get("/billing/plans/public")
+
+    assert response.status_code == 200
+    assert [plan["id"] for plan in response.json()] == ["monthly"]
+
+
+def test_public_plans_endpoint_returns_professional_catalog_when_asked(monkeypatch):
+    monkeypatch.setattr(settings, "ASAAS_PROFESSIONAL_MONTHLY_PRICE_CENTS", 3990)
+    client, _, _ = build_app_and_db()
+    del client.app.dependency_overrides[get_current_user]
+
+    response = client.get("/billing/plans/public", params={"audience": "professional"})
+
+    assert response.status_code == 200
+    assert "monthly" in [plan["id"] for plan in response.json()]
+    assert response.json()[0]["max_patients"] == 10
+
+
+def test_list_invoices_endpoint_delegates_to_service(monkeypatch):
+    client, db, user = build_app_and_db()
+    monkeypatch.setattr(
+        PaymentService,
+        "list_invoices",
+        lambda self, current_user, limit=24: [
+            {"id": "pay_1", "value": 39.9, "status": "CONFIRMED", "due_date": "2026-09-01", "payment_date": None, "invoice_url": "https://asaas.test/i/1", "description": "Julha"}
+        ],
+    )
+
+    response = client.get("/billing/invoices")
+
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == "pay_1"
+
+
 def test_webhook_rejects_missing_token(monkeypatch):
     monkeypatch.setattr(settings, "ASAAS_WEBHOOK_TOKEN", "shared-secret")
     client, db, _ = build_app_and_db()

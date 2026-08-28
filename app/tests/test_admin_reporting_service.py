@@ -18,6 +18,8 @@ from app.models.models import (
     ProfessionalProfile,
     Role,
     RoleNameEnum,
+    Subscription,
+    SubscriptionStatusEnum,
     User,
     UserRole,
 )
@@ -276,3 +278,81 @@ def test_cost_summary_includes_manual_cost_entries():
     assert summary.manual_cost_total_cents == 5000
     assert len(summary.manual_cost_entries) == 1
     assert summary.manual_cost_entries[0].description == "Infra"
+
+
+def test_billing_summary_computes_mrr_from_active_subscriptions(monkeypatch):
+    monkeypatch.setattr(settings, "ASAAS_SELF_MONITORING_PRICE_CENTS", 2990)
+    monkeypatch.setattr(settings, "ASAAS_SELF_MONITORING_SEMIANNUAL_PRICE_CENTS", 9990)
+    monkeypatch.setattr(settings, "ASAAS_PROFESSIONAL_MONTHLY_PRICE_CENTS", 3990)
+    db = build_session()
+    patient_monthly = create_patient(db, email="patient-monthly@example.com", active_plan=False)
+    patient_semiannual = create_patient(db, email="patient-semiannual@example.com", active_plan=False)
+    professional = create_professional(db, email="professional@example.com", active_profile=True)
+
+    db.add_all([
+        Subscription(user_id=patient_monthly.id, status=SubscriptionStatusEnum.ACTIVE.value, plan_id="monthly"),
+        Subscription(user_id=patient_semiannual.id, status=SubscriptionStatusEnum.ACTIVE.value, plan_id="semiannual"),
+        Subscription(user_id=professional.id, status=SubscriptionStatusEnum.ACTIVE.value, plan_id="monthly"),
+    ])
+    db.commit()
+
+    summary = AdminReportingService(db).billing_summary()
+
+    # 2990 (patient monthly) + 9990/6=1665 (patient semiannual) + 3990 (professional monthly)
+    assert summary.mrr_cents == 2990 + 1665 + 3990
+    assert summary.active_subscriptions == 3
+
+
+def test_billing_summary_counts_trialing_and_past_due():
+    db = build_session()
+    patient_a = create_patient(db, email="a@example.com", active_plan=False)
+    patient_b = create_patient(db, email="b@example.com", active_plan=False)
+    db.add_all([
+        Subscription(user_id=patient_a.id, status=SubscriptionStatusEnum.TRIALING.value),
+        Subscription(user_id=patient_b.id, status=SubscriptionStatusEnum.PAST_DUE.value),
+    ])
+    db.commit()
+
+    summary = AdminReportingService(db).billing_summary()
+
+    assert summary.trialing_subscriptions == 1
+    assert summary.past_due_subscriptions == 1
+    assert summary.mrr_cents == 0
+
+
+def test_billing_summary_churn_rate_from_recent_cancellations():
+    db = build_session()
+    active_patient = create_patient(db, email="active@example.com", active_plan=False)
+    canceled_patient = create_patient(db, email="canceled@example.com", active_plan=False)
+    db.add(Subscription(user_id=active_patient.id, status=SubscriptionStatusEnum.ACTIVE.value, plan_id="monthly"))
+    db.add(
+        Subscription(
+            user_id=canceled_patient.id,
+            status=SubscriptionStatusEnum.CANCELED.value,
+            updated_at=datetime.now(timezone.utc) - timedelta(days=5),
+        )
+    )
+    db.commit()
+
+    summary = AdminReportingService(db).billing_summary()
+
+    assert summary.canceled_last_30d == 1
+    assert summary.churn_rate == 0.5
+
+
+def test_billing_summary_ignores_cancellations_older_than_30_days():
+    db = build_session()
+    canceled_patient = create_patient(db, email="canceled@example.com", active_plan=False)
+    db.add(
+        Subscription(
+            user_id=canceled_patient.id,
+            status=SubscriptionStatusEnum.CANCELED.value,
+            updated_at=datetime.now(timezone.utc) - timedelta(days=45),
+        )
+    )
+    db.commit()
+
+    summary = AdminReportingService(db).billing_summary()
+
+    assert summary.canceled_last_30d == 0
+    assert summary.churn_rate == 0.0

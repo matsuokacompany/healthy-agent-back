@@ -4,7 +4,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.billing_plans import get_professional_plan, get_self_monitoring_plan
 from app.core.config import settings
+from app.core.permissions import has_role
 from app.models.models import (
     AdminCostEntry,
     AiReportCache,
@@ -13,9 +15,12 @@ from app.models.models import (
     MonitoringPlan,
     ProfessionalProfile,
     RoleNameEnum,
+    Subscription,
+    SubscriptionStatusEnum,
     User,
 )
 from app.models.schemas import (
+    AdminBillingSummary,
     AdminCostEntryCreate,
     AdminCostEntryRead,
     AdminCostSummary,
@@ -202,4 +207,47 @@ class AdminReportingService:
             daily=daily,
             cost_per_message_cents=cost_per_message,
             estimated_cost_cents=estimated_cost_cents,
+        )
+
+    def billing_summary(self) -> AdminBillingSummary:
+        active_rows = (
+            self.db.query(Subscription, User)
+            .join(User, User.id == Subscription.user_id)
+            .filter(Subscription.status == SubscriptionStatusEnum.ACTIVE.value)
+            .all()
+        )
+
+        mrr_cents = 0
+        for subscription, user in active_rows:
+            if not subscription.plan_id:
+                continue
+            resolve_plan = get_professional_plan if has_role(user, RoleNameEnum.PROFESSIONAL) else get_self_monitoring_plan
+            plan = resolve_plan(subscription.plan_id)
+            if plan and plan.months:
+                mrr_cents += round(plan.price_cents / plan.months)
+
+        trialing_count = (
+            self.db.query(Subscription).filter(Subscription.status == SubscriptionStatusEnum.TRIALING.value).count()
+        )
+        past_due_count = (
+            self.db.query(Subscription).filter(Subscription.status == SubscriptionStatusEnum.PAST_DUE.value).count()
+        )
+        thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+        canceled_last_30d = (
+            self.db.query(Subscription)
+            .filter(Subscription.status == SubscriptionStatusEnum.CANCELED.value, Subscription.updated_at >= thirty_days_ago)
+            .count()
+        )
+
+        active_count = len(active_rows)
+        churn_denominator = active_count + canceled_last_30d
+        churn_rate = (canceled_last_30d / churn_denominator) if churn_denominator else 0.0
+
+        return AdminBillingSummary(
+            mrr_cents=mrr_cents,
+            active_subscriptions=active_count,
+            trialing_subscriptions=trialing_count,
+            past_due_subscriptions=past_due_count,
+            canceled_last_30d=canceled_last_30d,
+            churn_rate=round(churn_rate, 4),
         )
