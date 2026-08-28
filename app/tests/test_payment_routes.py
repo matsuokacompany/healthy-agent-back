@@ -137,6 +137,24 @@ def test_cancel_endpoint_delegates_to_service(monkeypatch):
     assert response.json()["cancel_at_period_end"] is True
 
 
+def test_change_plan_endpoint_delegates_to_service(monkeypatch):
+    client, db, user = build_app_and_db()
+    monkeypatch.setattr(
+        PaymentService,
+        "change_plan",
+        lambda self, current_user, plan_id: {
+            "checkout_url": "https://asaas.test/i/proration",
+            "status": "ACTIVE",
+            "plan_id": plan_id,
+        },
+    )
+
+    response = client.post("/billing/subscription/change-plan", json={"plan_id": "semiannual"})
+
+    assert response.status_code == 200
+    assert response.json() == {"checkout_url": "https://asaas.test/i/proration", "status": "ACTIVE", "plan_id": "semiannual"}
+
+
 def test_refund_endpoint_delegates_to_service(monkeypatch):
     client, db, user = build_app_and_db()
     monkeypatch.setattr(

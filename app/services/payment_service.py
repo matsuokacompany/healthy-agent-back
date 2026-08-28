@@ -9,7 +9,11 @@ confirm against the current Asaas docs:
   (PAYMENT_CONFIRMED/PAYMENT_RECEIVED/PAYMENT_OVERDUE/etc. below is a
   best-effort list, not a verified one);
 - the response shape of GET /v3/payments (assumed to be
-  {"data": [...], ...}, used only as a fallback to fetch the invoice URL).
+  {"data": [...], ...}, used only as a fallback to fetch the invoice URL);
+- that PUT /v3/subscriptions/{id} updates `value`/`cycle` for future charges
+  only, leaving any already-generated pending payment for the current cycle
+  untouched (change_plan relies on this to avoid double-charging the current
+  cycle when a self-service plan change is requested).
 
 Never used for professional-managed patients: their billing is a separate
 business arrangement between Julha and the clinic, outside this platform.
@@ -167,11 +171,12 @@ class PaymentService:
         subscription = self.get_or_create_subscription_record(user)
 
         if subscription.status == SubscriptionStatusEnum.ACTIVE.value and subscription.plan_id != plan.id:
-            # Changing plans on an already-paying subscriber isn't supported
-            # yet — that needs cancel-then-resubscribe handling on the Asaas
-            # side to avoid double-charging. Keep this explicit rather than
-            # silently ignoring the requested plan.
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="PLAN_CHANGE_NOT_SUPPORTED")
+            # An already-paying subscriber changes plans through change_plan
+            # (self-service, takes effect next cycle), not by checking out
+            # again -- that would double-charge them on top of the existing
+            # Asaas subscription. Keep this explicit rather than silently
+            # ignoring the requested plan.
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="USE_CHANGE_PLAN_ENDPOINT")
 
         if not subscription.provider_customer_id:
             subscription.provider_customer_id = self._create_customer(user)
@@ -218,6 +223,98 @@ class PaymentService:
         self.db.commit()
         self.db.refresh(subscription)
         return subscription
+
+    def change_plan(self, user: User, plan_id: str) -> dict[str, Any]:
+        """Self-service upgrade/downgrade for an already-active subscriber.
+
+        Takes effect immediately -- not at the next cycle -- so a professional
+        who needs a higher patient cap right now (e.g. onboarding a patient
+        urgently) isn't blocked until renewal. An upgrade is prorated: the
+        customer is charged now for the remaining days of the current cycle
+        at the new plan's daily rate, minus what's left unused of what they
+        already paid; a downgrade takes effect immediately with no refund of
+        the unused difference, consistent with the no-proration-refund rule
+        already in place for cancellation (Termos de Uso §8.2.d) -- only
+        upgrades (consuming more) generate a new charge.
+        """
+        is_professional_plan = has_role(user, RoleNameEnum.PROFESSIONAL)
+        resolve_plan = get_professional_plan if is_professional_plan else get_self_monitoring_plan
+        plan = resolve_plan(plan_id)
+        if not plan:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="INVALID_PLAN")
+
+        subscription = self.get_or_create_subscription_record(user)
+        if subscription.status != SubscriptionStatusEnum.ACTIVE.value or not subscription.provider_subscription_id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="NO_ACTIVE_SUBSCRIPTION")
+
+        if plan.id == subscription.plan_id:
+            return {"checkout_url": None, "status": subscription.status, "plan_id": subscription.plan_id}
+
+        old_plan = resolve_plan(subscription.plan_id) if subscription.plan_id else None
+        proration_cents = self._compute_proration_cents(subscription, old_plan, plan)
+
+        self._update_asaas_subscription(subscription.provider_subscription_id, plan, professional=is_professional_plan)
+        subscription.plan_id = plan.id
+        self.db.commit()
+        self.db.refresh(subscription)
+
+        checkout_url = None
+        if proration_cents > 0:
+            checkout_url = self._charge_proration(subscription.provider_customer_id, proration_cents, plan)
+
+        return {"checkout_url": checkout_url, "status": subscription.status, "plan_id": subscription.plan_id}
+
+    def _compute_proration_cents(
+        self, subscription: Subscription, old_plan: SelfMonitoringPlan | None, new_plan: SelfMonitoringPlan
+    ) -> int:
+        """Rough day-based proration (30-day months, like the rest of this
+        service's cycle handling) -- not cent-perfect, but good enough for a
+        one-off top-up charge rather than money the customer disputes over
+        a few cents."""
+        if not subscription.current_period_end:
+            return 0
+        period_end = subscription.current_period_end
+        if period_end.tzinfo is None:
+            period_end = period_end.replace(tzinfo=timezone.utc)
+        days_remaining = (period_end - datetime.now(timezone.utc)).days
+        if days_remaining <= 0:
+            return 0
+
+        new_cycle_days = new_plan.months * 30
+        new_value_for_remainder = new_plan.price_cents * days_remaining / new_cycle_days
+
+        unused_old_value = 0.0
+        if old_plan:
+            old_cycle_days = old_plan.months * 30
+            unused_old_value = old_plan.price_cents * days_remaining / old_cycle_days
+
+        return round(new_value_for_remainder - unused_old_value)
+
+    def _charge_proration(self, customer_id: str | None, amount_cents: int, plan: SelfMonitoringPlan) -> str | None:
+        if not customer_id:
+            return None
+        value = round(amount_cents / 100, 2)
+        due_date = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(
+                f"{_asaas_base_url()}/payments",
+                headers=_asaas_headers(),
+                json={
+                    "customer": customer_id,
+                    "billingType": "UNDEFINED",
+                    "value": value,
+                    "dueDate": due_date,
+                    "description": f"Julha - Ajuste proporcional de troca de plano ({plan.label})",
+                },
+            )
+        if response.status_code >= 400:
+            logger.error(
+                "Asaas proration charge failed | customer_id=%s status=%s",
+                customer_id,
+                response.status_code,
+            )
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="BILLING_PROVIDER_ERROR")
+        return response.json().get("invoiceUrl")
 
     def refund_subscription(self, user: User) -> Subscription:
         """Full refund of the most recent payment, only inside the CDC art.
@@ -295,6 +392,29 @@ class PaymentService:
             )
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="BILLING_PROVIDER_ERROR")
         return response.json()
+
+    def _update_asaas_subscription(
+        self, asaas_subscription_id: str, plan: SelfMonitoringPlan, *, professional: bool = False
+    ) -> None:
+        value = round(plan.price_cents / 100, 2)
+        description = (
+            f"Julha - Assinatura profissional ({plan.label})"
+            if professional
+            else f"Julha - Automonitoramento de sintomas ({plan.label})"
+        )
+        with httpx.Client(timeout=10.0) as client:
+            response = client.put(
+                f"{_asaas_base_url()}/subscriptions/{asaas_subscription_id}",
+                headers=_asaas_headers(),
+                json={"value": value, "cycle": plan.cycle, "description": description},
+            )
+        if response.status_code >= 400:
+            logger.error(
+                "Asaas subscription update failed | subscription_id=%s status=%s",
+                asaas_subscription_id,
+                response.status_code,
+            )
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="BILLING_PROVIDER_ERROR")
 
     def _fetch_latest_invoice_url(self, asaas_subscription_id: str) -> str | None:
         payment = self._fetch_latest_payment(asaas_subscription_id)

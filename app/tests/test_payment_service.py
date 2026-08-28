@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.db.base_class import Base
-from app.models.models import Subscription, SubscriptionStatusEnum, User
+from app.models.models import ProfessionalProfile, Role, RoleNameEnum, Subscription, SubscriptionStatusEnum, User, UserRole
 from app.services.payment_service import PaymentService, subscription_grants_access
 
 
@@ -23,6 +23,18 @@ def create_user(db, *, cpf="12345678900"):
     db.commit()
     db.refresh(user)
     return user
+
+
+def create_professional(db, *, cpf="12345678900"):
+    role = Role(name=RoleNameEnum.PROFESSIONAL.value)
+    professional = User(name="Dr. Bruno", email="bruno@example.com", cpf=cpf)
+    db.add_all([role, professional])
+    db.flush()
+    db.add(UserRole(user_id=professional.id, role_id=role.id))
+    db.add(ProfessionalProfile(user_id=professional.id, active=True))
+    db.commit()
+    db.refresh(professional)
+    return professional
 
 
 class FakeResponse:
@@ -69,6 +81,9 @@ class FakeAsaasClient:
             return FakeResponse(200, {"id": self.subscription_id, "invoiceUrl": self.invoice_url})
         if url.endswith("/refund"):
             return FakeResponse(200, {})
+        if url.endswith("/payments"):
+            assert json["customer"], "customer must be sent to Asaas"
+            return FakeResponse(200, {"id": "pay_proration", "invoiceUrl": self.invoice_url})
         raise AssertionError(f"Unexpected POST {url}")
 
     def get(self, url, headers=None, params=None):
@@ -82,6 +97,12 @@ class FakeAsaasClient:
         if "/subscriptions/" in url:
             return FakeResponse(200, {"deleted": True})
         raise AssertionError(f"Unexpected DELETE {url}")
+
+    def put(self, url, headers=None, json=None):
+        self.calls.append((url, json))
+        if "/subscriptions/" in url:
+            return FakeResponse(200, {"id": self.subscription_id, **(json or {})})
+        raise AssertionError(f"Unexpected PUT {url}")
 
 
 @pytest.fixture(autouse=True)
@@ -179,6 +200,126 @@ def test_start_checkout_blocks_plan_change_while_active(monkeypatch):
         PaymentService(db).start_checkout(user, "semiannual")
 
     assert exc.value.status_code == 409
+
+
+def test_change_plan_upgrade_takes_effect_immediately_and_charges_proration(monkeypatch):
+    # Same MONTHLY cycle, higher patient-cap tier -- the case a professional
+    # hits when they urgently need to raise their active-patient cap right
+    # now rather than waiting for the next billing cycle.
+    monkeypatch.setattr(settings, "ASAAS_PROFESSIONAL_MONTHLY_PRICE_CENTS", 3990)
+    monkeypatch.setattr(settings, "ASAAS_PROFESSIONAL_TIER50_MONTHLY_PRICE_CENTS", 14990)
+    db = build_session()
+    professional = create_professional(db)
+    subscription = Subscription(
+        user_id=professional.id,
+        status=SubscriptionStatusEnum.ACTIVE.value,
+        provider_customer_id="cus_123",
+        provider_subscription_id="sub_123",
+        plan_id="monthly",
+        current_period_end=datetime.now(timezone.utc) + timedelta(days=15),
+    )
+    db.add(subscription)
+    db.commit()
+    fake_client = FakeAsaasClient()
+    monkeypatch.setattr("app.services.payment_service.httpx.Client", lambda timeout=10.0: fake_client)
+
+    result = PaymentService(db).change_plan(professional, "tier50_monthly")
+
+    db.refresh(subscription)
+    assert subscription.plan_id == "tier50_monthly", "takes effect right away, not at the next cycle"
+    assert result["plan_id"] == "tier50_monthly"
+    assert result["checkout_url"] == fake_client.invoice_url, "upgrade must be charged now"
+
+    put_calls = [c for c in fake_client.calls if c[0].endswith("/subscriptions/sub_123")]
+    assert len(put_calls) == 1
+    assert put_calls[0][1]["cycle"] == "MONTHLY"
+    assert put_calls[0][1]["value"] == 149.9
+
+    proration_calls = [c for c in fake_client.calls if c[0].endswith("/payments") and c[1] and c[1].get("customer")]
+    assert len(proration_calls) == 1
+    assert proration_calls[0][1]["value"] > 0
+
+
+def test_change_plan_downgrade_takes_effect_immediately_without_charge(monkeypatch):
+    # Same MONTHLY cycle on both plans, only the patient-cap tier differs, so
+    # the daily rate genuinely drops -- unlike switching cycles (e.g.
+    # semiannual -> monthly), which can raise the daily rate by losing a
+    # longer-commitment discount even though it "sounds" like a downgrade.
+    monkeypatch.setattr(settings, "ASAAS_PROFESSIONAL_MONTHLY_PRICE_CENTS", 3990)
+    monkeypatch.setattr(settings, "ASAAS_PROFESSIONAL_TIER50_MONTHLY_PRICE_CENTS", 14990)
+    db = build_session()
+    professional = create_professional(db)
+    subscription = Subscription(
+        user_id=professional.id,
+        status=SubscriptionStatusEnum.ACTIVE.value,
+        provider_customer_id="cus_123",
+        provider_subscription_id="sub_123",
+        plan_id="tier50_monthly",
+        current_period_end=datetime.now(timezone.utc) + timedelta(days=15),
+    )
+    db.add(subscription)
+    db.commit()
+    fake_client = FakeAsaasClient()
+    monkeypatch.setattr("app.services.payment_service.httpx.Client", lambda timeout=10.0: fake_client)
+
+    result = PaymentService(db).change_plan(professional, "monthly")
+
+    db.refresh(subscription)
+    assert subscription.plan_id == "monthly"
+    assert result["checkout_url"] is None, "no refund of the unused difference on a downgrade"
+    proration_calls = [c for c in fake_client.calls if c[0].endswith("/payments") and c[1] and c[1].get("customer")]
+    assert proration_calls == []
+
+
+def test_change_plan_requires_active_subscription():
+    db = build_session()
+    user = create_user(db)
+
+    with pytest.raises(HTTPException) as exc:
+        PaymentService(db).change_plan(user, "monthly")
+
+    assert exc.value.status_code == 409
+
+
+def test_change_plan_rejects_invalid_plan():
+    db = build_session()
+    user = create_user(db)
+    db.add(
+        Subscription(
+            user_id=user.id,
+            status=SubscriptionStatusEnum.ACTIVE.value,
+            provider_subscription_id="sub_123",
+            plan_id="monthly",
+        )
+    )
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        PaymentService(db).change_plan(user, "not-a-real-plan")
+
+    assert exc.value.status_code == 400
+
+
+def test_change_plan_to_current_plan_is_a_noop(monkeypatch):
+    db = build_session()
+    user = create_user(db)
+    db.add(
+        Subscription(
+            user_id=user.id,
+            status=SubscriptionStatusEnum.ACTIVE.value,
+            provider_customer_id="cus_123",
+            provider_subscription_id="sub_123",
+            plan_id="monthly",
+        )
+    )
+    db.commit()
+    fake_client = FakeAsaasClient()
+    monkeypatch.setattr("app.services.payment_service.httpx.Client", lambda timeout=10.0: fake_client)
+
+    result = PaymentService(db).change_plan(user, "monthly")
+
+    assert result["checkout_url"] is None
+    assert fake_client.calls == []
 
 
 def test_webhook_payment_confirmed_activates_subscription():
