@@ -55,12 +55,6 @@ class SelfMonitoringService:
             .first()
         )
         if existing:
-            # Self-healing for plans that predate this feature: guarantees
-            # every self-service patient with an active plan has at least a
-            # started trial, instead of silently having zero Subscription
-            # row and getting blocked once access is enforced. No-op for
-            # anyone who already has a trial/subscription going.
-            PaymentService(self.db).start_trial_if_needed(current_user)
             return existing
 
         # The monitoring_plans_insert RLS policy (alembic 0009) only allows
@@ -83,10 +77,6 @@ class SelfMonitoringService:
         self.db.add(plan)
         self.db.commit()
         self.db.refresh(plan)
-
-        # Starts the free trial the moment monitoring actually begins, not
-        # whenever the billing page happens to be loaded first.
-        PaymentService(self.db).start_trial_if_needed(current_user)
 
         return plan
 

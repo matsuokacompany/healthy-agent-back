@@ -45,6 +45,10 @@ class SelfMonitoringCheckoutRequest(StrictRequestModel):
     plan_id: str
 
 
+class GrantTrialRequest(StrictRequestModel):
+    days: int = Field(gt=0, le=365, default=30)
+
+
 class SelfMonitoringCheckoutResponse(BaseModel):
     checkout_url: Optional[str] = None
     status: SubscriptionStatusEnum
