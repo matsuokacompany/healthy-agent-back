@@ -106,7 +106,16 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `ASAAS_SELF_MONITORING_PRICE_CENTS` | sim para cobrança B2C | `1990` | Preço do plano **mensal** de automonitoramento, em centavos (sem valor padrão; precisa ser definido explicitamente). |
 | `ASAAS_SELF_MONITORING_SEMIANNUAL_PRICE_CENTS` | não | `9990` | Preço do plano **semestral**, em centavos. Sem valor padrão — o plano só aparece em `GET /api/billing/plans` depois de configurado. |
 | `ASAAS_SELF_MONITORING_ANNUAL_PRICE_CENTS` | não | `17990` | Preço do plano **anual**, em centavos. Sem valor padrão — mesma regra do semestral. |
-| `ASAAS_SELF_MONITORING_TRIAL_DAYS` | não | `30` | Duração do período de teste grátis do automonitoramento self-service, em dias. |
+| `ASAAS_SELF_MONITORING_TRIAL_DAYS` | não | `30` | Duração do período de teste grátis do automonitoramento self-service, em dias. Sem efeito hoje: o teste grátis automático foi removido — testes agora só são concedidos manualmente pelo admin (`POST /api/billing/admin/subscriptions/{user_id}/grant-trial`). |
+| `ASAAS_PROFESSIONAL_MONTHLY_PRICE_CENTS` | sim para cobrança B2B | `3990` | Preço do plano profissional **mensal**, tier base (até 10 pacientes), em centavos. Sem valor padrão — o plano só aparece em `GET /api/billing/plans` depois de configurado. |
+| `ASAAS_PROFESSIONAL_SEMIANNUAL_PRICE_CENTS` | não | `20349` | Preço do plano profissional **semestral**, tier base (até 10 pacientes), em centavos. |
+| `ASAAS_PROFESSIONAL_ANNUAL_PRICE_CENTS` | não | `35900` | Preço do plano profissional **anual**, tier base (até 10 pacientes), em centavos. |
+| `ASAAS_PROFESSIONAL_TIER25_MONTHLY_PRICE_CENTS` | não | `7990` | Preço do plano profissional **mensal**, tier de até 25 pacientes, em centavos. |
+| `ASAAS_PROFESSIONAL_TIER25_SEMIANNUAL_PRICE_CENTS` | não | `40749` | Preço do plano profissional **semestral**, tier de até 25 pacientes, em centavos. |
+| `ASAAS_PROFESSIONAL_TIER25_ANNUAL_PRICE_CENTS` | não | `71910` | Preço do plano profissional **anual**, tier de até 25 pacientes, em centavos. |
+| `ASAAS_PROFESSIONAL_TIER50_MONTHLY_PRICE_CENTS` | não | `14990` | Preço do plano profissional **mensal**, tier de até 50 pacientes, em centavos. |
+| `ASAAS_PROFESSIONAL_TIER50_SEMIANNUAL_PRICE_CENTS` | não | `76449` | Preço do plano profissional **semestral**, tier de até 50 pacientes, em centavos. |
+| `ASAAS_PROFESSIONAL_TIER50_ANNUAL_PRICE_CENTS` | não | `134910` | Preço do plano profissional **anual**, tier de até 50 pacientes, em centavos. |
 | `SMTP_HOST` | sim para notificação por e-mail de pedido de vínculo | `smtp.hostinger.com` | Servidor SMTP usado pelo backend para e-mails próprios (separado do SMTP configurado no Supabase Auth, mesmo que aponte pra mesma caixa). |
 | `SMTP_PORT` | não | `465` | Porta SMTP; `465` usa SSL implícito (é o que o backend espera — não use `587`/STARTTLS sem também trocar o código). |
 | `SMTP_USER` | sim para notificação por e-mail de pedido de vínculo | `contato@julha.com.br` | Usuário de login SMTP. |
