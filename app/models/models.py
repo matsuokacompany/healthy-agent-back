@@ -506,6 +506,12 @@ class Subscription(Base):
     # the anchor for the 7-day CDC art. 49 withdrawal window (Política de
     # Reembolso §1), which is measured from first payment, not from signup.
     first_paid_at = Column(DateTime(timezone=True), nullable=True)
+    # Dunning idempotency markers -- set the first time each lifecycle email
+    # goes out so the daily scan (DunningService) doesn't re-send it every
+    # day the condition still holds. Cleared when the condition that caused
+    # it stops applying (trial extended/converted, cancellation undone).
+    trial_ending_reminder_sent_at = Column(DateTime(timezone=True), nullable=True)
+    access_ending_reminder_sent_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
@@ -515,6 +521,30 @@ class Subscription(Base):
     )
 
     user = relationship("User", back_populates="subscription")
+
+
+class NotificationKindEnum(str, enum.Enum):
+    PAYMENT_OVERDUE = "PAYMENT_OVERDUE"
+    TRIAL_ENDING = "TRIAL_ENDING"
+    ACCESS_ENDING = "ACCESS_ENDING"
+    PLAN_CHANGED = "PLAN_CHANGED"
+
+
+class Notification(Base):
+    """In-app notification, one row per event. Paired with the dunning
+    emails in DunningService (same trigger, two channels) plus a couple of
+    other billing events (e.g. a self-service plan change) that are worth
+    surfacing in-app even though they don't warrant an email."""
+
+    __tablename__ = "notifications"
+    __table_args__ = (Index("ix_notifications_user_id_created_at", "user_id", "created_at"),)
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    kind = Column(String, nullable=False)
+    message = Column(String, nullable=False)
+    read_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
 class PatientLinkRequest(Base):

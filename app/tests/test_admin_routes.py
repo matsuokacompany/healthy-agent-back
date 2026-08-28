@@ -78,6 +78,18 @@ def test_super_admin_can_list_users_and_read_costs_and_whatsapp_stats():
     assert whatsapp_response.status_code == 200
     assert whatsapp_response.json()["period_days"] == 7
 
+    billing_response = client.get("/admin/billing/summary")
+    assert billing_response.status_code == 200
+    assert billing_response.json()["mrr_cents"] == 0
+
+
+def test_billing_summary_requires_super_admin():
+    db = build_db()
+    patient = create_patient(db)
+    client = build_app(db, patient)
+
+    assert client.get("/admin/billing/summary").status_code == 403
+
 
 def test_super_admin_can_create_list_and_delete_cost_entries():
     db = build_db()

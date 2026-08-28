@@ -142,6 +142,29 @@ class SelfMonitoringSubscriptionRead(ORMModel):
     active_patient_count: Optional[int] = None
 
 
+class NotificationRead(ORMModel):
+    id: int
+    kind: str
+    message: str
+    read_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class NotificationListResponse(BaseModel):
+    items: List[NotificationRead]
+    unread_count: int
+
+
+class InvoiceRead(BaseModel):
+    id: str
+    value: float
+    status: str
+    due_date: Optional[str] = None
+    payment_date: Optional[str] = None
+    invoice_url: Optional[str] = None
+    description: Optional[str] = None
+
+
 class UserBase(StrictRequestModel):
     name: ShortPlainText
     email: EmailStr
@@ -822,6 +845,19 @@ class AdminCostSummary(BaseModel):
     whatsapp_cost_cents: Optional[float] = None
     manual_cost_entries: List[AdminCostEntryRead] = Field(default_factory=list)
     manual_cost_total_cents: int = 0
+
+
+class AdminBillingSummary(BaseModel):
+    mrr_cents: int
+    active_subscriptions: int
+    trialing_subscriptions: int
+    past_due_subscriptions: int
+    canceled_last_30d: int
+    # Approximation: canceled_last_30d / (active_subscriptions + canceled_last_30d).
+    # There's no subscription-status history table, so this uses `updated_at`
+    # on CANCELED rows as a proxy for "when it was canceled" -- fine as a
+    # trend indicator, not exact accounting.
+    churn_rate: float
 
 
 class AdminWhatsappDailyPoint(BaseModel):

@@ -7,6 +7,7 @@ from app.core.auth import get_current_super_admin
 from app.core.dependencies import get_db
 from app.models.models import User
 from app.models.schemas import (
+    AdminBillingSummary,
     AdminCostEntryCreate,
     AdminCostEntryRead,
     AdminCostSummary,
@@ -32,6 +33,14 @@ def list_admin_users(
     current_user: User = Depends(get_current_super_admin),
 ):
     return AdminReportingService(db).list_users(role=role, status=status, search=search)
+
+
+@router.get("/billing/summary", response_model=AdminBillingSummary)
+def get_admin_billing_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_super_admin),
+):
+    return AdminReportingService(db).billing_summary()
 
 
 @router.get("/costs", response_model=AdminCostSummary)

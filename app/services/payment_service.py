@@ -31,7 +31,16 @@ from app.core.billing_plans import SelfMonitoringPlan, get_professional_plan, ge
 from app.core.config import settings
 from app.core.permissions import has_role
 from app.db.security_context import set_database_service_context
-from app.models.models import ProfessionalProfile, RoleNameEnum, Subscription, SubscriptionStatusEnum, User
+from app.models.models import (
+    Notification,
+    NotificationKindEnum,
+    ProfessionalProfile,
+    RoleNameEnum,
+    Subscription,
+    SubscriptionStatusEnum,
+    User,
+)
+from app.services.dunning_service import notify_payment_overdue
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +139,39 @@ class PaymentService:
         subscription = self.db.query(Subscription).filter(Subscription.user_id == user.id).first()
         return subscription_grants_access(subscription)
 
+    def list_invoices(self, user: User, *, limit: int = 24) -> list[dict[str, Any]]:
+        """Past payments for the caller's own subscription, straight from
+        Asaas -- no local copy is kept, this is a read-through."""
+        subscription = self.db.query(Subscription).filter(Subscription.user_id == user.id).first()
+        if not subscription or not subscription.provider_customer_id:
+            return []
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(
+                f"{_asaas_base_url()}/payments",
+                headers=_asaas_headers(),
+                params={"customer": subscription.provider_customer_id, "limit": limit},
+            )
+        if response.status_code >= 400:
+            logger.error(
+                "Asaas invoice list failed | customer_id=%s status=%s",
+                subscription.provider_customer_id,
+                response.status_code,
+            )
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="BILLING_PROVIDER_ERROR")
+        payments = response.json().get("data") or []
+        return [
+            {
+                "id": payment.get("id"),
+                "value": payment.get("value"),
+                "status": payment.get("status"),
+                "due_date": payment.get("dueDate"),
+                "payment_date": payment.get("paymentDate") or payment.get("clientPaymentDate"),
+                "invoice_url": payment.get("invoiceUrl"),
+                "description": payment.get("description"),
+            }
+            for payment in payments
+        ]
+
     def grant_manual_trial(self, user: User, days: int) -> Subscription:
         """Admin-granted courtesy access, bypassing Asaas entirely.
 
@@ -143,6 +185,7 @@ class PaymentService:
         subscription = self.get_or_create_subscription_record(user)
         subscription.status = SubscriptionStatusEnum.TRIALING.value
         subscription.trial_ends_at = datetime.now(timezone.utc) + timedelta(days=days)
+        subscription.trial_ending_reminder_sent_at = None
         self.db.commit()
         self.db.refresh(subscription)
         return subscription
@@ -193,6 +236,7 @@ class PaymentService:
                 # canceled reads as "I changed my mind" -- undo the
                 # cancel-at-period-end instead of leaving it pending.
                 subscription.cancel_at_period_end = False
+                subscription.access_ending_reminder_sent_at = None
                 self.db.commit()
             invoice_url = self._fetch_latest_invoice_url(subscription.provider_subscription_id)
         else:
@@ -261,6 +305,15 @@ class PaymentService:
         checkout_url = None
         if proration_cents > 0:
             checkout_url = self._charge_proration(subscription.provider_customer_id, proration_cents, plan)
+
+        self.db.add(
+            Notification(
+                user_id=user.id,
+                kind=NotificationKindEnum.PLAN_CHANGED.value,
+                message=f"Seu plano foi atualizado para {plan.label}.",
+            )
+        )
+        self.db.commit()
 
         return {"checkout_url": checkout_url, "status": subscription.status, "plan_id": subscription.plan_id}
 
@@ -491,7 +544,12 @@ class PaymentService:
             if due_date:
                 subscription.current_period_end = datetime.fromisoformat(due_date).replace(tzinfo=timezone.utc)
         elif event == "PAYMENT_OVERDUE":
+            was_already_overdue = subscription.status == SubscriptionStatusEnum.PAST_DUE.value
             subscription.status = SubscriptionStatusEnum.PAST_DUE.value
+            if not was_already_overdue:
+                user = self.db.query(User).filter(User.id == subscription.user_id).first()
+                if user:
+                    notify_payment_overdue(self.db, subscription, user)
         elif event in {"PAYMENT_DELETED", "PAYMENT_REFUNDED", "SUBSCRIPTION_DELETED"}:
             subscription.status = SubscriptionStatusEnum.CANCELED.value
         else:

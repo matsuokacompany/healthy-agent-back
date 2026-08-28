@@ -14,6 +14,7 @@ from app.core.rate_limit import limiter
 from app.models.models import ProfessionalProfile, RoleNameEnum, Subscription, User
 from app.models.schemas import (
     GrantTrialRequest,
+    InvoiceRead,
     SelfMonitoringCheckoutRequest,
     SelfMonitoringCheckoutResponse,
     SelfMonitoringPlanRead,
@@ -37,6 +38,16 @@ def list_self_monitoring_plans(current_user: User = Depends(get_current_user)):
     return get_self_monitoring_plans()
 
 
+@router.get("/plans/public", response_model=list[SelfMonitoringPlanRead])
+def list_public_plans(audience: str = "patient"):
+    """Unauthenticated plan catalog for the public pricing page — nobody has
+    a role yet before signing up, so the audience is picked explicitly by
+    the caller instead of derived from the (nonexistent) current user."""
+    if audience == "professional":
+        return get_professional_plans()
+    return get_self_monitoring_plans()
+
+
 def _subscription_response(db: Session, current_user: User, subscription: Subscription) -> SelfMonitoringSubscriptionRead:
     max_patients = None
     active_patient_count = None
@@ -55,6 +66,14 @@ def _subscription_response(db: Session, current_user: User, subscription: Subscr
         max_patients=max_patients,
         active_patient_count=active_patient_count,
     )
+
+
+@router.get("/invoices", response_model=list[InvoiceRead])
+def list_invoices(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return PaymentService(db).list_invoices(current_user)
 
 
 @router.get("/subscription", response_model=SelfMonitoringSubscriptionRead)

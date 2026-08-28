@@ -202,6 +202,32 @@ def test_start_checkout_blocks_plan_change_while_active(monkeypatch):
     assert exc.value.status_code == 409
 
 
+def test_list_invoices_returns_asaas_payments(monkeypatch):
+    db = build_session()
+    user = create_user(db)
+    db.add(Subscription(user_id=user.id, status=SubscriptionStatusEnum.ACTIVE.value, provider_customer_id="cus_123"))
+    db.commit()
+    fake_client = FakeAsaasClient()
+    monkeypatch.setattr("app.services.payment_service.httpx.Client", lambda timeout=10.0: fake_client)
+
+    invoices = PaymentService(db).list_invoices(user)
+
+    assert len(invoices) == 1
+    assert invoices[0]["id"] == fake_client.payment_id
+    assert invoices[0]["invoice_url"] == fake_client.invoice_url
+    get_calls = [c for c in fake_client.calls if c[0].endswith("/payments")]
+    assert get_calls[0][1]["customer"] == "cus_123"
+
+
+def test_list_invoices_empty_without_provider_customer_id():
+    db = build_session()
+    user = create_user(db)
+    db.add(Subscription(user_id=user.id, status=SubscriptionStatusEnum.PENDING.value))
+    db.commit()
+
+    assert PaymentService(db).list_invoices(user) == []
+
+
 def test_change_plan_upgrade_takes_effect_immediately_and_charges_proration(monkeypatch):
     # Same MONTHLY cycle, higher patient-cap tier -- the case a professional
     # hits when they urgently need to raise their active-patient cap right
