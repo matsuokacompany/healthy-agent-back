@@ -21,6 +21,7 @@ from app.models.models import (
 )
 from app.routes import anamnese_routes, monitoring_routes, self_monitoring_routes
 from app.services import self_monitoring_service as self_monitoring_service_module
+from app.services.payment_service import PaymentService
 from app.services.self_monitoring_service import SelfMonitoringService
 
 
@@ -83,9 +84,12 @@ def test_self_service_plan_creation_is_idempotent():
     assert db.query(MonitoringPlan).filter(MonitoringPlan.patient_id == patient.id).count() == 1
 
 
-def test_self_service_patient_can_get_evolution_report():
-    client, _, _ = build_client()
+def test_self_service_patient_can_get_evolution_report_once_granted_access():
+    client, db, patient = build_client()
     client.post("/self-monitoring/plan")
+    subscription = PaymentService(db).get_or_create_subscription_record(patient)
+    subscription.status = SubscriptionStatusEnum.ACTIVE.value
+    db.commit()
 
     response = client.get("/self-monitoring/evolution-report")
 
@@ -95,20 +99,21 @@ def test_self_service_patient_can_get_evolution_report():
     assert body["metrics"]["total_checkins"] == 0
 
 
-def test_creating_plan_starts_free_trial():
+def test_creating_plan_no_longer_starts_a_free_trial():
     client, db, patient = build_client()
 
     client.post("/self-monitoring/plan")
 
-    subscription = db.query(Subscription).filter(Subscription.user_id == patient.id).one()
-    assert subscription.status == SubscriptionStatusEnum.TRIALING.value
-    assert subscription.trial_ends_at is not None
+    # There is no automatic trial anymore -- access only ever comes from a
+    # real payment or an admin-granted manual trial (see test_payment_routes.py),
+    # so plan creation alone must not produce a Subscription row at all.
+    assert db.query(Subscription).filter(Subscription.user_id == patient.id).first() is None
 
 
-def test_evolution_report_blocked_after_trial_expires():
+def test_evolution_report_blocked_after_manually_granted_trial_expires():
     client, db, patient = build_client()
     client.post("/self-monitoring/plan")
-    subscription = db.query(Subscription).filter(Subscription.user_id == patient.id).one()
+    subscription = PaymentService(db).grant_manual_trial(patient, days=1)
     subscription.trial_ends_at = datetime.now(timezone.utc) - timedelta(days=1)
     db.commit()
 
@@ -136,7 +141,7 @@ def test_evolution_report_blocked_without_any_subscription():
 def test_evolution_report_allowed_when_subscription_active():
     client, db, patient = build_client()
     client.post("/self-monitoring/plan")
-    subscription = db.query(Subscription).filter(Subscription.user_id == patient.id).one()
+    subscription = PaymentService(db).get_or_create_subscription_record(patient)
     subscription.status = SubscriptionStatusEnum.ACTIVE.value
     db.commit()
 

@@ -1,6 +1,6 @@
 import json
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.core.auth import get_current_user
+from app.core.auth import get_current_super_admin, get_current_user
 from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.rate_limit import limiter
@@ -165,6 +165,71 @@ def test_refund_endpoint_surfaces_service_error(monkeypatch):
 
     assert response.status_code == 409
     assert response.json()["detail"] == "REFUND_WINDOW_EXPIRED"
+
+
+def _deny_super_admin():
+    raise HTTPException(status_code=403, detail="Super admin privileges required")
+
+
+def test_admin_grant_trial_requires_super_admin():
+    client, db, user = build_app_and_db()
+    client.app.dependency_overrides[get_current_super_admin] = _deny_super_admin
+
+    response = client.post(f"/billing/admin/subscriptions/{user.id}/grant-trial", json={"days": 14})
+
+    assert response.status_code == 403
+
+
+def test_admin_grant_trial_sets_trialing_status_without_touching_asaas():
+    client, db, user = build_app_and_db()
+    admin = User(name="Admin", email="admin@example.com")
+    db.add(admin)
+    db.commit()
+    db.refresh(admin)
+    client.app.dependency_overrides[get_current_super_admin] = lambda: admin
+
+    response = client.post(f"/billing/admin/subscriptions/{user.id}/grant-trial", json={"days": 14})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "TRIALING"
+    assert body["trial_ends_at"] is not None
+    subscription = db.query(Subscription).filter(Subscription.user_id == user.id).one()
+    assert subscription.provider_subscription_id is None
+
+
+def test_admin_grant_trial_404_for_unknown_user():
+    client, db, admin_user = build_app_and_db()
+    client.app.dependency_overrides[get_current_super_admin] = lambda: admin_user
+
+    response = client.post("/billing/admin/subscriptions/999999/grant-trial", json={"days": 14})
+
+    assert response.status_code == 404
+
+
+def test_admin_get_subscription_requires_super_admin():
+    client, db, user = build_app_and_db()
+    client.app.dependency_overrides[get_current_super_admin] = _deny_super_admin
+
+    response = client.get(f"/billing/admin/subscriptions/{user.id}")
+
+    assert response.status_code == 403
+
+
+def test_admin_get_subscription_returns_target_users_subscription():
+    client, db, user = build_app_and_db()
+    db.add(Subscription(user_id=user.id, status=SubscriptionStatusEnum.CANCELED.value))
+    db.commit()
+    admin = User(name="Admin", email="admin@example.com")
+    db.add(admin)
+    db.commit()
+    db.refresh(admin)
+    client.app.dependency_overrides[get_current_super_admin] = lambda: admin
+
+    response = client.get(f"/billing/admin/subscriptions/{user.id}")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "CANCELED"
 
 
 def test_webhook_returns_500_when_not_configured(monkeypatch):

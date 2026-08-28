@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.auth import get_current_user
+from app.core.auth import get_current_super_admin, get_current_user
 from app.core.billing_plans import get_professional_plans, get_self_monitoring_plans
 from app.core.config import settings
 from app.core.dependencies import get_db
@@ -13,6 +13,7 @@ from app.core.permissions import has_role
 from app.core.rate_limit import limiter
 from app.models.models import ProfessionalProfile, RoleNameEnum, Subscription, User
 from app.models.schemas import (
+    GrantTrialRequest,
     SelfMonitoringCheckoutRequest,
     SelfMonitoringCheckoutResponse,
     SelfMonitoringPlanRead,
@@ -96,6 +97,38 @@ def refund_self_monitoring_subscription(
 ):
     subscription = PaymentService(db).refund_subscription(current_user)
     return _subscription_response(db, current_user, subscription)
+
+
+@router.get("/admin/subscriptions/{user_id}", response_model=SelfMonitoringSubscriptionRead)
+def get_subscription_for_admin(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_super_admin),
+):
+    """Look up any user's subscription — for support/diagnosis and before
+    deciding whether to grant a manual trial."""
+    target_user = db.query(User).filter(User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="USER_NOT_FOUND")
+    subscription = PaymentService(db).get_or_create_subscription_record(target_user)
+    return _subscription_response(db, target_user, subscription)
+
+
+@router.post("/admin/subscriptions/{user_id}/grant-trial", response_model=SelfMonitoringSubscriptionRead)
+def grant_trial_for_admin(
+    user_id: int,
+    payload: GrantTrialRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_super_admin),
+):
+    """Manually grant courtesy trial access to a specific user — there is no
+    automatic trial anymore, so this is the only way anyone gets free
+    access. Never touches Asaas."""
+    target_user = db.query(User).filter(User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="USER_NOT_FOUND")
+    subscription = PaymentService(db).grant_manual_trial(target_user, payload.days)
+    return _subscription_response(db, target_user, subscription)
 
 
 @webhook_router.post("/webhook/asaas", status_code=status.HTTP_204_NO_CONTENT)

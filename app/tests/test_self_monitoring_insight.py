@@ -197,7 +197,10 @@ def test_insight_regenerates_after_cooldown_expires(monkeypatch):
     result = SelfMonitoringService(db).insight_report(patient, **cost_kwargs(), now=now)
 
     assert result.insight["resumo"] == "Evolução estável"
-    assert db.query(SelfMonitoringInsight).count() == 1
+    # self_monitoring_insights is a history table (alembic 0025) -- a
+    # regeneration after cooldown inserts a new row rather than overwriting
+    # the old one, so both the stale cache and the fresh result should exist.
+    assert db.query(SelfMonitoringInsight).count() == 2
 
 
 def test_insight_rejects_when_ai_not_configured():
@@ -225,3 +228,80 @@ def test_insight_generation_failure_raises_and_does_not_persist(monkeypatch):
 
     assert exc_info.value.status_code == 502
     assert db.query(SelfMonitoringInsight).count() == 0
+
+
+def test_list_insights_returns_history_newest_first_with_pagination():
+    db = build_session()
+    patient, _ = create_patient_with_active_subscription(db)
+    now = datetime.now(timezone.utc)
+    for offset in range(3):
+        db.add(
+            SelfMonitoringInsight(
+                patient_id=patient.id,
+                start_date=date.today() - timedelta(days=29),
+                end_date=date.today(),
+                insight_response={"resumo": f"Geração {offset}"},
+                generated_at=now - timedelta(days=offset),
+            )
+        )
+    db.commit()
+
+    result = SelfMonitoringService(db).list_insights(patient, page=1, per_page=2)
+
+    assert result.pagination.total == 3
+    assert result.pagination.total_pages == 2
+    assert len(result.items) == 2
+    assert result.items[0].generated_at > result.items[1].generated_at
+
+
+def test_get_insight_returns_own_record():
+    db = build_session()
+    patient, _ = create_patient_with_active_subscription(db)
+    record = SelfMonitoringInsight(
+        patient_id=patient.id,
+        start_date=date.today() - timedelta(days=29),
+        end_date=date.today(),
+        insight_response={"resumo": "Histórico"},
+        generated_at=datetime.now(timezone.utc),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    result = SelfMonitoringService(db).get_insight(patient, record.id)
+
+    assert result.id == record.id
+    assert result.insight["resumo"] == "Histórico"
+
+
+def test_get_insight_404_for_another_patients_record():
+    db = build_session()
+    patient, _ = create_patient_with_active_subscription(db)
+    other_patient = User(name="Outro paciente", email="outro@example.com")
+    db.add(other_patient)
+    db.commit()
+    record = SelfMonitoringInsight(
+        patient_id=patient.id,
+        start_date=date.today() - timedelta(days=29),
+        end_date=date.today(),
+        insight_response={"resumo": "Privado"},
+        generated_at=datetime.now(timezone.utc),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    with pytest.raises(HTTPException) as exc_info:
+        SelfMonitoringService(db).get_insight(other_patient, record.id)
+
+    assert exc_info.value.status_code == 404
+
+
+def test_get_insight_404_for_unknown_id():
+    db = build_session()
+    patient, _ = create_patient_with_active_subscription(db)
+
+    with pytest.raises(HTTPException) as exc_info:
+        SelfMonitoringService(db).get_insight(patient, 999999)
+
+    assert exc_info.value.status_code == 404

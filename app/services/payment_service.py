@@ -126,6 +126,23 @@ class PaymentService:
         subscription = self.db.query(Subscription).filter(Subscription.user_id == user.id).first()
         return subscription_grants_access(subscription)
 
+    def grant_manual_trial(self, user: User, days: int) -> Subscription:
+        """Admin-granted courtesy access, bypassing Asaas entirely.
+
+        There is no automatic trial anymore — this is the only way a
+        self-service (or professional) user gets free access, and it's
+        deliberately a manual admin action rather than something that fires
+        on signup. Never touches provider_subscription_id, so it can't be
+        confused with a real paid subscription and won't get clobbered by
+        an Asaas webhook.
+        """
+        subscription = self.get_or_create_subscription_record(user)
+        subscription.status = SubscriptionStatusEnum.TRIALING.value
+        subscription.trial_ends_at = datetime.now(timezone.utc) + timedelta(days=days)
+        self.db.commit()
+        self.db.refresh(subscription)
+        return subscription
+
     def has_professional_access(self, profile: ProfessionalProfile) -> bool:
         subscription = self.db.query(Subscription).filter(Subscription.user_id == profile.user_id).first()
         return professional_has_access(profile, subscription)
