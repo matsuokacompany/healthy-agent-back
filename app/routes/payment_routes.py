@@ -77,6 +77,17 @@ def create_self_monitoring_checkout(
     return PaymentService(db).start_checkout(current_user, payload.plan_id)
 
 
+@router.post("/subscription/change-plan", response_model=SelfMonitoringCheckoutResponse)
+@limiter.limit("5/minute")
+def change_self_monitoring_plan(
+    request: Request,
+    payload: SelfMonitoringCheckoutRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return PaymentService(db).change_plan(current_user, payload.plan_id)
+
+
 @router.post("/subscription/cancel", response_model=SelfMonitoringSubscriptionRead)
 @limiter.limit("5/minute")
 def cancel_self_monitoring_subscription(
