@@ -910,6 +910,7 @@ class CustomAiReportResponse(BaseModel):
 
 
 class SelfMonitoringInsightRead(BaseModel):
+    id: Optional[int] = None
     patient_id: int
     start_date: date
     end_date: date
@@ -938,4 +939,17 @@ class CustomAiReportListItem(BaseModel):
 
 class CustomAiReportListResponse(BaseModel):
     items: List[CustomAiReportListItem]
+    pagination: PatientDashboardPagination
+
+
+class SelfMonitoringInsightListItem(BaseModel):
+    id: int
+    start_date: date
+    end_date: date
+    generated_at: datetime
+    next_generation_at: Optional[datetime] = None
+
+
+class SelfMonitoringInsightListResponse(BaseModel):
+    items: List[SelfMonitoringInsightListItem]
     pagination: PatientDashboardPagination

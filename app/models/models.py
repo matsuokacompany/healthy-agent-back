@@ -446,14 +446,16 @@ class AiReportCache(Base):
 class SelfMonitoringInsight(Base):
     """AI-generated evolution summary for a self-service (self_made) patient.
 
-    One row per patient (upserted in place on regeneration), deliberately
-    kept separate from `ai_report_cache` because that table's RLS policy
-    only allows service/admin/professional reads — a self-service patient
-    has no professional and needs to read their own row directly.
+    One row per generation (history, not upserted) — deliberately kept
+    separate from `ai_report_cache` because that table's RLS policy only
+    allows service/admin/professional reads; a self-service patient has no
+    professional and needs to read their own rows directly. Query the most
+    recent row per patient_id (order by generated_at desc) for "the current
+    summary"; see SelfMonitoringService for the cooldown logic that decides
+    whether to reuse the latest row or insert a new one.
     """
 
     __tablename__ = "self_monitoring_insights"
-    __table_args__ = (UniqueConstraint("patient_id", name="uq_self_monitoring_insights_patient"),)
 
     id = Column(Integer, primary_key=True)
     patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)

@@ -11,7 +11,13 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.security_context import set_database_service_context
 from app.models.models import MonitoringPlan, MonitoringPlanOriginEnum, SelfMonitoringInsight, User
-from app.models.schemas import CustomClinicalSummary, SelfMonitoringInsightRead
+from app.models.schemas import (
+    CustomClinicalSummary,
+    PatientDashboardPagination,
+    SelfMonitoringInsightListItem,
+    SelfMonitoringInsightListResponse,
+    SelfMonitoringInsightRead,
+)
 from app.services.custom_report_service import CustomReportService
 from app.services.insight_service import InsightService
 from app.services.payment_service import PaymentService
@@ -130,12 +136,15 @@ class SelfMonitoringService:
                 sufficient_data=False,
             )
 
-        existing = self.db.query(SelfMonitoringInsight).filter(
-            SelfMonitoringInsight.patient_id == current_user.id
-        ).first()
-        if existing and existing.next_generation_at and self._as_utc(existing.next_generation_at) > now:
-            SelfMonitoringInsightClinicalService.hydrate(existing)
-            return self._response(existing, sufficient_data=True)
+        latest = (
+            self.db.query(SelfMonitoringInsight)
+            .filter(SelfMonitoringInsight.patient_id == current_user.id)
+            .order_by(SelfMonitoringInsight.generated_at.desc())
+            .first()
+        )
+        if latest and latest.next_generation_at and self._as_utc(latest.next_generation_at) > now:
+            SelfMonitoringInsightClinicalService.hydrate(latest)
+            return self._response(latest, sufficient_data=True)
 
         if (
             not api_key
@@ -183,7 +192,10 @@ class SelfMonitoringService:
             ) from exc
 
         generated_at = datetime.now(timezone.utc)
-        record = existing or SelfMonitoringInsight(patient_id=current_user.id)
+        # Always a new row now (self_monitoring_insights is a history table,
+        # see alembic 0025) -- never reuse `latest`, or regenerating would
+        # silently overwrite the previous entry in the patient's history.
+        record = SelfMonitoringInsight(patient_id=current_user.id)
         record.start_date = start_date
         record.end_date = end_date
         record.input_tokens = result.input_tokens
@@ -218,6 +230,7 @@ class SelfMonitoringService:
     @staticmethod
     def _response(record: SelfMonitoringInsight, *, sufficient_data: bool) -> SelfMonitoringInsightRead:
         return SelfMonitoringInsightRead(
+            id=record.id,
             patient_id=record.patient_id,
             start_date=record.start_date,
             end_date=record.end_date,
@@ -226,3 +239,42 @@ class SelfMonitoringService:
             generated_at=record.generated_at,
             next_generation_at=record.next_generation_at,
         )
+
+    def list_insights(self, current_user: User, *, page: int, per_page: int) -> SelfMonitoringInsightListResponse:
+        query = self.db.query(SelfMonitoringInsight).filter(SelfMonitoringInsight.patient_id == current_user.id)
+        total = query.count()
+        records = (
+            query.order_by(SelfMonitoringInsight.generated_at.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+        return SelfMonitoringInsightListResponse(
+            items=[
+                SelfMonitoringInsightListItem(
+                    id=record.id,
+                    start_date=record.start_date,
+                    end_date=record.end_date,
+                    generated_at=record.generated_at,
+                    next_generation_at=record.next_generation_at,
+                )
+                for record in records
+            ],
+            pagination=PatientDashboardPagination(
+                page=page,
+                per_page=per_page,
+                total=total,
+                total_pages=math.ceil(total / per_page) if total else 0,
+            ),
+        )
+
+    def get_insight(self, current_user: User, insight_id: int) -> SelfMonitoringInsightRead:
+        record = (
+            self.db.query(SelfMonitoringInsight)
+            .filter(SelfMonitoringInsight.patient_id == current_user.id, SelfMonitoringInsight.id == insight_id)
+            .first()
+        )
+        if not record:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="INSIGHT_NOT_FOUND")
+        SelfMonitoringInsightClinicalService.hydrate(record)
+        return self._response(record, sufficient_data=True)
