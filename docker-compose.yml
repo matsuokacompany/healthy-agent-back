@@ -1,6 +1,13 @@
 services:
   api:
+    # Built and pushed by .github/workflows/deploy.yml (GitHub Actions has far
+    # more RAM/CPU than the production EC2 instance, which crashed once from
+    # building the image locally). `build:` stays so `docker compose build`
+    # still works for local testing -- it just tags the result as this same
+    # image name. Production deploys run `docker compose pull` and never
+    # build here.
     build: .
+    image: ghcr.io/matsuokacompany/healthy-agent-back:latest
     container_name: healthy-agent-api
     ports:
       - "8000:8000"

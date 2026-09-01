@@ -157,23 +157,31 @@ Produção não sobe PostgreSQL local. O `docker-compose.yml` contém somente a 
 3. Instalar Docker e o plugin Docker Compose uma única vez na instância.
 4. Fazer push para `main`; migrations e inicialização da API são automáticas.
 
-O workflow `.github/workflows/deploy.yml` envia uma cópia limpa do commit para a
-EC2, cria o `.env`, reconstrói a imagem, executa as migrations no início do
-container e valida que a API permaneceu em execução. Assim, a instância não
-precisa ter uma cópia Git do repositório nem credenciais do GitHub.
+O workflow `.github/workflows/deploy.yml` faz checkout do commit, **builda a
+imagem Docker no próprio runner do GitHub Actions e publica no GitHub
+Container Registry** (`ghcr.io/matsuokacompany/healthy-agent-back`). Só
+depois disso ele conecta na EC2, envia o `.env` e o `docker-compose.yml`, e a
+instância faz `docker compose pull` + `docker compose up -d` — **ela nunca
+builda a imagem localmente**. As migrations continuam rodando no início do
+container (`CMD` da imagem) e o workflow ainda valida que a API permaneceu em
+execução antes de encerrar.
 O checkout e a configuração SSH usam somente ferramentas já presentes no
-runner (`git` e `ssh`), sem baixar actions do Marketplace; isso evita que uma
-indisponibilidade do serviço de download de actions bloqueie o deploy.
+runner (`git`, `ssh` e `docker`), sem baixar actions do Marketplace; isso
+evita que uma indisponibilidade do serviço de download de actions bloqueie o
+deploy.
 
 ### Impacto e custo para um MVP
 
 Esse fluxo não cria instâncias, bancos, load balancers ou containers adicionais:
-ele apenas atualiza o único serviço `api` que já roda na EC2. `git archive`,
-`scp`, as verificações via `docker compose ps` e o armazenamento dos secrets têm
-impacto desprezível em produção. A compilação da imagem consome CPU, memória e
-disco da própria EC2 somente durante cada deploy; por isso, evite muitos pushes
-seguidos em uma instância muito pequena. O `concurrency` serializa os deploys e
-`docker image prune` remove imagens sem uso depois de uma atualização bem-sucedida.
+ele apenas atualiza o único serviço `api` que já roda na EC2. `scp`, as
+verificações via `docker compose ps` e o armazenamento dos secrets têm impacto
+desprezível em produção. **A compilação da imagem (gcc, `pip install`, etc.)
+acontece no runner do GitHub, não na EC2** — isso é proposital: numa instância
+pequena (ex.: `t3.micro`, ~1GB de RAM), compilar localmente a cada deploy já
+derrubou a aplicação por falta de memória (o kernel ativou o OOM killer). A
+EC2 só baixa a imagem pronta (`docker compose pull`), o que consome bem menos
+recursos. O `concurrency` serializa os deploys e `docker image prune` remove
+imagens sem uso depois de uma atualização bem-sucedida.
 
 O workflow não aumenta, por si só, a quantidade de recursos faturados na AWS.
 Ainda podem existir custos normais da infraestrutura escolhida: horas da EC2,
@@ -189,7 +197,8 @@ Cadastre estes secrets em **Settings > Environments > production**:
 - `EC2_USER`: usuário SSH (por exemplo, `ubuntu`);
 - `EC2_SSH_KEY`: chave SSH privada;
 - `EC2_HOST_KEY`: linha completa retornada por `ssh-keyscan -H <host>`;
-- `PRODUCTION_ENV`: conteúdo completo do arquivo `.env` de produção.
+- `PRODUCTION_ENV`: conteúdo completo do arquivo `.env` de produção;
+- `GHCR_PULL_TOKEN`: Personal Access Token (classic) com escopo `read:packages`, usado pela instância EC2 para baixar a imagem já buildada do GitHub Container Registry — a imagem é buildada e publicada pelo próprio workflow (no runner do GitHub, não na EC2), então a instância só precisa fazer `docker pull`, nunca `docker build`.
 
 ### Onde obter os secrets de deploy
 
@@ -221,6 +230,12 @@ Cadastre estes secrets em **Settings > Environments > production**:
   chaves no painel do Supabase, credenciais no painel Meta for Developers,
   chave da OpenAI e os domínios/horários escolhidos para a aplicação. Use o
   modelo abaixo e substitua cada marcador `<...>`.
+- **`GHCR_PULL_TOKEN`**: no GitHub, vá em **Settings** da sua conta (não do
+  repositório) > **Developer settings** > **Personal access tokens** >
+  **Tokens (classic)** > **Generate new token (classic)**. Marque só o escopo
+  `read:packages`, gere e copie o valor imediatamente (ele só aparece uma
+  vez). Esse token não pertence ao app em si — é só o que a EC2 usa pra se
+  autenticar no `ghcr.io` e baixar a imagem já pronta.
 
 Depois, no GitHub, abra **Settings > Environments > production**, crie o
 environment se necessário e adicione cada item em **Environment secrets**. Os
@@ -235,6 +250,7 @@ entre `<...>` pelos valores reais):
 | `EC2_USER` | `ubuntu` |
 | `EC2_SSH_KEY` | conteúdo completo de `-----BEGIN OPENSSH PRIVATE KEY-----` até `-----END OPENSSH PRIVATE KEY-----` |
 | `EC2_HOST_KEY` | saída completa de `ssh-keyscan -H api.exemplo.com` |
+| `GHCR_PULL_TOKEN` | Personal Access Token (classic) com escopo `read:packages` |
 
 Para o secret multilinha `PRODUCTION_ENV`, use um valor como este:
 
