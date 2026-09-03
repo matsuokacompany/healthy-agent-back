@@ -592,6 +592,10 @@ class AdminCostEntry(Base):
     category = Column(String, nullable=True)
     amount_cents = Column(Integer, nullable=False)
     incurred_on = Column(Date, nullable=False)
+    # A cost that repeats every month from incurred_on onward (e.g. a fixed
+    # phone/SIM top-up to keep a number active) instead of a one-off charge —
+    # counted once per calendar month it's active in, not re-entered monthly.
+    is_recurring = Column(Boolean, nullable=False, default=False)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 

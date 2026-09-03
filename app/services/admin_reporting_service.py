@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.core.billing_plans import get_professional_plan, get_self_monitoring_plan
@@ -127,7 +127,12 @@ class AdminReportingService:
         whatsapp_cost_cents = whatsapp_message_count * cost_per_message if cost_per_message else None
 
         manual_entries = self.list_cost_entries(start_date=resolved_start, end_date=resolved_end)
-        manual_cost_total_cents = sum(entry.amount_cents for entry in manual_entries)
+        manual_cost_total_cents = sum(
+            entry.amount_cents * self._recurring_occurrences(entry.incurred_on, resolved_start, resolved_end)
+            if entry.is_recurring
+            else entry.amount_cents
+            for entry in manual_entries
+        )
 
         return AdminCostSummary(
             start_date=resolved_start,
@@ -143,12 +148,28 @@ class AdminReportingService:
 
     def list_cost_entries(self, *, start_date: date | None = None, end_date: date | None = None) -> list[AdminCostEntryRead]:
         query = self.db.query(AdminCostEntry)
-        if start_date:
-            query = query.filter(AdminCostEntry.incurred_on >= start_date)
         if end_date:
             query = query.filter(AdminCostEntry.incurred_on <= end_date)
+        if start_date:
+            # A recurring entry started before this period still applies to
+            # it every month, so it stays listed even though its own
+            # incurred_on falls before start_date -- a one-off entry doesn't.
+            query = query.filter(
+                or_(AdminCostEntry.incurred_on >= start_date, AdminCostEntry.is_recurring.is_(True))
+            )
         entries = query.order_by(AdminCostEntry.incurred_on.desc(), AdminCostEntry.id.desc()).all()
         return [AdminCostEntryRead.model_validate(entry) for entry in entries]
+
+    @staticmethod
+    def _recurring_occurrences(incurred_on: date, start_date: date, end_date: date) -> int:
+        """How many calendar months a recurring cost that started on
+        incurred_on falls due within [start_date, end_date] -- one per month
+        from whichever is later, incurred_on or start_date, through end_date.
+        """
+        range_start = max(start_date, incurred_on)
+        if range_start > end_date:
+            return 0
+        return (end_date.year - range_start.year) * 12 + (end_date.month - range_start.month) + 1
 
     def create_cost_entry(self, current_user: User, payload: AdminCostEntryCreate) -> AdminCostEntryRead:
         entry = AdminCostEntry(
@@ -156,6 +177,7 @@ class AdminReportingService:
             category=payload.category,
             amount_cents=payload.amount_cents,
             incurred_on=payload.incurred_on,
+            is_recurring=payload.is_recurring,
             created_by_user_id=current_user.id,
         )
         self.db.add(entry)
