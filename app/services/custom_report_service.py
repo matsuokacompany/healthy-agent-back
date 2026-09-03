@@ -145,14 +145,22 @@ class CustomReportService:
 
     @staticmethod
     def _longest_gap_days(reports: list[DailyReport], start_date: date, end_date: date) -> int:
-        report_dates = sorted({report.report_date for report in reports})
-        if not report_dates:
+        # A `DailyReport` row exists for every day the scheduler sent a
+        # check-in, whether or not the patient ever answered it — counting
+        # those rows (as this used to) made "longest gap without responding"
+        # near-zero for exactly the patients who forget to respond, since an
+        # unanswered day still had a row. Only a *completed* report date
+        # counts as a real response. Also don't charge a gap for the stretch
+        # between the (rolling) window's start_date and the first response —
+        # that window can legitimately begin before the patient enrolled.
+        completed_dates = sorted({report.report_date for report in reports if report.completed})
+        if not completed_dates:
             return (end_date - start_date).days + 1
 
-        longest_gap = (report_dates[0] - start_date).days
-        for previous_date, current_date in zip(report_dates, report_dates[1:]):
+        longest_gap = 0
+        for previous_date, current_date in zip(completed_dates, completed_dates[1:]):
             longest_gap = max(longest_gap, (current_date - previous_date).days - 1)
-        return max(longest_gap, (end_date - report_dates[-1]).days)
+        return max(longest_gap, (end_date - completed_dates[-1]).days)
 
     @staticmethod
     def _aggregation_for(period_days: int) -> str:

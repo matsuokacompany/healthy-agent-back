@@ -112,7 +112,10 @@ def test_custom_summary_calculates_metrics_symptoms_gaps_and_weekly_timeline():
     assert summary.metrics.adherence_percentage == 75.0
     assert summary.metrics.symptom_rate_percentage == 66.7
     assert summary.metrics.calendar_coverage_percentage == 13.3
-    assert summary.longest_gap_days == 26
+    # The day-4 report exists (a check-in was sent) but was never completed,
+    # so the real gap runs from the last *completed* response (day 2) to
+    # end_date (day 29) — 27 days, not 26.
+    assert summary.longest_gap_days == 27
     assert summary.symptom_trend == "insufficient_data"
     assert len(summary.symptoms) == 1
     assert summary.symptoms[0].description == "Dor de cabeça"
@@ -156,6 +159,25 @@ def test_custom_summary_marks_sufficient_data_and_detects_increasing_symptom_rat
     assert summary.sufficient_data is True
     assert summary.metrics.completed_checkins == 10
     assert summary.symptom_trend == "increasing"
+
+
+def test_longest_gap_days_ignores_pending_checkins_that_were_never_answered():
+    # The scheduler creates a PENDING DailyReport every day a plan is
+    # active, whether or not the patient responds — a pending row must not
+    # count as "not a gap" or a patient who never answers would always show
+    # a near-zero gap here.
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    end_date = date.today()
+    start_date = end_date - timedelta(days=29)
+
+    create_report(db, user=user, plan=plan, report_date=start_date, completed=True, had_symptoms=False)
+    for offset in range(1, 30):
+        create_report(db, user=user, plan=plan, report_date=start_date + timedelta(days=offset), completed=False)
+
+    summary = CustomReportService(db).build_summary(user.id, start_date, end_date)
+
+    assert summary.longest_gap_days == 29
 
 
 def test_custom_summary_uses_calendar_month_groups_for_period_up_to_one_year():

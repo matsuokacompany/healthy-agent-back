@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.security_context import set_database_service_context
-from app.models.models import MonitoringPlan, MonitoringPlanOriginEnum, SelfMonitoringInsight, User
+from app.models.models import Anamnese, MonitoringPlan, MonitoringPlanOriginEnum, SelfMonitoringInsight, User
 from app.models.schemas import (
     CustomClinicalSummary,
     PatientDashboardPagination,
@@ -18,6 +18,7 @@ from app.models.schemas import (
     SelfMonitoringInsightListResponse,
     SelfMonitoringInsightRead,
 )
+from app.services.anamnese_clinical_service import AnamneseClinicalService
 from app.services.custom_report_service import CustomReportService
 from app.services.insight_service import InsightService
 from app.services.payment_service import PaymentService
@@ -170,7 +171,14 @@ class SelfMonitoringService:
             output_cost_per_million_usd=Decimal(str(output_cost_per_million_usd)),
         )
 
-        clinical_text = json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":"))
+        anamnese = self.db.query(Anamnese).filter(Anamnese.user_id == current_user.id).first()
+        anamnese_text = AnamneseClinicalService.hydrate(anamnese).info if anamnese else "Anamnese não registrada."
+        clinical_text = "\n\n".join([
+            "ANAMNESE DO PACIENTE:",
+            anamnese_text,
+            "DADOS DE AUTOMONITORAMENTO:",
+            json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")),
+        ])
         estimated_input_tokens = math.ceil(len(clinical_text) / 4) + INSIGHT_PROMPT_OVERHEAD_TOKENS
         if estimated_input_tokens > cost_policy.max_input_tokens:
             raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="REPORT_INPUT_TOO_LARGE")

@@ -69,9 +69,23 @@ def test_normalize_qualitative_fields_fixes_avaliacao_clinica():
     assert resultado["avaliacao_clinica"]["nivel_de_suspeicao"] == "moderado"
 
 
-def test_normalize_qualitative_fields_is_noop_for_resumo_paciente():
+def test_normalize_qualitative_fields_is_noop_for_resumo_paciente_without_urgencia():
     service = build_service("resumo_paciente")
     resultado = {"resumo": "texto", "pontos_positivos": [], "pontos_de_atencao": [], "sugestao": "texto"}
     original = dict(resultado)
     service._normalize_qualitative_fields(resultado)
     assert resultado == original
+
+
+def test_normalize_qualitative_fields_fixes_resumo_paciente_urgencia():
+    service = build_service("resumo_paciente")
+    resultado = {"especialidade_sugerida": "Clínico geral", "urgencia_consulta": "90%"}
+    service._normalize_qualitative_fields(resultado)
+    assert resultado["urgencia_consulta"] == "alta"
+
+
+def test_normalize_qualitative_fields_defaults_resumo_paciente_urgencia_to_baixa_when_unparseable():
+    service = build_service("resumo_paciente")
+    resultado = {"urgencia_consulta": "não sei dizer"}
+    service._normalize_qualitative_fields(resultado)
+    assert resultado["urgencia_consulta"] == "baixa"
