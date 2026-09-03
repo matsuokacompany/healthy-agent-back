@@ -877,6 +877,20 @@ class AdminWhatsappStats(BaseModel):
     estimated_cost_cents: Optional[float] = None
 
 
+class AdminSystemHealth(BaseModel):
+    """Signals an admin can use to tell whether the app is actually working
+    right now, built from data the app already tracks -- not a synthetic
+    uptime number. This response itself succeeding is proof the API is up.
+    """
+
+    checked_at: datetime
+    last_inbound_message_at: Optional[datetime] = None
+    last_outbound_message_at: Optional[datetime] = None
+    processed_messages_last_24h: int
+    failed_messages_last_24h: int
+    active_monitoring_plans: int
+
+
 class CustomClinicalPeriodMetrics(BaseModel):
     total_checkins: int = Field(ge=0)
     completed_checkins: int = Field(ge=0)

@@ -18,12 +18,14 @@ from app.models.models import (
     Subscription,
     SubscriptionStatusEnum,
     User,
+    WhatsAppMessage,
 )
 from app.models.schemas import (
     AdminBillingSummary,
     AdminCostEntryCreate,
     AdminCostEntryRead,
     AdminCostSummary,
+    AdminSystemHealth,
     AdminUserRead,
     AdminUserStatusEnum,
     AdminWhatsappDailyPoint,
@@ -229,6 +231,36 @@ class AdminReportingService:
             daily=daily,
             cost_per_message_cents=cost_per_message,
             estimated_cost_cents=estimated_cost_cents,
+        )
+
+    def system_health(self) -> AdminSystemHealth:
+        now = datetime.now(timezone.utc)
+        since_24h = now - timedelta(hours=24)
+
+        last_inbound = self.db.query(func.max(WhatsAppMessage.created_at)).scalar()
+        last_outbound = self.db.query(func.max(DailyReport.prompt_sent_at)).scalar()
+
+        processed_24h = (
+            self.db.query(func.count(WhatsAppMessage.id))
+            .filter(WhatsAppMessage.status == "PROCESSED", WhatsAppMessage.created_at >= since_24h)
+            .scalar()
+            or 0
+        )
+        failed_24h = (
+            self.db.query(func.count(WhatsAppMessage.id))
+            .filter(WhatsAppMessage.status == "FAILED", WhatsAppMessage.created_at >= since_24h)
+            .scalar()
+            or 0
+        )
+        active_plans = self.db.query(func.count(MonitoringPlan.id)).filter(MonitoringPlan.active.is_(True)).scalar() or 0
+
+        return AdminSystemHealth(
+            checked_at=now,
+            last_inbound_message_at=last_inbound,
+            last_outbound_message_at=last_outbound,
+            processed_messages_last_24h=int(processed_24h),
+            failed_messages_last_24h=int(failed_24h),
+            active_monitoring_plans=int(active_plans),
         )
 
     def billing_summary(self) -> AdminBillingSummary:

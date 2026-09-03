@@ -11,6 +11,7 @@ from app.models.schemas import (
     AdminCostEntryCreate,
     AdminCostEntryRead,
     AdminCostSummary,
+    AdminSystemHealth,
     AdminUserRead,
     AdminUserStatusEnum,
     AdminWhatsappStats,
@@ -89,6 +90,14 @@ def get_admin_whatsapp_stats(
     current_user: User = Depends(get_current_super_admin),
 ):
     return AdminReportingService(db).whatsapp_stats(days=days)
+
+
+@router.get("/system/health", response_model=AdminSystemHealth)
+def get_admin_system_health(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_super_admin),
+):
+    return AdminReportingService(db).system_health()
 
 
 @router.post(
