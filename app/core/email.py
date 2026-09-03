@@ -19,9 +19,18 @@ def is_configured() -> bool:
     return bool(settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD and settings.SMTP_FROM_EMAIL)
 
 
-def send_email(*, to: str, subject: str, body: str) -> bool:
+def send_email(
+    *,
+    to: str,
+    subject: str,
+    body: str,
+    attachment: tuple[bytes, str, str] | None = None,
+) -> bool:
     """Best-effort send — logs and returns False on failure rather than
     raising, so a notification email never blocks the action that triggered it.
+
+    `attachment`, when given, is (content, filename, content_type) — e.g. a
+    screenshot on a support contact message.
     """
     if not is_configured():
         logger.warning("SMTP not configured; skipping email | subject=%s", subject)
@@ -32,6 +41,11 @@ def send_email(*, to: str, subject: str, body: str) -> bool:
     message["From"] = settings.SMTP_FROM_EMAIL
     message["To"] = to
     message.set_content(body)
+
+    if attachment:
+        content, filename, content_type = attachment
+        maintype, _, subtype = content_type.partition("/")
+        message.add_attachment(content, maintype=maintype or "application", subtype=subtype or "octet-stream", filename=filename)
 
     try:
         with smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as client:

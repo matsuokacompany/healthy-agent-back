@@ -72,6 +72,27 @@ def test_send_email_sends_via_smtp_ssl(monkeypatch):
     assert client.sent["From"] == "contato@julha.com.br"
 
 
+def test_send_email_attaches_file_when_given(monkeypatch):
+    configure_smtp(monkeypatch)
+    FakeSmtpSsl.instances = []
+    monkeypatch.setattr(email_module.smtplib, "SMTP_SSL", FakeSmtpSsl)
+
+    result = email_module.send_email(
+        to="contato@julha.com.br",
+        subject="[Suporte Julha] Problema técnico",
+        body="Corpo do e-mail",
+        attachment=(b"fake-image-bytes", "print.png", "image/png"),
+    )
+
+    assert result is True
+    client = FakeSmtpSsl.instances[0]
+    attachments = list(client.sent.iter_attachments())
+    assert len(attachments) == 1
+    assert attachments[0].get_filename() == "print.png"
+    assert attachments[0].get_content_type() == "image/png"
+    assert attachments[0].get_payload(decode=True) == b"fake-image-bytes"
+
+
 def test_send_email_returns_false_on_smtp_error(monkeypatch):
     configure_smtp(monkeypatch)
 

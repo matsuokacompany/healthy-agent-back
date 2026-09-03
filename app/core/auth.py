@@ -52,6 +52,14 @@ def _generic_auth_error() -> HTTPException:
     return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
 
+# Deliberately the same detail for every signup conflict (email, phone, CPF,
+# license) -- naming which field collided lets a caller enumerate registered
+# accounts one field at a time, the same class of leak as a login error that
+# says "wrong password" vs. "no such account".
+def signup_conflict_error() -> HTTPException:
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Registration conflict")
+
+
 def set_no_store(response: Response) -> None:
     response.headers["Cache-Control"] = "no-store"
 
@@ -266,7 +274,7 @@ def supabase_signup(email: str, password: str, *, metadata: dict[str, Any] | Non
         error_code = str(error_payload.get("error_code") or "")
         message = str(error_payload.get("msg") or error_payload.get("error_description") or "")
         if error_code == "user_already_exists" or "already registered" in message.lower():
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+            raise signup_conflict_error()
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Signup is temporarily unavailable. Please try again shortly.",

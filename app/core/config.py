@@ -102,6 +102,7 @@ class Settings(BaseSettings):
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
     SMTP_FROM_EMAIL: Optional[str] = None
+    SUPPORT_CONTACT_EMAIL: str = "contato@julha.com.br"
 
     # Asaas billing for PROFESSIONAL accounts — a separate catalog/pricing
     # from the patient self-service plans above. Same "no default" rule: a
