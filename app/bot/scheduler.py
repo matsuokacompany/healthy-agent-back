@@ -9,9 +9,20 @@ from sqlalchemy import or_, text
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.db.security_context import set_database_service_context
-from app.models.models import CheckTypeEnum, MonitoringPlan, MonitoringPlanOriginEnum, Subscription, User
+from app.models.models import (
+    CheckTypeEnum,
+    DailyReport,
+    DailyReportStatusEnum,
+    MonitoringPlan,
+    MonitoringPlanOriginEnum,
+    Notification,
+    NotificationKindEnum,
+    Subscription,
+    User,
+)
 from app.services.daily_report_service import DailyReportService
 from app.services.dunning_service import DunningService
+from app.services.notification_service import notify_checkin_pending
 from app.services.payment_service import subscription_grants_access
 
 logger = logging.getLogger(__name__)
@@ -19,6 +30,7 @@ logger = logging.getLogger(__name__)
 _scheduler: AsyncIOScheduler | None = None
 SCHEDULER_ADVISORY_LOCK_ID = 2026063001
 DUNNING_ADVISORY_LOCK_ID = 2026063002
+CHECKIN_REMINDER_ADVISORY_LOCK_ID = 2026063003
 
 
 def _mask_identifier(value: str | None) -> str | None:
@@ -189,6 +201,72 @@ async def run_dunning_reminders() -> None:
         db.close()
 
 
+async def send_checkin_reminders() -> None:
+    """In-app (not WhatsApp) nudge for a check-in still open late in the
+    day. Runs once daily, so a report only ever gets one reminder even
+    though this iterates every still-open report for today."""
+    logger.info("CHECKIN_REMINDERS START")
+
+    db = SessionLocal()
+    set_database_service_context(db, "scheduler")
+    lock_acquired = False
+    reminders_sent = 0
+
+    try:
+        lock_acquired = _try_acquire_scheduler_lock(db, CHECKIN_REMINDER_ADVISORY_LOCK_ID)
+        if not lock_acquired:
+            logger.info("CHECKIN_REMINDERS SKIPPED | reason=advisory_lock_busy")
+            return
+
+        tz = ZoneInfo(settings.SCHEDULER_TIMEZONE)
+        today = datetime.now(tz).date()
+
+        pending_reports = (
+            db.query(DailyReport)
+            .filter(DailyReport.report_date == today)
+            .filter(DailyReport.completed.is_(False))
+            .filter(
+                DailyReport.status.in_(
+                    [
+                        DailyReportStatusEnum.PENDING,
+                        DailyReportStatusEnum.AWAITING_SYMPTOM_DESCRIPTION,
+                        DailyReportStatusEnum.AWAITING_CAUSE,
+                    ]
+                )
+            )
+            .all()
+        )
+
+        for report in pending_reports:
+            already_reminded_today = (
+                db.query(Notification)
+                .filter(
+                    Notification.user_id == report.user_id,
+                    Notification.kind == NotificationKindEnum.CHECKIN_PENDING.value,
+                    Notification.created_at >= datetime.now(timezone.utc) - timedelta(hours=12),
+                )
+                .first()
+            )
+            if already_reminded_today:
+                continue
+            notify_checkin_pending(db, patient_user_id=report.user_id)
+            reminders_sent += 1
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("FATAL ERROR send_checkin_reminders")
+    finally:
+        if lock_acquired:
+            try:
+                _release_scheduler_lock(db, CHECKIN_REMINDER_ADVISORY_LOCK_ID)
+            except Exception:
+                logger.exception("Failed to release checkin reminder advisory lock")
+        db.close()
+
+    logger.info("CHECKIN_REMINDERS DONE | sent=%s", reminders_sent)
+
+
 def start_scheduler(bot_manager):
     global _scheduler
 
@@ -222,6 +300,17 @@ def start_scheduler(bot_manager):
         run_dunning_reminders,
         CronTrigger(hour=9, minute=0, timezone=tz),
         id="dunning_reminders",
+        replace_existing=True,
+    )
+
+    _scheduler.add_job(
+        send_checkin_reminders,
+        CronTrigger(
+            hour=settings.SCHEDULER_CHECKIN_REMINDER_HOUR,
+            minute=settings.SCHEDULER_CHECKIN_REMINDER_MINUTE,
+            timezone=tz,
+        ),
+        id="checkin_reminders",
         replace_existing=True,
     )
 

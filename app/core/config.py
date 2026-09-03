@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     SCHEDULER_MORNING_HOUR: int = 8
     SCHEDULER_MORNING_MINUTE: int = 0
 
+    # In-app reminder (not WhatsApp -- no extra messaging cost) for a
+    # check-in still open late in the day.
+    SCHEDULER_CHECKIN_REMINDER_HOUR: int = 18
+    SCHEDULER_CHECKIN_REMINDER_MINUTE: int = 0
+
     WHATSAPP_VERIFY_TOKEN: str
     WHATSAPP_PHONE_NUMBER_ID: str
     WHATSAPP_ACCESS_TOKEN: str

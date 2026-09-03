@@ -6,7 +6,17 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base_class import Base
-from app.models.models import CheckTypeEnum, DailyReport, DailyReportStatusEnum, MonitoringPlan, User
+from app.models.models import (
+    CheckTypeEnum,
+    DailyReport,
+    DailyReportStatusEnum,
+    MonitoringPlan,
+    MonitoringProfessional,
+    Notification,
+    NotificationKindEnum,
+    ProfessionalProfile,
+    User,
+)
 from app.services.daily_report_service import DailyReportService
 
 
@@ -56,6 +66,60 @@ def test_daily_report_button_flow_complete():
     assert report.status == DailyReportStatusEnum.COMPLETED
     assert report.symptom_description == "Dor de cabeça e tontura"
     assert report.suspected_cause is None
+
+
+def link_professional(db, patient_plan):
+    professional_user = User(
+        name="Dra. Teste",
+        email=f"pro-{datetime.now().timestamp()}@example.com",
+    )
+    db.add(professional_user)
+    db.commit()
+    db.refresh(professional_user)
+    profile = ProfessionalProfile(user_id=professional_user.id, active=True)
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+    db.add(
+        MonitoringProfessional(
+            monitoring_plan_id=patient_plan.id,
+            professional_profile_id=profile.id,
+            role="responsável",
+            active=True,
+        )
+    )
+    db.commit()
+    return professional_user
+
+
+def test_daily_report_symptom_notifies_assigned_professional():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    professional_user = link_professional(db, plan)
+    DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+
+    assert DailyReportService.process_response(db, user, "Tive sintomas") == "ASK_SYMPTOM_DESCRIPTION"
+    # The bot's yes/no step doesn't have the symptom description yet, so it
+    # shouldn't notify anyone until the report actually completes below.
+    assert db.query(Notification).count() == 0
+
+    assert DailyReportService.process_response(db, user, "Dor de cabeça e tontura") == "COMPLETED"
+
+    notifications = db.query(Notification).filter(Notification.user_id == professional_user.id).all()
+    assert len(notifications) == 1
+    assert notifications[0].kind == NotificationKindEnum.SYMPTOM_REPORTED.value
+    assert user.name in notifications[0].message
+
+
+def test_daily_report_no_symptoms_does_not_notify():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    link_professional(db, plan)
+    DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+
+    assert DailyReportService.process_response(db, user, "Não tive sintomas") == "NEGATIVE"
+
+    assert db.query(Notification).count() == 0
 
 
 def test_daily_report_expired():

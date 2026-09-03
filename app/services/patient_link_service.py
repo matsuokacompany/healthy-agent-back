@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.email import send_email
 from app.db.security_context import set_database_service_context
+from app.services.notification_service import notify_patient_assigned
 from app.services.payment_service import PaymentService
 from app.services.professional_capacity_service import require_patient_cap
 from app.models.models import (
@@ -249,6 +250,7 @@ class PatientLinkService:
 
         link_request.status = PatientLinkRequestStatusEnum.ACCEPTED.value
         link_request.responded_at = now
+        notify_patient_assigned(self.db, professional_user_id=professional_profile.user_id, patient=current_user)
         self.db.commit()
         self.db.refresh(link_request)
         return self._to_read_dict(link_request)

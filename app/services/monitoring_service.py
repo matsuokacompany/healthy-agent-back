@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import assign_role
 from app.models.models import MonitoringPlan, MonitoringProfessional, ProfessionalProfile, RoleNameEnum, User
+from app.services.notification_service import notify_patient_assigned
 from app.models.schemas import (
     MonitoringPlanCreate,
     MonitoringPlanUpdate,
@@ -106,6 +107,9 @@ class MonitoringPlanService:
             active=True,
         )
         self.db.add(link)
+        patient = self.db.query(User).filter(User.id == plan.patient_id).first()
+        if patient:
+            notify_patient_assigned(self.db, professional_user_id=professional.user_id, patient=patient)
         self.db.commit()
         self.db.refresh(link)
         return link
