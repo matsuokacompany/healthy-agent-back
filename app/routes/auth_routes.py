@@ -19,6 +19,7 @@ from app.core.auth import (
     get_current_user,
     set_auth_cookies,
     set_no_store,
+    signup_conflict_error,
     supabase_password_login,
     supabase_refresh,
     supabase_signup,
@@ -86,14 +87,14 @@ def signup(request: Request, payload: SignupRequest, response: Response, db: Ses
     """
     set_no_store(response)
     if db.query(User).filter(User.email == payload.email).first():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+        raise signup_conflict_error()
     normalized_phone = "".join(character for character in payload.phone if character.isdigit())
     if normalized_phone and db.query(User).filter(User.phone == normalized_phone).first():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Phone already registered")
+        raise signup_conflict_error()
     # payload.cpf is already digits-only and checksum-validated (see
     # SignupRequest.validate_cpf).
     if db.query(User).filter(User.cpf == payload.cpf).first():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CPF already registered")
+        raise signup_conflict_error()
 
     # Carried in Supabase's user_metadata (not applied here directly) because
     # e-mail confirmation can defer local row creation to a later request —
@@ -143,14 +144,14 @@ def signup_professional(
     """
     set_no_store(response)
     if db.query(User).filter(User.email == payload.email).first():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+        raise signup_conflict_error()
     normalized_phone = "".join(character for character in payload.phone if character.isdigit())
     if normalized_phone and db.query(User).filter(User.phone == normalized_phone).first():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Phone already registered")
+        raise signup_conflict_error()
     # payload.cpf is already digits-only and checksum-validated (see
     # ProfessionalSignupRequest.validate_cpf) — 11 digits means CPF, 14 means CNPJ.
     if db.query(User).filter(User.cpf == payload.cpf).first():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CPF already registered")
+        raise signup_conflict_error()
     if (
         db.query(ProfessionalProfile)
         .filter(
@@ -159,7 +160,7 @@ def signup_professional(
         )
         .first()
     ):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="License already registered")
+        raise signup_conflict_error()
     if len(payload.cpf) == 14:
         try:
             if not cnpj_exists(payload.cpf):
