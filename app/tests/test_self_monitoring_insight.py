@@ -143,7 +143,7 @@ def test_insight_generates_and_persists_summary(monkeypatch):
     record = db.query(SelfMonitoringInsight).filter(SelfMonitoringInsight.patient_id == patient.id).one()
     assert record.input_tokens == 120
     assert record.output_tokens == 60
-    assert record.next_generation_at == record.generated_at + timedelta(days=7)
+    assert record.next_generation_at == record.generated_at + timedelta(days=15)
 
 
 def test_insight_reuses_cached_row_within_cooldown(monkeypatch):

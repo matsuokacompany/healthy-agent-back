@@ -15,6 +15,7 @@ from app.models.models import (
     MonitoringPlan,
     ProfessionalProfile,
     RoleNameEnum,
+    SelfMonitoringInsight,
     Subscription,
     SubscriptionStatusEnum,
     User,
@@ -114,6 +115,20 @@ class AdminReportingService:
         ai_report_count = int(ai_row[0] or 0)
         ai_report_cost_usd = float(ai_row[1] or 0)
 
+        self_monitoring_row = (
+            self.db.query(
+                func.count(SelfMonitoringInsight.id),
+                func.coalesce(func.sum(SelfMonitoringInsight.actual_cost), 0),
+            )
+            .filter(
+                func.date(SelfMonitoringInsight.generated_at) >= resolved_start,
+                func.date(SelfMonitoringInsight.generated_at) <= resolved_end,
+            )
+            .one()
+        )
+        self_monitoring_report_count = int(self_monitoring_row[0] or 0)
+        self_monitoring_cost_usd = float(self_monitoring_row[1] or 0)
+
         whatsapp_message_count = (
             self.db.query(func.count(DailyReport.id))
             .filter(
@@ -141,6 +156,8 @@ class AdminReportingService:
             end_date=resolved_end,
             ai_report_count=ai_report_count,
             ai_report_cost_usd=round(ai_report_cost_usd, 2),
+            self_monitoring_report_count=self_monitoring_report_count,
+            self_monitoring_cost_usd=round(self_monitoring_cost_usd, 2),
             whatsapp_message_count=whatsapp_message_count,
             whatsapp_cost_per_message_cents=cost_per_message,
             whatsapp_cost_cents=whatsapp_cost_cents,
