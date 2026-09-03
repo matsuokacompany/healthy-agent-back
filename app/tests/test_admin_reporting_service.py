@@ -280,6 +280,50 @@ def test_cost_summary_includes_manual_cost_entries():
     assert summary.manual_cost_entries[0].description == "Infra"
 
 
+def test_recurring_cost_entry_counts_once_per_month_it_applies_to():
+    db = build_session()
+    admin = create_admin(db, email="admin@example.com")
+    service = AdminReportingService(db)
+    service.create_cost_entry(
+        admin,
+        AdminCostEntryCreate(description="Chip do WhatsApp", category="Telefonia", amount_cents=1500, incurred_on=date(2026, 1, 15), is_recurring=True),
+    )
+
+    single_month = service.cost_summary(start_date=date(2026, 3, 1), end_date=date(2026, 3, 31))
+    assert single_month.manual_cost_total_cents == 1500
+
+    three_months = service.cost_summary(start_date=date(2026, 1, 1), end_date=date(2026, 3, 31))
+    assert three_months.manual_cost_total_cents == 1500 * 3
+
+
+def test_recurring_cost_entry_does_not_apply_before_it_started():
+    db = build_session()
+    admin = create_admin(db, email="admin@example.com")
+    service = AdminReportingService(db)
+    service.create_cost_entry(
+        admin,
+        AdminCostEntryCreate(description="Chip do WhatsApp", category="Telefonia", amount_cents=1500, incurred_on=date(2026, 3, 10), is_recurring=True),
+    )
+
+    before_it_started = service.cost_summary(start_date=date(2026, 1, 1), end_date=date(2026, 1, 31))
+    assert before_it_started.manual_cost_total_cents == 0
+    assert before_it_started.manual_cost_entries == []
+
+
+def test_list_cost_entries_keeps_showing_a_recurring_entry_from_an_earlier_period():
+    db = build_session()
+    admin = create_admin(db, email="admin@example.com")
+    service = AdminReportingService(db)
+    service.create_cost_entry(
+        admin,
+        AdminCostEntryCreate(description="Chip do WhatsApp", category="Telefonia", amount_cents=1500, incurred_on=date(2026, 1, 15), is_recurring=True),
+    )
+
+    february = service.list_cost_entries(start_date=date(2026, 2, 1), end_date=date(2026, 2, 28))
+    assert len(february) == 1
+    assert february[0].is_recurring is True
+
+
 def test_billing_summary_computes_mrr_from_active_subscriptions(monkeypatch):
     monkeypatch.setattr(settings, "ASAAS_SELF_MONITORING_PRICE_CENTS", 2990)
     monkeypatch.setattr(settings, "ASAAS_SELF_MONITORING_SEMIANNUAL_PRICE_CENTS", 9990)

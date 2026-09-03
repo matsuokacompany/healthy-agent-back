@@ -823,6 +823,7 @@ class AdminCostEntryCreate(StrictRequestModel):
     category: Optional[ShortPlainText] = None
     amount_cents: int = Field(gt=0)
     incurred_on: date
+    is_recurring: bool = False
 
 
 class AdminCostEntryRead(ORMModel):
@@ -831,6 +832,7 @@ class AdminCostEntryRead(ORMModel):
     category: Optional[str] = None
     amount_cents: int
     incurred_on: date
+    is_recurring: bool
     created_by_user_id: int
     created_at: datetime
 
