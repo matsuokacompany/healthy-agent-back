@@ -22,6 +22,7 @@ from app.models.models import (
     SubscriptionStatusEnum,
     User,
     UserRole,
+    WhatsAppMessage,
 )
 from app.models.schemas import AdminCostEntryCreate, AdminUserStatusEnum
 from app.services.admin_reporting_service import AdminReportingService
@@ -322,6 +323,41 @@ def test_list_cost_entries_keeps_showing_a_recurring_entry_from_an_earlier_perio
     february = service.list_cost_entries(start_date=date(2026, 2, 1), end_date=date(2026, 2, 28))
     assert len(february) == 1
     assert february[0].is_recurring is True
+
+
+def test_system_health_reports_message_activity_and_active_plans():
+    db = build_session()
+    patient = create_patient(db, email="paciente@example.com", active_plan=True)
+    plan = db.query(MonitoringPlan).filter(MonitoringPlan.patient_id == patient.id).one()
+
+    now = datetime.now(timezone.utc)
+    _create_sent_daily_report(db, user=patient, plan=plan, report_date=now.date(), prompt_sent_at=now)
+
+    db.add(WhatsAppMessage(message_id="wamid.1", external_user_id="5511999990000", status="PROCESSED", created_at=now))
+    db.add(WhatsAppMessage(message_id="wamid.2", external_user_id="5511999990000", status="FAILED", created_at=now))
+    # Outside the 24h window -- shouldn't count toward either bucket.
+    db.add(WhatsAppMessage(message_id="wamid.3", external_user_id="5511999990000", status="PROCESSED", created_at=now - timedelta(hours=30)))
+    db.commit()
+
+    health = AdminReportingService(db).system_health()
+
+    assert health.last_inbound_message_at is not None
+    assert health.last_outbound_message_at is not None
+    assert health.processed_messages_last_24h == 1
+    assert health.failed_messages_last_24h == 1
+    assert health.active_monitoring_plans == 1
+
+
+def test_system_health_handles_no_activity_at_all():
+    db = build_session()
+
+    health = AdminReportingService(db).system_health()
+
+    assert health.last_inbound_message_at is None
+    assert health.last_outbound_message_at is None
+    assert health.processed_messages_last_24h == 0
+    assert health.failed_messages_last_24h == 0
+    assert health.active_monitoring_plans == 0
 
 
 def test_billing_summary_computes_mrr_from_active_subscriptions(monkeypatch):

@@ -59,6 +59,7 @@ def test_admin_endpoints_require_super_admin():
     assert client.get("/admin/users").status_code == 403
     assert client.get("/admin/costs").status_code == 403
     assert client.get("/admin/whatsapp/stats").status_code == 403
+    assert client.get("/admin/system/health").status_code == 403
 
 
 def test_super_admin_can_list_users_and_read_costs_and_whatsapp_stats():
@@ -81,6 +82,10 @@ def test_super_admin_can_list_users_and_read_costs_and_whatsapp_stats():
     billing_response = client.get("/admin/billing/summary")
     assert billing_response.status_code == 200
     assert billing_response.json()["mrr_cents"] == 0
+
+    health_response = client.get("/admin/system/health")
+    assert health_response.status_code == 200
+    assert health_response.json()["active_monitoring_plans"] == 0
 
 
 def test_billing_summary_requires_super_admin():
