@@ -6,6 +6,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 from app.models.models import CheckTypeEnum, DailyReport, DailyReportStatusEnum, MonitoringPlan, User
 from app.core.config import settings
 from app.services.clinical_data_service import ClinicalDataService
+from app.services.notification_service import notify_symptom_reported
 
 
 class DailyReportService:
@@ -100,6 +101,7 @@ class DailyReportService:
             report.awaiting_cause = False
             report.completed = True
             report.status = DailyReportStatusEnum.COMPLETED
+            notify_symptom_reported(db, patient=user, report=report)
             db.commit()
             return "COMPLETED"
 
@@ -131,6 +133,7 @@ class DailyReportService:
         report.awaiting_cause = False
         report.status = DailyReportStatusEnum.COMPLETED
         report.completed = True
+        notify_symptom_reported(db, patient=user, report=report)
         db.commit()
         return "COMPLETED"
 
@@ -160,6 +163,8 @@ class DailyReportService:
         report.awaiting_response = False
         report.awaiting_cause = False
         report.status = DailyReportStatusEnum.COMPLETED
+        if had_symptoms is True:
+            notify_symptom_reported(db, patient=report.user, report=report)
         db.commit()
         db.refresh(report)
         return cls.hydrate_clinical(report)

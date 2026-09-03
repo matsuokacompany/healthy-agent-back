@@ -40,6 +40,7 @@ from app.services.insight_service import InsightService
 from app.services.custom_report_preview_service import CustomReportPreviewService
 from app.services.custom_report_generation_service import CustomReportCostPolicy, CustomReportGenerationService
 from app.services.custom_report_history_service import CustomReportHistoryService
+from app.services.notification_service import notify_ai_report_ready
 from app.services.patient_dashboard_service import PaginationParams, PatientDashboardService, ReportFilters
 from app.db.security_context import set_database_service_context
 from app.services.payment_service import PaymentService
@@ -258,7 +259,7 @@ class ProfessionalService:
         api_key: str | None,
     ) -> ProfessionalAiReportResponse:
         self._require_report_role(current_user)
-        self._require_patient_access(current_user, patient_id)
+        patient = self._require_patient_access(current_user, patient_id)
         self._require_billing_access(self._get_access_profile(current_user))
         clinical_summary = self._build_clinical_summary(patient_id, periodo)
         week_start = self._current_week_start()
@@ -297,6 +298,7 @@ class ProfessionalService:
         self.db.flush()
         AiReportClinicalService.write_summary(report, clinical_summary)
         AiReportClinicalService.write_response(report, ai)
+        notify_ai_report_ready(self.db, patient=patient, generated_by_user_id=current_user.id)
         self.db.commit()
         return ProfessionalAiReportResponse(
             patient_id=patient_id,
