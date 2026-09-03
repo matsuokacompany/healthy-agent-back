@@ -842,6 +842,8 @@ class AdminCostSummary(BaseModel):
     end_date: date
     ai_report_count: int
     ai_report_cost_usd: float
+    self_monitoring_report_count: int = 0
+    self_monitoring_cost_usd: float = 0.0
     whatsapp_message_count: int
     whatsapp_cost_per_message_cents: Optional[float] = None
     whatsapp_cost_cents: Optional[float] = None

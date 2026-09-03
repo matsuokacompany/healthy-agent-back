@@ -24,7 +24,7 @@ from app.services.payment_service import PaymentService
 from app.services.self_monitoring_insight_clinical_service import SelfMonitoringInsightClinicalService
 
 DEFAULT_EVOLUTION_PERIOD_DAYS = 30
-INSIGHT_COOLDOWN_DAYS = 7
+INSIGHT_COOLDOWN_DAYS = 15
 INSIGHT_PROMPT_OVERHEAD_TOKENS = 400
 
 

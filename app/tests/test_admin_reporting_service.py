@@ -18,6 +18,7 @@ from app.models.models import (
     ProfessionalProfile,
     Role,
     RoleNameEnum,
+    SelfMonitoringInsight,
     Subscription,
     SubscriptionStatusEnum,
     User,
@@ -170,6 +171,38 @@ def test_cost_summary_aggregates_ai_reports_and_whatsapp_messages(monkeypatch):
     assert summary.whatsapp_message_count == 2
     assert summary.whatsapp_cost_per_message_cents == 25
     assert summary.whatsapp_cost_cents == 50
+
+
+def _create_self_monitoring_insight(db, *, patient, generated_at, actual_cost):
+    insight = SelfMonitoringInsight(
+        patient_id=patient.id,
+        start_date=generated_at.date() - timedelta(days=30),
+        end_date=generated_at.date(),
+        generated_at=generated_at,
+        actual_cost=actual_cost,
+    )
+    db.add(insight)
+    db.commit()
+    return insight
+
+
+def test_cost_summary_aggregates_self_monitoring_insights():
+    db = build_session()
+    patient = create_patient(db, email="paciente@example.com", active_plan=False)
+
+    today = datetime.now(timezone.utc)
+    _create_self_monitoring_insight(db, patient=patient, generated_at=today, actual_cost=0.01)
+    _create_self_monitoring_insight(db, patient=patient, generated_at=today - timedelta(days=1), actual_cost=0.008)
+    # Outside the requested range.
+    _create_self_monitoring_insight(db, patient=patient, generated_at=today - timedelta(days=40), actual_cost=0.02)
+
+    start = (today - timedelta(days=2)).date()
+    end = today.date()
+    summary = AdminReportingService(db).cost_summary(start_date=start, end_date=end)
+
+    assert summary.self_monitoring_report_count == 2
+    # cost_summary() rounds to 2 decimals like the AI report cost field does.
+    assert summary.self_monitoring_cost_usd == pytest.approx(0.02)
 
 
 def test_cost_summary_supports_fractional_cost_per_message(monkeypatch):
