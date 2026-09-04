@@ -80,6 +80,16 @@ class SymptomNormalizationService:
             max_tokens=cls.MAX_TOKENS,
         )
         result = service.gerar_interpretacao(prompt_input)
+        # Diagnostic: three rounds of prompt/code fixes (compound-message
+        # rule, few-shot example, session-rollback recovery) all failed to
+        # change the outcome for at least one real report -- logging the
+        # model's actual raw answer, instead of guessing at more prompt
+        # tweaks blind, is the only way left to tell whether the model is
+        # still under-extracting or something upstream of it is at fault.
+        logger.info(
+            "Symptom normalization result for daily_report_id=%s: description=%r termos=%r",
+            report.id, symptom_description, result.get("termos"),
+        )
         labels = [
             label.strip()[: cls.MAX_TERM_LENGTH]
             for label in (result.get("termos") or [])
