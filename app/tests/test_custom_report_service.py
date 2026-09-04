@@ -229,6 +229,46 @@ def test_build_symptoms_groups_by_normalized_term_and_falls_back_to_raw_text():
     assert by_description["Dor no ombro direito"].first_reported_at == unprocessed.report_date
 
 
+def test_build_symptoms_merges_terms_from_the_same_compound_message_into_one_entry():
+    # A single check-in classified into multiple terms (e.g. "Palpebra
+    # ardendo... com casquinhas" -> Ardência + Erupção cutânea) must show up
+    # as ONE row listing both terms, not two rows repeating the same raw
+    # sentence -- that reads as a duplicate to a patient, and a top-N
+    # display cutoff could otherwise show one half of the pair and hide the
+    # other. The underlying daily_report_symptom_terms rows still exist one
+    # per term (checked below) -- only this display grouping changes.
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    end_date = date.today()
+    start_date = end_date - timedelta(days=29)
+
+    compound = create_report(
+        db, user=user, plan=plan, report_date=start_date, completed=True,
+        had_symptoms=True, symptom_description="Palpebra ardendo como se tivesse queimada e com casquinhas",
+    )
+
+    ardencia = SymptomTerm(label="Ardência")
+    erupcao = SymptomTerm(label="Erupção cutânea")
+    db.add_all([ardencia, erupcao])
+    db.commit()
+    db.add_all([
+        DailyReportSymptomTerm(daily_report_id=compound.id, symptom_term_id=ardencia.id, patient_id=user.id),
+        DailyReportSymptomTerm(daily_report_id=compound.id, symptom_term_id=erupcao.id, patient_id=user.id),
+    ])
+    db.commit()
+
+    summary = CustomReportService(db).build_summary(user.id, start_date, end_date)
+
+    assert len(summary.symptoms) == 1
+    assert summary.symptoms[0].description == (
+        "Palpebra ardendo como se tivesse queimada e com casquinhas (Ardência, Erupção cutânea)"
+    )
+    assert summary.symptoms[0].occurrences == 1
+    assert (
+        db.query(DailyReportSymptomTerm).filter(DailyReportSymptomTerm.daily_report_id == compound.id).count() == 2
+    )
+
+
 def test_custom_summary_uses_calendar_month_groups_for_period_up_to_one_year():
     db = build_session()
     user, _ = create_user_and_plan(db)

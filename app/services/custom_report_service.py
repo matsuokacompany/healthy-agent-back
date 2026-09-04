@@ -97,23 +97,33 @@ class CustomReportService:
         for daily_report_id, label in term_rows:
             terms_by_report[daily_report_id].append(label)
 
-        occurrences: dict[str, list[DailyReport]] = defaultdict(list)
-        labels: dict[str, str] = {}
+        # Group by the *set* of terms a single check-in was classified into,
+        # not by each term individually -- a compound message like "Refluxo,
+        # dor de cabeça" (Refluxo + Cefaleia) would otherwise repeat the
+        # exact same raw sentence across two separate rows, which reads as
+        # a duplicate to a patient rather than one reported episode with two
+        # terms (and worse, a top-N display cutoff could show one half of
+        # the pair and silently hide the other). This only changes how
+        # results are DISPLAYED here -- daily_report_symptom_terms itself
+        # still stores one row per term per report, so per-term totals for
+        # analytics or a future export are unaffected by this grouping.
+        occurrences: dict[tuple[str, ...], list[DailyReport]] = defaultdict(list)
+        labels: dict[tuple[str, ...], str] = {}
         for report in completed_with_symptoms:
             report_labels = terms_by_report.get(report.id) or [" ".join(report.symptom_description.split())]
-            for label in report_labels:
-                normalized = label.casefold()
-                labels.setdefault(normalized, label)
-                occurrences[normalized].append(report)
+            unique_labels = list(dict.fromkeys(report_labels))
+            key = tuple(sorted(label.casefold() for label in unique_labels))
+            labels.setdefault(key, ", ".join(sorted(unique_labels, key=str.casefold)))
+            occurrences[key].append(report)
 
         symptoms = [
             CustomClinicalSymptomOccurrence(
-                description=self._display_description(labels[normalized], symptom_reports),
+                description=self._display_description(labels[key], symptom_reports),
                 occurrences=len(symptom_reports),
                 first_reported_at=min(report.report_date for report in symptom_reports),
                 last_reported_at=max(report.report_date for report in symptom_reports),
             )
-            for normalized, symptom_reports in occurrences.items()
+            for key, symptom_reports in occurrences.items()
         ]
         return sorted(symptoms, key=lambda item: (-item.occurrences, item.description.casefold()))
 
