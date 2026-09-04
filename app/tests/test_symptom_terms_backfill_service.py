@@ -147,3 +147,43 @@ def test_run_advances_past_reports_that_yield_no_terms(monkeypatch):
 
     assert stats.processed == 2
     assert stats.linked == 0
+
+
+def test_reclassify_all_reprocesses_already_linked_reports_with_the_current_prompt(monkeypatch):
+    # Simulates rolling out a prompt fix: a report already classified under
+    # the old prompt (only "Refluxo") should get its links replaced once
+    # reclassify_all re-runs it against the improved prompt.
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.symptom_normalization_service.InsightService",
+        FakeInsightService,
+    )
+    FakeInsightService.next_result = {"termos": ["Refluxo"]}
+
+    db = build_session()
+    report = make_report(db, symptom_description="Refluxo, dor de cabeça")
+    service = SymptomTermsBackfillService(db)
+    service.run()
+
+    linked_labels = db.query(SymptomTerm.label).join(
+        DailyReportSymptomTerm, DailyReportSymptomTerm.symptom_term_id == SymptomTerm.id
+    ).filter(DailyReportSymptomTerm.daily_report_id == report.id).all()
+    assert [label for (label,) in linked_labels] == ["Refluxo"]
+
+    # Nothing left "pending" the normal way -- reclassify_all is required
+    # to touch it again.
+    assert service.pending_count() == 0
+    assert service.pending_count(reclassify_all=True) == 1
+
+    FakeInsightService.next_result = {"termos": ["Refluxo", "Cefaleia"]}
+    stats = service.run(reclassify_all=True)
+
+    assert stats.processed == 1
+    linked_labels = sorted(
+        label
+        for (label,) in db.query(SymptomTerm.label)
+        .join(DailyReportSymptomTerm, DailyReportSymptomTerm.symptom_term_id == SymptomTerm.id)
+        .filter(DailyReportSymptomTerm.daily_report_id == report.id)
+        .all()
+    )
+    assert linked_labels == ["Cefaleia", "Refluxo"]
