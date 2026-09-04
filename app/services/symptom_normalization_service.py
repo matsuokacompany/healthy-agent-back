@@ -28,6 +28,31 @@ class SymptomNormalizationService:
     MAX_TERM_LENGTH = 80
 
     @classmethod
+    def clear(cls, db: Session, report: DailyReport) -> None:
+        """Removes any SymptomTerm links left over from a previous answer.
+
+        Called when a patient edits a completed check-in away from "had
+        symptoms" (or deletes it outright): the description that produced
+        those links no longer applies, so leaving them in
+        daily_report_symptom_terms would misattribute terms to a report
+        that, per the patient's own correction, never had them.
+        """
+        report_id = report.id
+        try:
+            set_database_service_context(db, "symptom_normalization")
+            deleted = (
+                db.query(DailyReportSymptomTerm)
+                .filter(DailyReportSymptomTerm.daily_report_id == report_id)
+                .delete()
+            )
+            db.commit()
+            if deleted:
+                logger.info("Cleared %d symptom term link(s) for daily_report_id=%s", deleted, report_id)
+        except Exception:
+            db.rollback()
+            logger.exception("Failed to clear symptom terms for daily_report_id=%s", report_id)
+
+    @classmethod
     def normalize(cls, db: Session, report: DailyReport, symptom_description: str | None) -> None:
         # Takes the plaintext explicitly rather than reading
         # report.symptom_description: when clinical field encryption is on
