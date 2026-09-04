@@ -207,6 +207,8 @@ class InsightService:
                         "\"termos\" tem um item para cada sintoma distinto mencionado (geralmente 1 a 3) "
                         "— releia a descrição antes de responder e confirme que nenhum sintoma "
                         "listado nela ficou de fora.\n"
+                        "Exemplo: para a descrição \"Refluxo, dor de cabeça\" a resposta correta é "
+                        "{{\"termos\":[\"Refluxo\",\"Cefaleia\"]}} — os DOIS sintomas, nunca só o primeiro.\n"
                         "<dados>\n{relatorio}\n</dados>"
                     )
                 ),
