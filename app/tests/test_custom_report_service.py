@@ -218,10 +218,13 @@ def test_build_symptoms_groups_by_normalized_term_and_falls_back_to_raw_text():
 
     summary = CustomReportService(db).build_summary(user.id, start_date, end_date)
 
+    # A classified entry shows the patient's own (most recent) wording with
+    # the normalized term in parentheses, not the term alone — a patient
+    # doesn't reliably recognize "Diarreia" without the context they gave.
     by_description = {item.description: item for item in summary.symptoms}
-    assert by_description["Diarreia"].occurrences == 2
-    assert by_description["Diarreia"].first_reported_at == start_date
-    assert by_description["Diarreia"].last_reported_at == start_date + timedelta(days=1)
+    assert by_description["Um pouco de diarréia (Diarreia)"].occurrences == 2
+    assert by_description["Um pouco de diarréia (Diarreia)"].first_reported_at == start_date
+    assert by_description["Um pouco de diarréia (Diarreia)"].last_reported_at == start_date + timedelta(days=1)
     assert by_description["Dor no ombro direito"].occurrences == 1
     assert by_description["Dor no ombro direito"].first_reported_at == unprocessed.report_date
 
