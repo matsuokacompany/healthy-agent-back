@@ -4,7 +4,15 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base_class import Base
-from app.models.models import CheckTypeEnum, DailyReport, DailyReportStatusEnum, MonitoringPlan, User
+from app.models.models import (
+    CheckTypeEnum,
+    DailyReport,
+    DailyReportStatusEnum,
+    DailyReportSymptomTerm,
+    MonitoringPlan,
+    SymptomTerm,
+    User,
+)
 from app.services.custom_report_service import CustomReportService
 
 
@@ -178,6 +186,44 @@ def test_longest_gap_days_ignores_pending_checkins_that_were_never_answered():
     summary = CustomReportService(db).build_summary(user.id, start_date, end_date)
 
     assert summary.longest_gap_days == 29
+
+
+def test_build_symptoms_groups_by_normalized_term_and_falls_back_to_raw_text():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    end_date = date.today()
+    start_date = end_date - timedelta(days=29)
+
+    normalized_a = create_report(
+        db, user=user, plan=plan, report_date=start_date, completed=True,
+        had_symptoms=True, symptom_description="diarréia",
+    )
+    normalized_b = create_report(
+        db, user=user, plan=plan, report_date=start_date + timedelta(days=1), completed=True,
+        had_symptoms=True, symptom_description="Um pouco de diarréia",
+    )
+    unprocessed = create_report(
+        db, user=user, plan=plan, report_date=start_date + timedelta(days=2), completed=True,
+        had_symptoms=True, symptom_description="Dor no ombro direito",
+    )
+
+    term = SymptomTerm(label="Diarreia")
+    db.add(term)
+    db.commit()
+    db.add_all([
+        DailyReportSymptomTerm(daily_report_id=normalized_a.id, symptom_term_id=term.id, patient_id=user.id),
+        DailyReportSymptomTerm(daily_report_id=normalized_b.id, symptom_term_id=term.id, patient_id=user.id),
+    ])
+    db.commit()
+
+    summary = CustomReportService(db).build_summary(user.id, start_date, end_date)
+
+    by_description = {item.description: item for item in summary.symptoms}
+    assert by_description["Diarreia"].occurrences == 2
+    assert by_description["Diarreia"].first_reported_at == start_date
+    assert by_description["Diarreia"].last_reported_at == start_date + timedelta(days=1)
+    assert by_description["Dor no ombro direito"].occurrences == 1
+    assert by_description["Dor no ombro direito"].first_reported_at == unprocessed.report_date
 
 
 def test_custom_summary_uses_calendar_month_groups_for_period_up_to_one_year():

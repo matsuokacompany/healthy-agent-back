@@ -354,6 +354,35 @@ class DailyReport(Base):
     clinical_attachments = relationship("ClinicalAttachment", back_populates="daily_report")
 
 
+class SymptomTerm(Base):
+    """Controlled clinical vocabulary a free-text symptom_description gets
+    normalized into (see SymptomNormalizationService) — shared across every
+    patient, grown by the classifier only when nothing existing fits."""
+
+    __tablename__ = "symptom_terms"
+
+    id = Column(Integer, primary_key=True)
+    label = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class DailyReportSymptomTerm(Base):
+    """One row per (report, term) — a single check-in's description can
+    normalize to more than one term (e.g. "Refluxo, dor de cabeça")."""
+
+    __tablename__ = "daily_report_symptom_terms"
+    __table_args__ = (
+        Index("ix_daily_report_symptom_terms_patient", "patient_id"),
+        Index("ix_daily_report_symptom_terms_term", "symptom_term_id"),
+    )
+
+    daily_report_id = Column(Integer, ForeignKey("daily_reports.id", ondelete="CASCADE"), primary_key=True)
+    symptom_term_id = Column(Integer, ForeignKey("symptom_terms.id", ondelete="CASCADE"), primary_key=True)
+    # Denormalized from daily_reports.user_id so RLS can check patient
+    # access directly, matching ClinicalAttachment's pattern.
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+
 class ClinicalAttachment(Base):
     __tablename__ = "clinical_attachments"
     __table_args__ = (
