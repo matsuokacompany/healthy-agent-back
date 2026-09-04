@@ -1,6 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
@@ -201,3 +201,43 @@ def test_normalize_swallows_provider_errors(monkeypatch):
 
     assert db.query(SymptomTerm).count() == 0
     assert db.query(DailyReportSymptomTerm).count() == 0
+
+
+def test_normalize_recovers_the_session_after_a_failed_write_so_later_reports_still_work(monkeypatch):
+    # A write-time failure partway through _normalize (e.g. a flush-time
+    # IntegrityError) leaves the SQLAlchemy session in a "pending rollback"
+    # state -- every later query on it raises PendingRollbackError until
+    # someone calls db.rollback(). SymptomTermsBackfillService reuses the
+    # same session across many reports in one run, so without recovering
+    # here, one bad report would silently no-op every report processed
+    # after it in that same batch. Using a real mapper-level event (rather
+    # than monkeypatching Session.flush itself) so the failure goes through
+    # SQLAlchemy's own flush machinery and actually reproduces the broken
+    # session state, not just an exception that never touched it.
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.symptom_normalization_service.InsightService",
+        FakeInsightService,
+    )
+
+    db = build_session()
+    failing_report = create_patient_with_report(db, symptom_description="Sintoma A")
+    healthy_report = create_patient_with_report(db, symptom_description="Sintoma B")
+    failing_description = failing_report.symptom_description
+    healthy_description = healthy_report.symptom_description
+    failing_report_id, healthy_report_id = failing_report.id, healthy_report.id
+
+    def fail_once_before_insert(_mapper, _connection, _target):
+        event.remove(SymptomTerm, "before_insert", fail_once_before_insert)
+        raise RuntimeError("simulated write failure")
+
+    event.listen(SymptomTerm, "before_insert", fail_once_before_insert)
+    FakeInsightService.next_result = {"termos": ["Termo Novo"]}
+
+    SymptomNormalizationService.normalize(db, failing_report, failing_description)
+    assert linked_labels(db, failing_report_id) == []
+
+    FakeInsightService.next_result = {"termos": ["Outro Termo"]}
+    SymptomNormalizationService.normalize(db, healthy_report, healthy_description)
+
+    assert linked_labels(db, healthy_report_id) == ["Outro Termo"]
