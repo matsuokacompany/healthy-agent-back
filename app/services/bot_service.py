@@ -393,11 +393,6 @@ class BotService:
     # =========================================================
     def _translate(self, status: str, *, db=None, user: User | None = None) -> BotResponse:
 
-        if status == "NEGATIVE":
-            return BotResponse(
-                text="Perfeito 👍 Obrigado por informar. Se sentir qualquer alteração, estamos por aqui."
-            )
-
         if status == "ASK_SYMPTOM_DESCRIPTION":
             image_instructions = ""
             if settings.CLINICAL_IMAGES_ENABLED and settings.WHATSAPP_CLINICAL_IMAGES_ENABLED:

@@ -44,7 +44,7 @@ from app.services.notification_service import notify_ai_report_ready
 from app.services.patient_dashboard_service import PaginationParams, PatientDashboardService, ReportFilters
 from app.db.security_context import set_database_service_context
 from app.services.payment_service import PaymentService
-from app.services.professional_capacity_service import require_patient_cap
+from app.services.professional_capacity_service import patient_has_own_subscription, require_patient_cap
 from app.services.report_service import ReportService
 from app.services.anamnese_clinical_service import AnamneseClinicalService
 
@@ -168,6 +168,7 @@ class ProfessionalService:
                 last_checkin_at=last_report.updated_at if last_report else None,
                 last_status=last_report.status if last_report else None,
                 symptom_reports_count=symptoms_count,
+                has_own_subscription=patient_has_own_subscription(self.db, plan.patient_id),
             )
             if existing is None or (item.last_checkin_at or datetime.min.replace(tzinfo=timezone.utc)) > (
                 existing.last_checkin_at or datetime.min.replace(tzinfo=timezone.utc)

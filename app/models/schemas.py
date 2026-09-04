@@ -737,6 +737,7 @@ class ProfessionalPatientRead(BaseModel):
     last_checkin_at: Optional[datetime] = None
     last_status: Optional[DailyReportStatusEnum] = None
     symptom_reports_count: int = 0
+    has_own_subscription: bool = False
 
 
 class ProfessionalAiReportRequest(BaseModel):

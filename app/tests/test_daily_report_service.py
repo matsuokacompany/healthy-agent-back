@@ -80,7 +80,9 @@ def test_daily_report_button_flow_complete():
     assert report.had_symptoms is True
     assert report.symptom_description is None
 
-    assert DailyReportService.process_response(db, user, "Dor de cabeça e tontura") == "COMPLETED"
+    assert DailyReportService.process_response(db, user, "Dor de cabeça e tontura") == "ASK_DIET_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_MEDICATION_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "medication_yes") == "COMPLETED"
 
     db.refresh(report)
     assert report.completed is True
@@ -163,18 +165,25 @@ def test_self_service_plan_accepts_natural_text_alongside_button_ids():
     assert report.medication_adherence is False
 
 
-def test_professional_plan_completes_without_asking_lifestyle_questions():
+def test_professional_plan_also_gets_lifestyle_questions():
+    # Diet/medication adherence now applies to every plan, professional-led
+    # included -- not just self-service.
     db = build_session()
     user, plan = create_user_and_plan(db)
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
 
-    assert DailyReportService.process_response(db, user, "Não tive sintomas") == "NEGATIVE"
+    assert DailyReportService.process_response(db, user, "Não tive sintomas") == "ASK_DIET_ADHERENCE"
+    db.refresh(report)
+    assert report.status == DailyReportStatusEnum.AWAITING_DIET_ADHERENCE
+    assert report.completed is False
+
+    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_MEDICATION_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "medication_yes") == "COMPLETED"
     db.refresh(report)
     assert report.status == DailyReportStatusEnum.COMPLETED
     assert report.completed is True
-    assert report.diet_adherence is None
-    assert report.medication_adherence is None
-    assert report.lifestyle_notes is None
+    assert report.diet_adherence is True
+    assert report.medication_adherence is True
 
 
 def link_professional(db, patient_plan):
@@ -212,7 +221,7 @@ def test_daily_report_symptom_notifies_assigned_professional():
     # shouldn't notify anyone until the report actually completes below.
     assert db.query(Notification).count() == 0
 
-    assert DailyReportService.process_response(db, user, "Dor de cabeça e tontura") == "COMPLETED"
+    assert DailyReportService.process_response(db, user, "Dor de cabeça e tontura") == "ASK_DIET_ADHERENCE"
 
     notifications = db.query(Notification).filter(Notification.user_id == professional_user.id).all()
     assert len(notifications) == 1
@@ -226,7 +235,7 @@ def test_daily_report_no_symptoms_does_not_notify():
     link_professional(db, plan)
     DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
 
-    assert DailyReportService.process_response(db, user, "Não tive sintomas") == "NEGATIVE"
+    assert DailyReportService.process_response(db, user, "Não tive sintomas") == "ASK_DIET_ADHERENCE"
 
     assert db.query(Notification).count() == 0
 
@@ -260,7 +269,9 @@ def test_daily_report_negative_completes_open_report():
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
     db.commit()
 
-    assert DailyReportService.process_response(db, user, "Não tive sintomas") == "NEGATIVE"
+    assert DailyReportService.process_response(db, user, "Não tive sintomas") == "ASK_DIET_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_MEDICATION_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "medication_yes") == "COMPLETED"
 
     db.refresh(report)
     assert report.completed is True
@@ -276,7 +287,9 @@ def test_daily_report_free_text_symptom_completes_without_cause():
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
     db.commit()
 
-    assert DailyReportService.process_response(db, user, "Tive dor de cabeça") == "COMPLETED"
+    assert DailyReportService.process_response(db, user, "Tive dor de cabeça") == "ASK_DIET_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_MEDICATION_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "medication_yes") == "COMPLETED"
 
     db.refresh(report)
     assert report.completed is True
@@ -295,7 +308,9 @@ def test_daily_report_symptom_details_complete_without_cause():
     db.commit()
 
     assert DailyReportService.process_response(db, user, "Tive sintomas") == "ASK_SYMPTOM_DESCRIPTION"
-    assert DailyReportService.process_response(db, user, "Dor de cabeça e tontura") == "COMPLETED"
+    assert DailyReportService.process_response(db, user, "Dor de cabeça e tontura") == "ASK_DIET_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_MEDICATION_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "medication_yes") == "COMPLETED"
 
     db.refresh(report)
     assert report.completed is True
