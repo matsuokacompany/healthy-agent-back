@@ -25,6 +25,12 @@ from app.services.payment_service import PaymentService
 from app.services.self_monitoring_insight_clinical_service import SelfMonitoringInsightClinicalService
 
 DEFAULT_EVOLUTION_PERIOD_DAYS = 30
+# The patient can pick any period up to a year back; anything longer would
+# also balloon the JSON payload insight_report feeds the model (already
+# tight against InsightService.MAX_REPORT_CHARS) for comparatively little
+# extra signal, given CustomReportService's own metrics/symptom rollups
+# don't get materially richer past a year of check-ins.
+MAX_EVOLUTION_PERIOD_DAYS = 366
 INSIGHT_COOLDOWN_DAYS = 15
 INSIGHT_PROMPT_OVERHEAD_TOKENS = 400
 # Leaves comfortable room, under InsightService.MAX_REPORT_CHARS, for the
@@ -90,6 +96,19 @@ class SelfMonitoringService:
 
         return plan
 
+    @staticmethod
+    def _resolve_period(start_date: date | None, end_date: date | None) -> tuple[date, date]:
+        today = datetime.now(ZoneInfo(settings.SCHEDULER_TIMEZONE)).date()
+        resolved_end = end_date or today
+        resolved_start = start_date or (resolved_end - timedelta(days=DEFAULT_EVOLUTION_PERIOD_DAYS - 1))
+        if resolved_end > today:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="PERIOD_END_IN_FUTURE")
+        if resolved_start > resolved_end:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="PERIOD_START_AFTER_END")
+        if (resolved_end - resolved_start).days + 1 > MAX_EVOLUTION_PERIOD_DAYS:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="PERIOD_TOO_LONG")
+        return resolved_start, resolved_end
+
     def evolution_report(
         self,
         current_user: User,
@@ -99,8 +118,7 @@ class SelfMonitoringService:
     ) -> CustomClinicalSummary:
         if not PaymentService(self.db).has_access(current_user):
             raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="SUBSCRIPTION_REQUIRED")
-        resolved_end = end_date or datetime.now(ZoneInfo(settings.SCHEDULER_TIMEZONE)).date()
-        resolved_start = start_date or (resolved_end - timedelta(days=DEFAULT_EVOLUTION_PERIOD_DAYS - 1))
+        resolved_start, resolved_end = self._resolve_period(start_date, end_date)
         return CustomReportService(self.db).build_summary(current_user.id, resolved_start, resolved_end)
 
     def insight_report(
@@ -114,6 +132,8 @@ class SelfMonitoringService:
         max_cost_usd: float,
         input_cost_per_million_usd: float | None,
         output_cost_per_million_usd: float | None,
+        start_date: date | None = None,
+        end_date: date | None = None,
         now: datetime | None = None,
     ) -> SelfMonitoringInsightRead:
         """A supportive, non-diagnostic AI summary of the patient's own evolution.
@@ -128,8 +148,7 @@ class SelfMonitoringService:
             raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="SUBSCRIPTION_REQUIRED")
 
         now = now or datetime.now(timezone.utc)
-        end_date = datetime.now(ZoneInfo(settings.SCHEDULER_TIMEZONE)).date()
-        start_date = end_date - timedelta(days=DEFAULT_EVOLUTION_PERIOD_DAYS - 1)
+        start_date, end_date = self._resolve_period(start_date, end_date)
         summary = CustomReportService(self.db).build_summary(current_user.id, start_date, end_date)
 
         if not summary.sufficient_data:

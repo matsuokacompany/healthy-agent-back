@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -97,6 +97,45 @@ def test_self_service_patient_can_get_evolution_report_once_granted_access():
     body = response.json()
     assert body["period_days"] == 30
     assert body["metrics"]["total_checkins"] == 0
+
+
+def test_evolution_report_accepts_a_custom_period_up_to_one_year():
+    client, db, patient = build_client()
+    client.post("/self-monitoring/plan")
+    subscription = PaymentService(db).get_or_create_subscription_record(patient)
+    subscription.status = SubscriptionStatusEnum.ACTIVE.value
+    db.commit()
+    end_date = date.today()
+    start_date = end_date - timedelta(days=364)
+
+    response = client.get(
+        "/self-monitoring/evolution-report",
+        params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["period_days"] == 365
+    assert body["start_date"] == start_date.isoformat()
+    assert body["end_date"] == end_date.isoformat()
+
+
+def test_evolution_report_rejects_a_period_longer_than_one_year():
+    client, db, patient = build_client()
+    client.post("/self-monitoring/plan")
+    subscription = PaymentService(db).get_or_create_subscription_record(patient)
+    subscription.status = SubscriptionStatusEnum.ACTIVE.value
+    db.commit()
+    end_date = date.today()
+    start_date = end_date - timedelta(days=400)
+
+    response = client.get(
+        "/self-monitoring/evolution-report",
+        params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "PERIOD_TOO_LONG"
 
 
 def test_creating_plan_no_longer_starts_a_free_trial():
