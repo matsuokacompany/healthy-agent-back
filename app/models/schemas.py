@@ -24,6 +24,7 @@ class DailyReportStatusEnum(str, Enum):
     PENDING = "PENDING"
     AWAITING_SYMPTOM_DESCRIPTION = "AWAITING_SYMPTOM_DESCRIPTION"
     AWAITING_CAUSE = "AWAITING_CAUSE"
+    AWAITING_MEDICATION_ADHERENCE = "AWAITING_MEDICATION_ADHERENCE"
     COMPLETED = "COMPLETED"
     EXPIRED = "EXPIRED"
 
@@ -501,6 +502,7 @@ class DailyReportRead(DailyReportBase, ORMModel):
     monitoring_plan_id: int
     report_date: date
     had_symptoms: Optional[bool] = None
+    medication_adherence: Optional[bool] = None
     status: DailyReportStatusEnum
     awaiting_response: bool
     awaiting_cause: bool

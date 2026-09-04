@@ -32,6 +32,7 @@ class DailyReportStatusEnum(str, enum.Enum):
     PENDING = "PENDING"
     AWAITING_SYMPTOM_DESCRIPTION = "AWAITING_SYMPTOM_DESCRIPTION"
     AWAITING_CAUSE = "AWAITING_CAUSE"
+    AWAITING_MEDICATION_ADHERENCE = "AWAITING_MEDICATION_ADHERENCE"
     COMPLETED = "COMPLETED"
     EXPIRED = "EXPIRED"
 
@@ -336,6 +337,10 @@ class DailyReport(Base):
     suspected_cause = Column(Text, nullable=True)
     suspected_cause_encryption_envelope = Column(JSON, nullable=True)
     had_symptoms = Column(Boolean, nullable=True)
+    # Only asked for self-service (no professional) monitoring plans, as a
+    # follow-up question in the same daily WhatsApp conversation — see
+    # MonitoringPlanOriginEnum.SELF_SERVICE and DailyReportService.
+    medication_adherence = Column(Boolean, nullable=True)
     completed = Column(Boolean, default=False, nullable=False)
     awaiting_response = Column(Boolean, default=True, nullable=False)
     awaiting_cause = Column(Boolean, default=False, nullable=False)

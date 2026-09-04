@@ -413,6 +413,12 @@ class BotService:
                 ask_followup=True,
             )
 
+        if status == "ASK_MEDICATION_ADHERENCE":
+            return BotResponse(
+                text="Última pergunta: você tomou seus suplementos/remédios como planejado hoje? Responda sim ou não.",
+                ask_followup=True,
+            )
+
         if status == "ASK_CAUSE":
             logger.info("Suppressing deprecated WhatsApp cause prompt to avoid extra message costs")
             return BotResponse(text="")

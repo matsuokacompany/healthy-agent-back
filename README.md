@@ -367,6 +367,12 @@ adicionais quando o check-in já foi encerrado, já foi concluído ou quando a m
 recebida é maior que o limite aceito. Essas entradas continuam sendo registradas pelo
 webhook, mas não geram nova mensagem de texto da empresa.
 
+Para planos de automonitoramento (`MonitoringPlan.origin == SELF_SERVICE`, sem
+profissional vinculado), o fluxo pergunta, ainda dentro da mesma conversa iniciada pelo
+template diário, se o paciente tomou seus suplementos/remédios como planejado no dia —
+sem template adicional, apenas mais uma pergunta de texto livre na janela de 24h já
+aberta pela resposta do paciente. Planos com profissional não recebem essa pergunta.
+
 ### Otimização de custo dos relatórios de IA
 
 Os prompts de insights usam instruções compactas, limite de saída e corte do relatório

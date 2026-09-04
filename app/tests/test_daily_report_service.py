@@ -12,6 +12,7 @@ from app.models.models import (
     DailyReportStatusEnum,
     DailyReportSymptomTerm,
     MonitoringPlan,
+    MonitoringPlanOriginEnum,
     MonitoringProfessional,
     Notification,
     NotificationKindEnum,
@@ -47,6 +48,24 @@ def create_user_and_plan(db):
     return user, plan
 
 
+def create_user_and_self_service_plan(db):
+    user = User(name="Teste", email=f"u-{datetime.now().timestamp()}@example.com", phone=str(datetime.now().timestamp()).replace('.', ''))
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    plan = MonitoringPlan(
+        patient_id=user.id,
+        title="Plano",
+        active=True,
+        start_date=date.today(),
+        origin=MonitoringPlanOriginEnum.SELF_SERVICE.value,
+    )
+    db.add(plan)
+    db.commit()
+    db.refresh(plan)
+    return user, plan
+
+
 def test_daily_report_button_flow_complete():
     db = build_session()
     user, plan = create_user_and_plan(db)
@@ -68,6 +87,71 @@ def test_daily_report_button_flow_complete():
     assert report.status == DailyReportStatusEnum.COMPLETED
     assert report.symptom_description == "Dor de cabeça e tontura"
     assert report.suspected_cause is None
+
+
+def test_self_service_plan_asks_medication_adherence_after_positive_symptoms():
+    db = build_session()
+    user, plan = create_user_and_self_service_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+
+    assert DailyReportService.process_response(db, user, "Tive sintomas") == "ASK_SYMPTOM_DESCRIPTION"
+    assert DailyReportService.process_response(db, user, "Dor de cabeça") == "ASK_MEDICATION_ADHERENCE"
+
+    db.refresh(report)
+    assert report.status == DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE
+    assert report.completed is False
+    assert report.had_symptoms is True
+    assert report.symptom_description == "Dor de cabeça"
+
+    assert DailyReportService.process_response(db, user, "Sim") == "COMPLETED"
+    db.refresh(report)
+    assert report.status == DailyReportStatusEnum.COMPLETED
+    assert report.completed is True
+    assert report.medication_adherence is True
+
+
+def test_self_service_plan_asks_medication_adherence_after_negative_symptoms():
+    db = build_session()
+    user, plan = create_user_and_self_service_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+
+    assert DailyReportService.process_response(db, user, "Não tive sintomas") == "ASK_MEDICATION_ADHERENCE"
+    db.refresh(report)
+    assert report.status == DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE
+    assert report.had_symptoms is False
+    assert report.completed is False
+
+    assert DailyReportService.process_response(db, user, "Não") == "COMPLETED"
+    db.refresh(report)
+    assert report.status == DailyReportStatusEnum.COMPLETED
+    assert report.completed is True
+    assert report.medication_adherence is False
+
+
+def test_self_service_plan_completes_without_a_field_set_on_an_ambiguous_adherence_answer():
+    db = build_session()
+    user, plan = create_user_and_self_service_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+
+    assert DailyReportService.process_response(db, user, "Não tive sintomas") == "ASK_MEDICATION_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "talvez") == "COMPLETED"
+
+    db.refresh(report)
+    assert report.status == DailyReportStatusEnum.COMPLETED
+    assert report.completed is True
+    assert report.medication_adherence is None
+
+
+def test_professional_plan_completes_without_asking_medication_adherence():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+
+    assert DailyReportService.process_response(db, user, "Não tive sintomas") == "NEGATIVE"
+    db.refresh(report)
+    assert report.status == DailyReportStatusEnum.COMPLETED
+    assert report.completed is True
+    assert report.medication_adherence is None
 
 
 def link_professional(db, patient_plan):

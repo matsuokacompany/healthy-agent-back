@@ -18,6 +18,7 @@ class DailyReportRepository:
                         DailyReportStatusEnum.PENDING,
                         DailyReportStatusEnum.AWAITING_SYMPTOM_DESCRIPTION,
                         DailyReportStatusEnum.AWAITING_CAUSE,
+                        DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE,
                     ]
                 )
             )
