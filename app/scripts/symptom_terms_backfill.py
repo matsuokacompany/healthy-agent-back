@@ -1,8 +1,20 @@
 import argparse
+import logging
+import sys
 
 from app.db.session import SessionLocal
 from app.db.security_context import set_database_service_context
 from app.services.symptom_terms_backfill_service import SymptomTermsBackfillService
+
+# Run standalone via `python -m`, this never imports app.main, so nothing
+# else configures logging -- without a handler, logger.info() calls
+# (SymptomNormalizationService's diagnostic log included) are silently
+# dropped by Python's logging module instead of reaching stdout.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    stream=sys.stdout,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
