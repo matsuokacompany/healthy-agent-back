@@ -368,10 +368,21 @@ recebida é maior que o limite aceito. Essas entradas continuam sendo registrada
 webhook, mas não geram nova mensagem de texto da empresa.
 
 Para planos de automonitoramento (`MonitoringPlan.origin == SELF_SERVICE`, sem
-profissional vinculado), o fluxo pergunta, ainda dentro da mesma conversa iniciada pelo
-template diário, se o paciente tomou seus suplementos/remédios como planejado no dia —
-sem template adicional, apenas mais uma pergunta de texto livre na janela de 24h já
-aberta pela resposta do paciente. Planos com profissional não recebem essa pergunta.
+profissional vinculado), o fluxo faz mais uma pergunta ao final, ainda dentro da mesma
+conversa iniciada pelo template diário — sem template adicional, apenas texto livre na
+janela de 24h já aberta pela resposta do paciente. Para não crescer o número de mensagens
+a cada novo hábito monitorado, essa pergunta é uma só, cobrindo os dois hábitos (dieta e
+remédio/suplemento) numerados na mesma mensagem; o paciente responde tudo de uma vez e o
+`LifestyleAdherenceService` extrai os dois campos (`diet_adherence`, `medication_adherence`)
+da resposta livre — mesmo padrão best-effort do `SymptomNormalizationService`. Planos com
+profissional não recebem essa pergunta.
+
+Apenas a mensagem que abre a conversa do dia (o template) exige aprovação prévia da Meta
+e é cobrada mesmo dentro da janela de atendimento gratuita; as respostas do bot dentro da
+mesma janela de 24h (pergunta de sintoma, essa pergunta combinada, agradecimento final) são
+texto livre — hoje gratuitas na tabela de preço do Brasil (categoria "Service"), mas a
+Meta já anunciou cobrança de mensagens de serviço a partir de outubro/2026; reavaliar
+`WHATSAPP_COST_PER_MESSAGE_CENTS` quando isso entrar em vigor.
 
 ### Otimização de custo dos relatórios de IA
 

@@ -14,6 +14,7 @@ from app.models.models import (
 from app.core.config import settings
 from app.services.clinical_data_service import ClinicalDataService
 from app.services.notification_service import notify_symptom_reported
+from app.services.lifestyle_adherence_service import LifestyleAdherenceService
 from app.services.symptom_normalization_service import SymptomNormalizationService
 
 
@@ -61,7 +62,10 @@ class DailyReportService:
         report.suspected_cause = None
         report.suspected_cause_encryption_envelope = None
         report.had_symptoms = None
+        report.diet_adherence = None
         report.medication_adherence = None
+        report.lifestyle_notes = None
+        report.lifestyle_notes_encryption_envelope = None
         report.completed = False
         report.awaiting_response = True
         report.awaiting_cause = False
@@ -112,18 +116,19 @@ class DailyReportService:
             return result
 
         if report.status == DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE:
-            if cls._is_negative_response(message_text):
-                report.medication_adherence = False
-            elif cls._is_positive_response(message_text):
-                report.medication_adherence = True
-            # An unrecognized answer leaves medication_adherence unset rather
-            # than blocking completion on a retry loop — same "don't spend
-            # another paid WhatsApp message chasing an ambiguous reply"
-            # tradeoff as the rest of this flow.
+            # One combined free-text question covers both diet and
+            # medication/supplement adherence (see the bot's message in
+            # BotService._translate) — the raw reply is persisted here,
+            # synchronously, same as symptom_description below; the two
+            # structured booleans are filled in as best-effort enrichment
+            # by LifestyleAdherenceService, same contract as
+            # SymptomNormalizationService.
+            cls._write_clinical(report, lifestyle_notes=message_text)
             report.awaiting_response = False
             report.completed = True
             report.status = DailyReportStatusEnum.COMPLETED
             db.commit()
+            LifestyleAdherenceService.classify(db, report, message_text)
             return "COMPLETED"
 
         if not report.awaiting_response:
@@ -155,8 +160,9 @@ class DailyReportService:
         """Ends the symptom portion of the daily check-in.
 
         For self-service (no professional) plans, this defers completion
-        one more turn to ask about medication/supplement adherence in the
-        same WhatsApp conversation, instead of a separate template message
+        one more turn to ask about diet and medication/supplement adherence
+        (one combined free-text question, see BotService._translate) in the
+        same WhatsApp conversation, instead of separate template messages
         (see MonitoringPlanOriginEnum.SELF_SERVICE and README "Otimização
         de custo do WhatsApp"). Every other plan completes immediately.
         """
@@ -221,8 +227,9 @@ class DailyReportService:
     @classmethod
     def delete_patient_response(cls, db: Session, report: DailyReport) -> DailyReport:
         report.had_symptoms = None
+        report.diet_adherence = None
         report.medication_adherence = None
-        cls._write_clinical(report, symptom_description=None, suspected_cause=None)
+        cls._write_clinical(report, symptom_description=None, suspected_cause=None, lifestyle_notes=None)
         report.completed = False
         report.awaiting_response = True
         report.awaiting_cause = False
@@ -261,6 +268,7 @@ class DailyReportService:
         *,
         symptom_description=_UNSET,
         suspected_cause=_UNSET,
+        lifestyle_notes=_UNSET,
     ) -> None:
         if settings.CLINICAL_ENCRYPTION_PROVIDER == "disabled" and settings.ENV != "production":
             if symptom_description is not cls._UNSET:
@@ -269,6 +277,9 @@ class DailyReportService:
             if suspected_cause is not cls._UNSET:
                 report.suspected_cause = suspected_cause
                 report.suspected_cause_encryption_envelope = None
+            if lifestyle_notes is not cls._UNSET:
+                report.lifestyle_notes = lifestyle_notes
+                report.lifestyle_notes_encryption_envelope = None
             return
 
         clinical_data = ClinicalDataService()
@@ -276,12 +287,15 @@ class DailyReportService:
             clinical_data.write_text(report, "symptom_description", symptom_description)
         if suspected_cause is not cls._UNSET:
             clinical_data.write_text(report, "suspected_cause", suspected_cause)
+        if lifestyle_notes is not cls._UNSET:
+            clinical_data.write_text(report, "lifestyle_notes", lifestyle_notes)
 
     @classmethod
     def hydrate_clinical(cls, report: DailyReport, clinical_data: ClinicalDataService | None = None) -> DailyReport:
         if not (
             report.symptom_description_encryption_envelope
             or report.suspected_cause_encryption_envelope
+            or report.lifestyle_notes_encryption_envelope
         ):
             return report
         clinical_data = clinical_data or ClinicalDataService()
@@ -296,6 +310,12 @@ class DailyReportService:
                 report,
                 "suspected_cause",
                 clinical_data.read_text(report, "suspected_cause"),
+            )
+        if report.lifestyle_notes_encryption_envelope:
+            set_committed_value(
+                report,
+                "lifestyle_notes",
+                clinical_data.read_text(report, "lifestyle_notes"),
             )
         return report
 

@@ -89,7 +89,7 @@ def test_daily_report_button_flow_complete():
     assert report.suspected_cause is None
 
 
-def test_self_service_plan_asks_medication_adherence_after_positive_symptoms():
+def test_self_service_plan_asks_combined_lifestyle_question_after_positive_symptoms():
     db = build_session()
     user, plan = create_user_and_self_service_plan(db)
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
@@ -103,14 +103,20 @@ def test_self_service_plan_asks_medication_adherence_after_positive_symptoms():
     assert report.had_symptoms is True
     assert report.symptom_description == "Dor de cabeça"
 
-    assert DailyReportService.process_response(db, user, "Sim") == "COMPLETED"
+    # No OPENAI_API_KEY configured in this test environment, so
+    # LifestyleAdherenceService no-ops -- the raw reply still gets saved,
+    # only the two derived booleans stay unset (covered with the AI mocked
+    # in test_lifestyle_adherence_service.py).
+    assert DailyReportService.process_response(db, user, "Segui a dieta certinho e tomei os remédios") == "COMPLETED"
     db.refresh(report)
     assert report.status == DailyReportStatusEnum.COMPLETED
     assert report.completed is True
-    assert report.medication_adherence is True
+    assert report.lifestyle_notes == "Segui a dieta certinho e tomei os remédios"
+    assert report.diet_adherence is None
+    assert report.medication_adherence is None
 
 
-def test_self_service_plan_asks_medication_adherence_after_negative_symptoms():
+def test_self_service_plan_asks_combined_lifestyle_question_after_negative_symptoms():
     db = build_session()
     user, plan = create_user_and_self_service_plan(db)
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
@@ -121,28 +127,14 @@ def test_self_service_plan_asks_medication_adherence_after_negative_symptoms():
     assert report.had_symptoms is False
     assert report.completed is False
 
-    assert DailyReportService.process_response(db, user, "Não") == "COMPLETED"
+    assert DailyReportService.process_response(db, user, "Não segui a dieta, comi doce; remédio tomei certinho") == "COMPLETED"
     db.refresh(report)
     assert report.status == DailyReportStatusEnum.COMPLETED
     assert report.completed is True
-    assert report.medication_adherence is False
+    assert report.lifestyle_notes == "Não segui a dieta, comi doce; remédio tomei certinho"
 
 
-def test_self_service_plan_completes_without_a_field_set_on_an_ambiguous_adherence_answer():
-    db = build_session()
-    user, plan = create_user_and_self_service_plan(db)
-    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
-
-    assert DailyReportService.process_response(db, user, "Não tive sintomas") == "ASK_MEDICATION_ADHERENCE"
-    assert DailyReportService.process_response(db, user, "talvez") == "COMPLETED"
-
-    db.refresh(report)
-    assert report.status == DailyReportStatusEnum.COMPLETED
-    assert report.completed is True
-    assert report.medication_adherence is None
-
-
-def test_professional_plan_completes_without_asking_medication_adherence():
+def test_professional_plan_completes_without_asking_lifestyle_question():
     db = build_session()
     user, plan = create_user_and_plan(db)
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
@@ -151,7 +143,9 @@ def test_professional_plan_completes_without_asking_medication_adherence():
     db.refresh(report)
     assert report.status == DailyReportStatusEnum.COMPLETED
     assert report.completed is True
+    assert report.diet_adherence is None
     assert report.medication_adherence is None
+    assert report.lifestyle_notes is None
 
 
 def link_professional(db, patient_plan):

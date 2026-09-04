@@ -415,7 +415,12 @@ class BotService:
 
         if status == "ASK_MEDICATION_ADHERENCE":
             return BotResponse(
-                text="Última pergunta: você tomou seus suplementos/remédios como planejado hoje? Responda sim ou não.",
+                text=(
+                    "Mais duas perguntas rápidas pra fechar seu check-in de hoje:\n\n"
+                    "1️⃣ Você seguiu sua dieta certinho ontem? Se não, conta rapidinho o que comeu fora.\n"
+                    "2️⃣ Tomou seus remédios/suplementos como planejado?\n\n"
+                    "Pode responder as duas numa única mensagem."
+                ),
                 ask_followup=True,
             )
 

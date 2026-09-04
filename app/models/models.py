@@ -337,10 +337,16 @@ class DailyReport(Base):
     suspected_cause = Column(Text, nullable=True)
     suspected_cause_encryption_envelope = Column(JSON, nullable=True)
     had_symptoms = Column(Boolean, nullable=True)
-    # Only asked for self-service (no professional) monitoring plans, as a
-    # follow-up question in the same daily WhatsApp conversation — see
-    # MonitoringPlanOriginEnum.SELF_SERVICE and DailyReportService.
+    # Only asked for self-service (no professional) monitoring plans, as one
+    # combined follow-up question in the same daily WhatsApp conversation —
+    # see MonitoringPlanOriginEnum.SELF_SERVICE, DailyReportService, and
+    # LifestyleAdherenceService (which fills diet_adherence and
+    # medication_adherence from the single free-text reply in
+    # lifestyle_notes).
+    diet_adherence = Column(Boolean, nullable=True)
     medication_adherence = Column(Boolean, nullable=True)
+    lifestyle_notes = Column(Text, nullable=True)
+    lifestyle_notes_encryption_envelope = Column(JSON, nullable=True)
     completed = Column(Boolean, default=False, nullable=False)
     awaiting_response = Column(Boolean, default=True, nullable=False)
     awaiting_cause = Column(Boolean, default=False, nullable=False)

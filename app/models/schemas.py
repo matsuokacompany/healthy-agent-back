@@ -502,6 +502,7 @@ class DailyReportRead(DailyReportBase, ORMModel):
     monitoring_plan_id: int
     report_date: date
     had_symptoms: Optional[bool] = None
+    diet_adherence: Optional[bool] = None
     medication_adherence: Optional[bool] = None
     status: DailyReportStatusEnum
     awaiting_response: bool

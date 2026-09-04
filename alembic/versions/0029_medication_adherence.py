@@ -1,6 +1,6 @@
-"""Medication/supplement adherence follow-up question for self-service
-monitoring plans, asked as an extra step in the same daily WhatsApp
-conversation right after the symptom question.
+"""Lifestyle adherence follow-up (diet + medication/supplement) for
+self-service monitoring plans, asked as one combined free-text question in
+the same daily WhatsApp conversation right after the symptom question.
 
 Revision ID: 0029
 Revises: 0028
@@ -26,10 +26,16 @@ def upgrade() -> None:
         $$;
         """
     )
+    op.add_column("daily_reports", sa.Column("diet_adherence", sa.Boolean(), nullable=True))
     op.add_column("daily_reports", sa.Column("medication_adherence", sa.Boolean(), nullable=True))
+    op.add_column("daily_reports", sa.Column("lifestyle_notes", sa.Text(), nullable=True))
+    op.add_column("daily_reports", sa.Column("lifestyle_notes_encryption_envelope", sa.JSON(), nullable=True))
 
 
 def downgrade() -> None:
+    op.drop_column("daily_reports", "lifestyle_notes_encryption_envelope")
+    op.drop_column("daily_reports", "lifestyle_notes")
     op.drop_column("daily_reports", "medication_adherence")
+    op.drop_column("daily_reports", "diet_adherence")
     # Postgres has no ALTER TYPE ... DROP VALUE — the enum label stays,
     # matching how this codebase already handles enum additions (see 0001).
