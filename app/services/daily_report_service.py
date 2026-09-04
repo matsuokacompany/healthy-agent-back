@@ -7,6 +7,7 @@ from app.models.models import CheckTypeEnum, DailyReport, DailyReportStatusEnum,
 from app.core.config import settings
 from app.services.clinical_data_service import ClinicalDataService
 from app.services.notification_service import notify_symptom_reported
+from app.services.symptom_normalization_service import SymptomNormalizationService
 
 
 class DailyReportService:
@@ -103,6 +104,7 @@ class DailyReportService:
             report.status = DailyReportStatusEnum.COMPLETED
             notify_symptom_reported(db, patient=user, report=report)
             db.commit()
+            SymptomNormalizationService.normalize(db, report, message_text)
             return "COMPLETED"
 
         if not report.awaiting_response:
@@ -135,6 +137,7 @@ class DailyReportService:
         report.completed = True
         notify_symptom_reported(db, patient=user, report=report)
         db.commit()
+        SymptomNormalizationService.normalize(db, report, message_text)
         return "COMPLETED"
 
     @classmethod
@@ -166,6 +169,8 @@ class DailyReportService:
         if had_symptoms is True:
             notify_symptom_reported(db, patient=report.user, report=report)
         db.commit()
+        if had_symptoms is True:
+            SymptomNormalizationService.normalize(db, report, symptom_description)
         db.refresh(report)
         return cls.hydrate_clinical(report)
 

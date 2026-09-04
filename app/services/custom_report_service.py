@@ -3,7 +3,7 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.models.models import DailyReport
+from app.models.models import DailyReport, DailyReportSymptomTerm, SymptomTerm
 from app.models.schemas import (
     CustomAiReportPeriod,
     CustomClinicalPeriodMetrics,
@@ -71,18 +71,40 @@ class CustomReportService:
             calendar_coverage_percentage=CustomReportService._percentage(days_with_checkins, period_days),
         )
 
-    @staticmethod
-    def _build_symptoms(reports: list[DailyReport]) -> list[CustomClinicalSymptomOccurrence]:
-        occurrences: dict[str, list[DailyReport]] = defaultdict(list)
-        labels: dict[str, str] = {}
+    def _build_symptoms(self, reports: list[DailyReport]) -> list[CustomClinicalSymptomOccurrence]:
+        completed_with_symptoms = []
         for report in reports:
             DailyReportService.hydrate_clinical(report)
-            if not report.completed or report.had_symptoms is not True or not report.symptom_description:
-                continue
-            description = " ".join(report.symptom_description.split())
-            normalized = description.casefold()
-            labels.setdefault(normalized, description)
-            occurrences[normalized].append(report)
+            if report.completed and report.had_symptoms is True and report.symptom_description:
+                completed_with_symptoms.append(report)
+        if not completed_with_symptoms:
+            return []
+
+        # Prefer the normalized SymptomTerm(s) a report was classified into
+        # (see SymptomNormalizationService) — this is what groups "diarréia"
+        # and "Um pouco de diarréia" into one entry instead of two unrelated
+        # one-off ones. A report the classifier hasn't reached yet (still
+        # pending, or normalization failed) falls back to its raw
+        # description below, so nothing silently disappears from the list.
+        report_ids = [report.id for report in completed_with_symptoms]
+        term_rows = (
+            self.db.query(DailyReportSymptomTerm.daily_report_id, SymptomTerm.label)
+            .join(SymptomTerm, SymptomTerm.id == DailyReportSymptomTerm.symptom_term_id)
+            .filter(DailyReportSymptomTerm.daily_report_id.in_(report_ids))
+            .all()
+        )
+        terms_by_report: dict[int, list[str]] = defaultdict(list)
+        for daily_report_id, label in term_rows:
+            terms_by_report[daily_report_id].append(label)
+
+        occurrences: dict[str, list[DailyReport]] = defaultdict(list)
+        labels: dict[str, str] = {}
+        for report in completed_with_symptoms:
+            report_labels = terms_by_report.get(report.id) or [" ".join(report.symptom_description.split())]
+            for label in report_labels:
+                normalized = label.casefold()
+                labels.setdefault(normalized, label)
+                occurrences[normalized].append(report)
 
         symptoms = [
             CustomClinicalSymptomOccurrence(
