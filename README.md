@@ -103,7 +103,7 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `ASAAS_API_KEY` | sim para cobrança B2C | `$aact_...` | Chave de API do Asaas (comece pela do ambiente sandbox). |
 | `ASAAS_ENV` | não | `sandbox` | `sandbox` ou `production`; seleciona a base da API do Asaas. |
 | `ASAAS_WEBHOOK_TOKEN` | sim para cobrança B2C | `<segredo escolhido por você>` | Token definido ao cadastrar o webhook no painel do Asaas; validado em `POST /webhook/asaas`. |
-| `ASAAS_SELF_MONITORING_PRICE_CENTS` | sim para cobrança B2C | `1990` | Preço do plano **mensal** de automonitoramento, em centavos (sem valor padrão; precisa ser definido explicitamente). |
+| `ASAAS_SELF_MONITORING_PRICE_CENTS` | sim para cobrança B2C | `2990` | Preço do plano **mensal** de automonitoramento, em centavos (sem valor padrão; precisa ser definido explicitamente). Só a variável de produção define o preço real cobrado — não há valor hardcoded no código. |
 | `ASAAS_SELF_MONITORING_SEMIANNUAL_PRICE_CENTS` | não | `9990` | Preço do plano **semestral**, em centavos. Sem valor padrão — o plano só aparece em `GET /api/billing/plans` depois de configurado. |
 | `ASAAS_SELF_MONITORING_ANNUAL_PRICE_CENTS` | não | `17990` | Preço do plano **anual**, em centavos. Sem valor padrão — mesma regra do semestral. |
 | `ASAAS_SELF_MONITORING_TRIAL_DAYS` | não | `30` | Duração do período de teste grátis do automonitoramento self-service, em dias. Sem efeito hoje: o teste grátis automático foi removido — testes agora só são concedidos manualmente pelo admin (`POST /api/billing/admin/subscriptions/{user_id}/grant-trial`). |
@@ -121,7 +121,7 @@ Crie `.env` em produção e `.env.dev` em desenvolvimento.
 | `SMTP_USER` | sim para notificação por e-mail de pedido de vínculo | `contato@julha.com.br` | Usuário de login SMTP. |
 | `SMTP_PASSWORD` | sim para notificação por e-mail de pedido de vínculo | `<senha da caixa>` | Senha de login SMTP. |
 | `SMTP_FROM_EMAIL` | sim para notificação por e-mail de pedido de vínculo | `contato@julha.com.br` | Endereço que aparece como remetente. |
-| `WHATSAPP_COST_PER_MESSAGE_CENTS` | não | `0.07` | Custo estimado por mensagem de check-in enviada, em centavos de real (aceita casas decimais — a maior parte do tráfego cai na janela de atendimento grátis da Meta, então o custo real por mensagem costuma ficar bem abaixo de 1 centavo). Usado só para o painel de custos do admin. Sem valor padrão — sem essa variável, o painel mostra a contagem real de mensagens mas não estima o custo. |
+| `WHATSAPP_COST_PER_MESSAGE_CENTS` | não | `3.8` | Custo estimado por mensagem de check-in enviada, em centavos de real (aceita casas decimais). A tabela de preço da Meta para o Brasil (checada em set/2026) cobra só a mensagem que abre a conversa do dia (categoria Utility, ~US$0,0068 ≈ R$0,038 ≈ 3,8 centavos, câmbio aproximado — confira o valor atual) — as respostas do bot dentro da mesma janela de 24h são categoria Service, hoje grátis, mas a Meta anunciou cobrança de Service a partir de out/2026, o que dobraria esse custo por check-in; reavalie este valor quando isso entrar em vigor. Usado só para o painel de custos do admin. Sem valor padrão — sem essa variável, o painel mostra a contagem real de mensagens mas não estima o custo. |
 
 ## Desenvolvimento local
 
