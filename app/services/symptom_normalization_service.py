@@ -40,10 +40,29 @@ class SymptomNormalizationService:
             return
         if not settings.OPENAI_API_KEY:
             return
+        # Captured up front: a flush failure below expires every object in
+        # the session's identity map (this is SQLAlchemy's normal rollback
+        # behavior, not something the except block below controls), so
+        # `report.id` could itself need a DB round-trip by the time we get
+        # to logging — on a session that, at that exact moment, is still in
+        # the broken "pending rollback" state a query would need `db.rollback()`
+        # for. Reading it now avoids that.
+        report_id = report.id
         try:
             cls._normalize(db, report, symptom_description)
         except Exception:
-            logger.exception("Symptom normalization failed for daily_report_id=%s", report.id)
+            # Roll back BEFORE logging (or anything else): a failure
+            # partway through _normalize (e.g. a flush-time IntegrityError
+            # while creating a new SymptomTerm) leaves the session in
+            # SQLAlchemy's "pending rollback" state — every later query on
+            # it raises PendingRollbackError until this runs. Callers that
+            # reuse the same session across many reports in one batch
+            # (SymptomTermsBackfillService) would otherwise have every
+            # report AFTER the failing one silently no-op too, since that
+            # error is itself just another Exception this same except
+            # block swallows.
+            db.rollback()
+            logger.exception("Symptom normalization failed for daily_report_id=%s", report_id)
 
     @classmethod
     def _normalize(cls, db: Session, report: DailyReport, symptom_description: str) -> None:
