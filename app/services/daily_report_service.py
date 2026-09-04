@@ -14,7 +14,6 @@ from app.models.models import (
 from app.core.config import settings
 from app.services.clinical_data_service import ClinicalDataService
 from app.services.notification_service import notify_symptom_reported
-from app.services.lifestyle_adherence_service import LifestyleAdherenceService
 from app.services.symptom_normalization_service import SymptomNormalizationService
 
 
@@ -115,20 +114,37 @@ class DailyReportService:
             SymptomNormalizationService.normalize(db, report, message_text)
             return result
 
-        if report.status == DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE:
-            # One combined free-text question covers both diet and
-            # medication/supplement adherence (see the bot's message in
-            # BotService._translate) — the raw reply is persisted here,
-            # synchronously, same as symptom_description below; the two
-            # structured booleans are filled in as best-effort enrichment
-            # by LifestyleAdherenceService, same contract as
-            # SymptomNormalizationService.
+        if report.status == DailyReportStatusEnum.AWAITING_DIET_ADHERENCE:
+            # Deterministic WhatsApp interactive buttons (see
+            # BotService._translate's "ASK_DIET_ADHERENCE" message) — the
+            # tap comes back as one of the diet_yes/diet_no markers added to
+            # _is_positive_response/_is_negative_response below.
+            if cls._is_negative_response(message_text):
+                report.diet_adherence = False
+                report.awaiting_response = True
+                report.status = DailyReportStatusEnum.AWAITING_DIET_DEVIATION_DESCRIPTION
+                db.commit()
+                return "ASK_DIET_DEVIATION"
+            if cls._is_positive_response(message_text):
+                report.diet_adherence = True
+            # An unrecognized answer just skips ahead rather than blocking
+            # completion on a retry loop -- same tradeoff as the rest of
+            # this flow (see the marker fallback comment below).
+            return cls._ask_medication_adherence(db, report)
+
+        if report.status == DailyReportStatusEnum.AWAITING_DIET_DEVIATION_DESCRIPTION:
             cls._write_clinical(report, lifestyle_notes=message_text)
+            return cls._ask_medication_adherence(db, report)
+
+        if report.status == DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE:
+            if cls._is_negative_response(message_text):
+                report.medication_adherence = False
+            elif cls._is_positive_response(message_text):
+                report.medication_adherence = True
             report.awaiting_response = False
             report.completed = True
             report.status = DailyReportStatusEnum.COMPLETED
             db.commit()
-            LifestyleAdherenceService.classify(db, report, message_text)
             return "COMPLETED"
 
         if not report.awaiting_response:
@@ -159,20 +175,21 @@ class DailyReportService:
     def _finish_symptom_flow(cls, db: Session, report: DailyReport, *, completed_status: str = "COMPLETED") -> str:
         """Ends the symptom portion of the daily check-in.
 
-        For self-service (no professional) plans, this defers completion
-        one more turn to ask about diet and medication/supplement adherence
-        (one combined free-text question, see BotService._translate) in the
-        same WhatsApp conversation, instead of separate template messages
-        (see MonitoringPlanOriginEnum.SELF_SERVICE and README "Otimização
-        de custo do WhatsApp"). Every other plan completes immediately.
+        For self-service (no professional) plans, this defers completion to
+        ask about diet and medication/supplement adherence — two
+        deterministic WhatsApp interactive-button questions (diet, then
+        medication; see BotService._translate) in the same conversation,
+        instead of a separate template message per question (see
+        MonitoringPlanOriginEnum.SELF_SERVICE and README "Otimização de
+        custo do WhatsApp"). Every other plan completes immediately.
         """
         if cls._plan_is_self_service(report):
             report.awaiting_response = True
             report.awaiting_cause = False
             report.completed = False
-            report.status = DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE
+            report.status = DailyReportStatusEnum.AWAITING_DIET_ADHERENCE
             db.commit()
-            return "ASK_MEDICATION_ADHERENCE"
+            return "ASK_DIET_ADHERENCE"
 
         report.awaiting_response = False
         report.awaiting_cause = False
@@ -180,6 +197,13 @@ class DailyReportService:
         report.status = DailyReportStatusEnum.COMPLETED
         db.commit()
         return completed_status
+
+    @classmethod
+    def _ask_medication_adherence(cls, db: Session, report: DailyReport) -> str:
+        report.awaiting_response = True
+        report.status = DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE
+        db.commit()
+        return "ASK_MEDICATION_ADHERENCE"
 
     @staticmethod
     def _plan_is_self_service(report: DailyReport) -> bool:
@@ -251,6 +275,8 @@ class DailyReportService:
                         DailyReportStatusEnum.PENDING,
                         DailyReportStatusEnum.AWAITING_SYMPTOM_DESCRIPTION,
                         DailyReportStatusEnum.AWAITING_CAUSE,
+                        DailyReportStatusEnum.AWAITING_DIET_ADHERENCE,
+                        DailyReportStatusEnum.AWAITING_DIET_DEVIATION_DESCRIPTION,
                         DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE,
                     ]
                 )
@@ -355,6 +381,8 @@ class DailyReportService:
             "symptoms_yes",
             "sintomas_sim",
             "tive_sintomas",
+            "diet_yes",
+            "medication_yes",
         )
         return normalized in positive_markers or any(marker in normalized for marker in positive_markers)
 
@@ -372,5 +400,7 @@ class DailyReportService:
             "symptoms_no",
             "sintomas_nao",
             "nao_tive_sintomas",
+            "diet_no",
+            "medication_no",
         )
         return normalized in negative_markers or any(marker in normalized for marker in negative_markers)

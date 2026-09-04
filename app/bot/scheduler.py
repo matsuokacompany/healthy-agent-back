@@ -231,6 +231,8 @@ async def send_checkin_reminders() -> None:
                         DailyReportStatusEnum.PENDING,
                         DailyReportStatusEnum.AWAITING_SYMPTOM_DESCRIPTION,
                         DailyReportStatusEnum.AWAITING_CAUSE,
+                        DailyReportStatusEnum.AWAITING_DIET_ADHERENCE,
+                        DailyReportStatusEnum.AWAITING_DIET_DEVIATION_DESCRIPTION,
                         DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE,
                     ]
                 )

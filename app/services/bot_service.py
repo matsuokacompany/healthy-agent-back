@@ -13,6 +13,7 @@ from app.db.security_context import set_database_service_context
 from app.models.models import ClinicalAttachmentSourceEnum, DailyReportStatusEnum, User, WhatsAppMessage
 from app.services.clinical_attachment_service import ClinicalAttachmentService
 from app.services.daily_report_service import DailyReportService
+from app.services.supplement_service import SupplementService
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,10 @@ class BotResponse:
     text: str
     ask_followup: bool = False
     duplicate: bool = False
+    # (id, label) pairs for a WhatsApp interactive reply-button message
+    # instead of plain text — see WhatsAppBotChannel.send_buttons. None
+    # means send `text` as a regular text message.
+    buttons: tuple[tuple[str, str], ...] | None = None
 
 
 class BotService:
@@ -95,7 +100,7 @@ class BotService:
                 message_text,
             )
 
-            response = self._translate(status)
+            response = self._translate(status, db=db, user=user)
             self._mark_message_finished(message_id=message_id, response=response, user_id=user.id, status="PROCESSED")
             return response
 
@@ -162,7 +167,9 @@ class BotService:
                         whatsapp_media_id=media_id,
                     )
                     if caption:
-                        response = self._translate(self.daily_report_service.process_response(db, user, caption))
+                        response = self._translate(
+                            self.daily_report_service.process_response(db, user, caption), db=db, user=user
+                        )
                     else:
                         response = BotResponse(
                             text="Recebemos sua foto. Agora descreva os sintomas em uma única mensagem de texto.",
@@ -384,7 +391,7 @@ class BotService:
     # =========================================================
     # TRADUÇÃO DE STATUS → UX
     # =========================================================
-    def _translate(self, status: str) -> BotResponse:
+    def _translate(self, status: str, *, db=None, user: User | None = None) -> BotResponse:
 
         if status == "NEGATIVE":
             return BotResponse(
@@ -413,15 +420,33 @@ class BotService:
                 ask_followup=True,
             )
 
-        if status == "ASK_MEDICATION_ADHERENCE":
+        if status == "ASK_DIET_ADHERENCE":
             return BotResponse(
-                text=(
-                    "Mais duas perguntas rápidas pra fechar seu check-in de hoje:\n\n"
-                    "1️⃣ Você seguiu sua dieta certinho ontem? Se não, conta rapidinho o que comeu fora.\n"
-                    "2️⃣ Tomou seus remédios/suplementos como planejado?\n\n"
-                    "Pode responder as duas numa única mensagem."
-                ),
+                text="Mais uma coisa: você seguiu sua dieta certinho ontem?",
                 ask_followup=True,
+                buttons=(("diet_yes", "Sim"), ("diet_no", "Não")),
+            )
+
+        if status == "ASK_DIET_DEVIATION":
+            return BotResponse(
+                text="Entendido. O que você comeu fora da dieta?",
+                ask_followup=True,
+            )
+
+        if status == "ASK_MEDICATION_ADHERENCE":
+            supplement_names = []
+            if db is not None and user is not None:
+                supplement_names = SupplementService.list_names(
+                    SupplementService(db).list_for_patient(user.id)
+                )
+            if supplement_names:
+                what = "todos os seguintes: " + ", ".join(supplement_names)
+            else:
+                what = "seus remédios/suplementos como planejado"
+            return BotResponse(
+                text=f"Última pergunta: você tomou {what} hoje?",
+                ask_followup=True,
+                buttons=(("medication_yes", "Sim"), ("medication_no", "Não")),
             )
 
         if status == "ASK_CAUSE":

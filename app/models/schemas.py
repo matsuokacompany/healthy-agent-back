@@ -24,6 +24,8 @@ class DailyReportStatusEnum(str, Enum):
     PENDING = "PENDING"
     AWAITING_SYMPTOM_DESCRIPTION = "AWAITING_SYMPTOM_DESCRIPTION"
     AWAITING_CAUSE = "AWAITING_CAUSE"
+    AWAITING_DIET_ADHERENCE = "AWAITING_DIET_ADHERENCE"
+    AWAITING_DIET_DEVIATION_DESCRIPTION = "AWAITING_DIET_DEVIATION_DESCRIPTION"
     AWAITING_MEDICATION_ADHERENCE = "AWAITING_MEDICATION_ADHERENCE"
     COMPLETED = "COMPLETED"
     EXPIRED = "EXPIRED"
@@ -369,6 +371,16 @@ class AnamneseRead(AnamneseBase, ORMModel):
     user_id: int
     created_at: datetime
     updated_at: datetime
+
+
+class SupplementCreate(StrictRequestModel):
+    name: ShortPlainText
+
+
+class SupplementRead(ORMModel):
+    id: int
+    name: str
+    created_at: datetime
 
 
 class ProfessionalProfileBase(StrictRequestModel):

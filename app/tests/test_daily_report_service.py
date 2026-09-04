@@ -89,52 +89,81 @@ def test_daily_report_button_flow_complete():
     assert report.suspected_cause is None
 
 
-def test_self_service_plan_asks_combined_lifestyle_question_after_positive_symptoms():
+def test_self_service_plan_asks_diet_then_medication_after_positive_symptoms():
     db = build_session()
     user, plan = create_user_and_self_service_plan(db)
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
 
     assert DailyReportService.process_response(db, user, "Tive sintomas") == "ASK_SYMPTOM_DESCRIPTION"
-    assert DailyReportService.process_response(db, user, "Dor de cabeça") == "ASK_MEDICATION_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "Dor de cabeça") == "ASK_DIET_ADHERENCE"
 
     db.refresh(report)
-    assert report.status == DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE
+    assert report.status == DailyReportStatusEnum.AWAITING_DIET_ADHERENCE
     assert report.completed is False
     assert report.had_symptoms is True
     assert report.symptom_description == "Dor de cabeça"
 
-    # No OPENAI_API_KEY configured in this test environment, so
-    # LifestyleAdherenceService no-ops -- the raw reply still gets saved,
-    # only the two derived booleans stay unset (covered with the AI mocked
-    # in test_lifestyle_adherence_service.py).
-    assert DailyReportService.process_response(db, user, "Segui a dieta certinho e tomei os remédios") == "COMPLETED"
+    # Deterministic button tap (diet_yes), not free text.
+    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_MEDICATION_ADHERENCE"
+    db.refresh(report)
+    assert report.status == DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE
+    assert report.diet_adherence is True
+    assert report.completed is False
+
+    assert DailyReportService.process_response(db, user, "medication_yes") == "COMPLETED"
     db.refresh(report)
     assert report.status == DailyReportStatusEnum.COMPLETED
     assert report.completed is True
-    assert report.lifestyle_notes == "Segui a dieta certinho e tomei os remédios"
-    assert report.diet_adherence is None
-    assert report.medication_adherence is None
+    assert report.medication_adherence is True
 
 
-def test_self_service_plan_asks_combined_lifestyle_question_after_negative_symptoms():
+def test_self_service_plan_asks_deviation_text_when_diet_button_is_no():
     db = build_session()
     user, plan = create_user_and_self_service_plan(db)
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
 
-    assert DailyReportService.process_response(db, user, "Não tive sintomas") == "ASK_MEDICATION_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "Não tive sintomas") == "ASK_DIET_ADHERENCE"
     db.refresh(report)
-    assert report.status == DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE
+    assert report.status == DailyReportStatusEnum.AWAITING_DIET_ADHERENCE
     assert report.had_symptoms is False
+
+    assert DailyReportService.process_response(db, user, "diet_no") == "ASK_DIET_DEVIATION"
+    db.refresh(report)
+    assert report.status == DailyReportStatusEnum.AWAITING_DIET_DEVIATION_DESCRIPTION
+    assert report.diet_adherence is False
     assert report.completed is False
 
-    assert DailyReportService.process_response(db, user, "Não segui a dieta, comi doce; remédio tomei certinho") == "COMPLETED"
+    assert DailyReportService.process_response(db, user, "Comi um doce à noite") == "ASK_MEDICATION_ADHERENCE"
+    db.refresh(report)
+    assert report.status == DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE
+    assert report.lifestyle_notes == "Comi um doce à noite"
+
+    assert DailyReportService.process_response(db, user, "medication_no") == "COMPLETED"
     db.refresh(report)
     assert report.status == DailyReportStatusEnum.COMPLETED
     assert report.completed is True
-    assert report.lifestyle_notes == "Não segui a dieta, comi doce; remédio tomei certinho"
+    assert report.medication_adherence is False
 
 
-def test_professional_plan_completes_without_asking_lifestyle_question():
+def test_self_service_plan_accepts_natural_text_alongside_button_ids():
+    # Buttons are the primary path, but the same markers already used for
+    # the symptom question (free text) still work here -- a patient who
+    # types "sim"/"não" instead of tapping isn't stuck.
+    db = build_session()
+    user, plan = create_user_and_self_service_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+
+    assert DailyReportService.process_response(db, user, "Não tive sintomas") == "ASK_DIET_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "sim") == "ASK_MEDICATION_ADHERENCE"
+    db.refresh(report)
+    assert report.diet_adherence is True
+
+    assert DailyReportService.process_response(db, user, "nao") == "COMPLETED"
+    db.refresh(report)
+    assert report.medication_adherence is False
+
+
+def test_professional_plan_completes_without_asking_lifestyle_questions():
     db = build_session()
     user, plan = create_user_and_plan(db)
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)

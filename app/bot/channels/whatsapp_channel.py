@@ -34,6 +34,36 @@ class WhatsAppBotChannel(BaseBotChannel):
         await self._post(payload)
 
     # =========================================================
+    # ENVIO DE BOTÕES INTERATIVOS (dentro da janela de 24h já aberta —
+    # não precisa de template/aprovação prévia da Meta, diferente do
+    # template de abertura do dia)
+    # =========================================================
+    async def send_buttons(
+        self,
+        user_id: str,
+        text: str,
+        buttons: tuple[tuple[str, str], ...],
+    ) -> None:
+        # WhatsApp allows at most 3 reply buttons per interactive message.
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": user_id,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": text},
+                "action": {
+                    "buttons": [
+                        {"type": "reply", "reply": {"id": button_id, "title": title}}
+                        for button_id, title in buttons[:3]
+                    ]
+                },
+            },
+        }
+
+        await self._post(payload)
+
+    # =========================================================
     # ENVIO DE TEMPLATE (INÍCIO DO FLUXO)
     # =========================================================
     async def send_template(
@@ -228,6 +258,7 @@ class WhatsAppBotChannel(BaseBotChannel):
                         external_user_id=external_user_id,
                         message_id=message_id,
                         text=response.text,
+                        buttons=response.buttons,
                     )
                 continue
 
@@ -251,6 +282,7 @@ class WhatsAppBotChannel(BaseBotChannel):
                     external_user_id=external_user_id,
                     message_id=message_id,
                     text=response.text,
+                    buttons=response.buttons,
                 )
 
             logger.info(
@@ -265,10 +297,14 @@ class WhatsAppBotChannel(BaseBotChannel):
         external_user_id: str,
         message_id: str,
         text: str,
+        buttons: tuple[tuple[str, str], ...] | None = None,
     ) -> None:
         """Send a bot reply without failing acknowledgement of the inbound webhook."""
         try:
-            await self.send_message(external_user_id, text)
+            if buttons:
+                await self.send_buttons(external_user_id, text, buttons)
+            else:
+                await self.send_message(external_user_id, text)
         except httpx.HTTPError:
             # Meta retries a webhook whenever its handler returns an error. The
             # inbound message has already been persisted at this point, so a
