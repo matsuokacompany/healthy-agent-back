@@ -19,17 +19,25 @@ def test_daily_report_clinical_write_uses_encryption_service(monkeypatch):
         symptom_description_encryption_envelope=None,
         suspected_cause=None,
         suspected_cause_encryption_envelope=None,
+        lifestyle_notes=None,
+        lifestyle_notes_encryption_envelope=None,
     )
 
     DailyReportService._write_clinical(
         report,
         symptom_description="Febre",
         suspected_cause="Exposição",
+        lifestyle_notes="Segui a dieta e tomei os remédios",
     )
 
-    assert writes == [("symptom_description", "Febre"), ("suspected_cause", "Exposição")]
+    assert writes == [
+        ("symptom_description", "Febre"),
+        ("suspected_cause", "Exposição"),
+        ("lifestyle_notes", "Segui a dieta e tomei os remédios"),
+    ]
     assert report.symptom_description_encryption_envelope == {"encrypted": True}
     assert report.suspected_cause_encryption_envelope == {"encrypted": True}
+    assert report.lifestyle_notes_encryption_envelope == {"encrypted": True}
 
 
 def test_daily_report_clinical_clear_removes_both_envelopes(monkeypatch):
@@ -40,14 +48,20 @@ def test_daily_report_clinical_clear_removes_both_envelopes(monkeypatch):
         symptom_description_encryption_envelope={"encrypted": True},
         suspected_cause="Exposição",
         suspected_cause_encryption_envelope={"encrypted": True},
+        lifestyle_notes="Segui a dieta",
+        lifestyle_notes_encryption_envelope={"encrypted": True},
     )
 
-    DailyReportService._write_clinical(report, symptom_description=None, suspected_cause=None)
+    DailyReportService._write_clinical(
+        report, symptom_description=None, suspected_cause=None, lifestyle_notes=None
+    )
 
     assert report.symptom_description is None
     assert report.symptom_description_encryption_envelope is None
     assert report.suspected_cause is None
     assert report.suspected_cause_encryption_envelope is None
+    assert report.lifestyle_notes is None
+    assert report.lifestyle_notes_encryption_envelope is None
 
 
 def test_hybrid_read_prefers_envelope_without_marking_plaintext_dirty(monkeypatch):
@@ -60,6 +74,8 @@ def test_hybrid_read_prefers_envelope_without_marking_plaintext_dirty(monkeypatc
         symptom_description_encryption_envelope={"encrypted": True},
         suspected_cause="Plaintext cause",
         suspected_cause_encryption_envelope={"encrypted": True},
+        lifestyle_notes=None,
+        lifestyle_notes_encryption_envelope=None,
     )
     # SimpleNamespace is sufficient for the service contract, but SQLAlchemy's
     # committed-value helper is patched to assert the values selected for output.

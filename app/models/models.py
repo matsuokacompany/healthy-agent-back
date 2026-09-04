@@ -32,6 +32,9 @@ class DailyReportStatusEnum(str, enum.Enum):
     PENDING = "PENDING"
     AWAITING_SYMPTOM_DESCRIPTION = "AWAITING_SYMPTOM_DESCRIPTION"
     AWAITING_CAUSE = "AWAITING_CAUSE"
+    AWAITING_DIET_ADHERENCE = "AWAITING_DIET_ADHERENCE"
+    AWAITING_DIET_DEVIATION_DESCRIPTION = "AWAITING_DIET_DEVIATION_DESCRIPTION"
+    AWAITING_MEDICATION_ADHERENCE = "AWAITING_MEDICATION_ADHERENCE"
     COMPLETED = "COMPLETED"
     EXPIRED = "EXPIRED"
 
@@ -315,6 +318,25 @@ class Anamnese(Base):
     user = relationship("User", back_populates="anamnese")
 
 
+class Supplement(Base):
+    """A patient-managed list of supplements/medications they take — shown
+    on the anamnese page, and read by the self-service WhatsApp check-in
+    (DailyReportService) to name them in the medication-adherence question
+    instead of asking a generic "took your meds?". Self-managed by the
+    patient directly, unlike Anamnese.info which is professional-authored;
+    see anamnese_routes.py's _require_clinical_write_access comment."""
+
+    __tablename__ = "supplements"
+    __table_args__ = (
+        Index("ix_supplements_patient_id", "patient_id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    name = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
 class DailyReport(Base):
     __tablename__ = "daily_reports"
     __table_args__ = (
@@ -336,6 +358,19 @@ class DailyReport(Base):
     suspected_cause = Column(Text, nullable=True)
     suspected_cause_encryption_envelope = Column(JSON, nullable=True)
     had_symptoms = Column(Boolean, nullable=True)
+    # Only asked for self-service (no professional) monitoring plans, as two
+    # extra WhatsApp interactive-button questions in the same daily
+    # conversation — see MonitoringPlanOriginEnum.SELF_SERVICE and
+    # DailyReportService (AWAITING_DIET_ADHERENCE ->
+    # [AWAITING_DIET_DEVIATION_DESCRIPTION] -> AWAITING_MEDICATION_ADHERENCE).
+    # Both booleans are set directly from the button tap, deterministically —
+    # no AI involved. lifestyle_notes only holds the patient's free-text
+    # answer to "o que você comeu fora da dieta?", asked when diet_adherence
+    # is False.
+    diet_adherence = Column(Boolean, nullable=True)
+    medication_adherence = Column(Boolean, nullable=True)
+    lifestyle_notes = Column(Text, nullable=True)
+    lifestyle_notes_encryption_envelope = Column(JSON, nullable=True)
     completed = Column(Boolean, default=False, nullable=False)
     awaiting_response = Column(Boolean, default=True, nullable=False)
     awaiting_cause = Column(Boolean, default=False, nullable=False)

@@ -3,7 +3,14 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import set_committed_value
 
-from app.models.models import CheckTypeEnum, DailyReport, DailyReportStatusEnum, MonitoringPlan, User
+from app.models.models import (
+    CheckTypeEnum,
+    DailyReport,
+    DailyReportStatusEnum,
+    MonitoringPlan,
+    MonitoringPlanOriginEnum,
+    User,
+)
 from app.core.config import settings
 from app.services.clinical_data_service import ClinicalDataService
 from app.services.notification_service import notify_symptom_reported
@@ -54,6 +61,10 @@ class DailyReportService:
         report.suspected_cause = None
         report.suspected_cause_encryption_envelope = None
         report.had_symptoms = None
+        report.diet_adherence = None
+        report.medication_adherence = None
+        report.lifestyle_notes = None
+        report.lifestyle_notes_encryption_envelope = None
         report.completed = False
         report.awaiting_response = True
         report.awaiting_cause = False
@@ -98,13 +109,42 @@ class DailyReportService:
 
         if report.status == DailyReportStatusEnum.AWAITING_SYMPTOM_DESCRIPTION:
             cls._write_clinical(report, symptom_description=message_text, suspected_cause=None)
+            notify_symptom_reported(db, patient=user, report=report)
+            result = cls._finish_symptom_flow(db, report)
+            SymptomNormalizationService.normalize(db, report, message_text)
+            return result
+
+        if report.status == DailyReportStatusEnum.AWAITING_DIET_ADHERENCE:
+            # Deterministic WhatsApp interactive buttons (see
+            # BotService._translate's "ASK_DIET_ADHERENCE" message) — the
+            # tap comes back as one of the diet_yes/diet_no markers added to
+            # _is_positive_response/_is_negative_response below.
+            if cls._is_negative_response(message_text):
+                report.diet_adherence = False
+                report.awaiting_response = True
+                report.status = DailyReportStatusEnum.AWAITING_DIET_DEVIATION_DESCRIPTION
+                db.commit()
+                return "ASK_DIET_DEVIATION"
+            if cls._is_positive_response(message_text):
+                report.diet_adherence = True
+            # An unrecognized answer just skips ahead rather than blocking
+            # completion on a retry loop -- same tradeoff as the rest of
+            # this flow (see the marker fallback comment below).
+            return cls._ask_medication_adherence(db, report)
+
+        if report.status == DailyReportStatusEnum.AWAITING_DIET_DEVIATION_DESCRIPTION:
+            cls._write_clinical(report, lifestyle_notes=message_text)
+            return cls._ask_medication_adherence(db, report)
+
+        if report.status == DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE:
+            if cls._is_negative_response(message_text):
+                report.medication_adherence = False
+            elif cls._is_positive_response(message_text):
+                report.medication_adherence = True
             report.awaiting_response = False
-            report.awaiting_cause = False
             report.completed = True
             report.status = DailyReportStatusEnum.COMPLETED
-            notify_symptom_reported(db, patient=user, report=report)
             db.commit()
-            SymptomNormalizationService.normalize(db, report, message_text)
             return "COMPLETED"
 
         if not report.awaiting_response:
@@ -113,12 +153,7 @@ class DailyReportService:
         if cls._is_negative_response(message_text):
             report.had_symptoms = False
             cls._write_clinical(report, symptom_description=None, suspected_cause=None)
-            report.awaiting_response = False
-            report.awaiting_cause = False
-            report.completed = True
-            report.status = DailyReportStatusEnum.COMPLETED
-            db.commit()
-            return "NEGATIVE"
+            return cls._finish_symptom_flow(db, report, completed_status="NEGATIVE")
 
         if cls._is_positive_response(message_text):
             report.had_symptoms = True
@@ -131,14 +166,49 @@ class DailyReportService:
 
         report.had_symptoms = True
         cls._write_clinical(report, symptom_description=message_text, suspected_cause=None)
+        notify_symptom_reported(db, patient=user, report=report)
+        result = cls._finish_symptom_flow(db, report)
+        SymptomNormalizationService.normalize(db, report, message_text)
+        return result
+
+    @classmethod
+    def _finish_symptom_flow(cls, db: Session, report: DailyReport, *, completed_status: str = "COMPLETED") -> str:
+        """Ends the symptom portion of the daily check-in.
+
+        For self-service (no professional) plans, this defers completion to
+        ask about diet and medication/supplement adherence — two
+        deterministic WhatsApp interactive-button questions (diet, then
+        medication; see BotService._translate) in the same conversation,
+        instead of a separate template message per question (see
+        MonitoringPlanOriginEnum.SELF_SERVICE and README "Otimização de
+        custo do WhatsApp"). Every other plan completes immediately.
+        """
+        if cls._plan_is_self_service(report):
+            report.awaiting_response = True
+            report.awaiting_cause = False
+            report.completed = False
+            report.status = DailyReportStatusEnum.AWAITING_DIET_ADHERENCE
+            db.commit()
+            return "ASK_DIET_ADHERENCE"
+
         report.awaiting_response = False
         report.awaiting_cause = False
-        report.status = DailyReportStatusEnum.COMPLETED
         report.completed = True
-        notify_symptom_reported(db, patient=user, report=report)
+        report.status = DailyReportStatusEnum.COMPLETED
         db.commit()
-        SymptomNormalizationService.normalize(db, report, message_text)
-        return "COMPLETED"
+        return completed_status
+
+    @classmethod
+    def _ask_medication_adherence(cls, db: Session, report: DailyReport) -> str:
+        report.awaiting_response = True
+        report.status = DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE
+        db.commit()
+        return "ASK_MEDICATION_ADHERENCE"
+
+    @staticmethod
+    def _plan_is_self_service(report: DailyReport) -> bool:
+        plan = report.monitoring_plan
+        return bool(plan) and plan.origin == MonitoringPlanOriginEnum.SELF_SERVICE.value
 
     @classmethod
     def update_patient_response(
@@ -181,7 +251,9 @@ class DailyReportService:
     @classmethod
     def delete_patient_response(cls, db: Session, report: DailyReport) -> DailyReport:
         report.had_symptoms = None
-        cls._write_clinical(report, symptom_description=None, suspected_cause=None)
+        report.diet_adherence = None
+        report.medication_adherence = None
+        cls._write_clinical(report, symptom_description=None, suspected_cause=None, lifestyle_notes=None)
         report.completed = False
         report.awaiting_response = True
         report.awaiting_cause = False
@@ -203,6 +275,9 @@ class DailyReportService:
                         DailyReportStatusEnum.PENDING,
                         DailyReportStatusEnum.AWAITING_SYMPTOM_DESCRIPTION,
                         DailyReportStatusEnum.AWAITING_CAUSE,
+                        DailyReportStatusEnum.AWAITING_DIET_ADHERENCE,
+                        DailyReportStatusEnum.AWAITING_DIET_DEVIATION_DESCRIPTION,
+                        DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE,
                     ]
                 )
             )
@@ -219,6 +294,7 @@ class DailyReportService:
         *,
         symptom_description=_UNSET,
         suspected_cause=_UNSET,
+        lifestyle_notes=_UNSET,
     ) -> None:
         if settings.CLINICAL_ENCRYPTION_PROVIDER == "disabled" and settings.ENV != "production":
             if symptom_description is not cls._UNSET:
@@ -227,6 +303,9 @@ class DailyReportService:
             if suspected_cause is not cls._UNSET:
                 report.suspected_cause = suspected_cause
                 report.suspected_cause_encryption_envelope = None
+            if lifestyle_notes is not cls._UNSET:
+                report.lifestyle_notes = lifestyle_notes
+                report.lifestyle_notes_encryption_envelope = None
             return
 
         clinical_data = ClinicalDataService()
@@ -234,12 +313,15 @@ class DailyReportService:
             clinical_data.write_text(report, "symptom_description", symptom_description)
         if suspected_cause is not cls._UNSET:
             clinical_data.write_text(report, "suspected_cause", suspected_cause)
+        if lifestyle_notes is not cls._UNSET:
+            clinical_data.write_text(report, "lifestyle_notes", lifestyle_notes)
 
     @classmethod
     def hydrate_clinical(cls, report: DailyReport, clinical_data: ClinicalDataService | None = None) -> DailyReport:
         if not (
             report.symptom_description_encryption_envelope
             or report.suspected_cause_encryption_envelope
+            or report.lifestyle_notes_encryption_envelope
         ):
             return report
         clinical_data = clinical_data or ClinicalDataService()
@@ -254,6 +336,12 @@ class DailyReportService:
                 report,
                 "suspected_cause",
                 clinical_data.read_text(report, "suspected_cause"),
+            )
+        if report.lifestyle_notes_encryption_envelope:
+            set_committed_value(
+                report,
+                "lifestyle_notes",
+                clinical_data.read_text(report, "lifestyle_notes"),
             )
         return report
 
@@ -293,6 +381,8 @@ class DailyReportService:
             "symptoms_yes",
             "sintomas_sim",
             "tive_sintomas",
+            "diet_yes",
+            "medication_yes",
         )
         return normalized in positive_markers or any(marker in normalized for marker in positive_markers)
 
@@ -310,5 +400,7 @@ class DailyReportService:
             "symptoms_no",
             "sintomas_nao",
             "nao_tive_sintomas",
+            "diet_no",
+            "medication_no",
         )
         return normalized in negative_markers or any(marker in normalized for marker in negative_markers)

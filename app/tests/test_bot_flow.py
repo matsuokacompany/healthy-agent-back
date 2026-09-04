@@ -7,7 +7,16 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base_class import Base
-from app.models.models import CheckTypeEnum, DailyReport, DailyReportStatusEnum, MonitoringPlan, User, WhatsAppMessage
+from app.models.models import (
+    CheckTypeEnum,
+    DailyReport,
+    DailyReportStatusEnum,
+    MonitoringPlan,
+    MonitoringPlanOriginEnum,
+    Supplement,
+    User,
+    WhatsAppMessage,
+)
 from app.services.bot_service import BotService
 
 
@@ -78,6 +87,80 @@ def test_symptom_prompt_explains_single_optional_image_when_enabled(monkeypatch)
     assert "uma única foto" in response.text
     assert "legenda da própria imagem" in response.text
     assert "até 5 MB" in response.text
+
+
+def create_pending_self_service_report(db, phone="999"):
+    user = User(name="Teste", email=f"bot-{phone}@example.com", phone=phone)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    plan = MonitoringPlan(
+        patient_id=user.id,
+        title="Plano",
+        active=True,
+        start_date=date.today(),
+        origin=MonitoringPlanOriginEnum.SELF_SERVICE.value,
+    )
+    db.add(plan)
+    db.commit()
+    db.refresh(plan)
+    report = DailyReport(
+        user_id=user.id,
+        monitoring_plan_id=plan.id,
+        report_date=date.today(),
+        check_type=CheckTypeEnum.MORNING,
+        status=DailyReportStatusEnum.PENDING,
+        completed=False,
+        awaiting_response=True,
+        awaiting_cause=False,
+        prompt_sent_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+    )
+    db.add(report)
+    db.commit()
+    return user, report
+
+
+def test_diet_adherence_prompt_has_yes_no_buttons(monkeypatch):
+    db = build_session()
+    user, _ = create_pending_self_service_report(db, phone="991")
+    monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
+
+    service = BotService()
+    response = service.process_incoming(
+        channel="whatsapp", external_user_id=user.phone, message_text="Não tive sintomas", message_id="msg-diet-1"
+    )
+
+    assert "dieta" in response.text
+    assert response.buttons == (("diet_yes", "Sim"), ("diet_no", "Não"))
+
+
+def test_medication_prompt_lists_registered_supplements(monkeypatch):
+    db = build_session()
+    user, _ = create_pending_self_service_report(db, phone="992")
+    db.add(Supplement(patient_id=user.id, name="Vitamina D"))
+    db.add(Supplement(patient_id=user.id, name="Ômega 3"))
+    db.commit()
+    monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
+
+    service = BotService()
+    service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Não tive sintomas", message_id="msg-med-1")
+    response = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="diet_yes", message_id="msg-med-2")
+
+    assert "Vitamina D, Ômega 3" in response.text
+    assert response.buttons == (("medication_yes", "Sim"), ("medication_no", "Não"))
+
+
+def test_medication_prompt_falls_back_to_generic_text_without_supplements(monkeypatch):
+    db = build_session()
+    user, _ = create_pending_self_service_report(db, phone="993")
+    monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
+
+    service = BotService()
+    service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Não tive sintomas", message_id="msg-med-3")
+    response = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="diet_yes", message_id="msg-med-4")
+
+    assert "remédios/suplementos como planejado" in response.text
 
 
 def test_bot_service_negative_flow(monkeypatch):

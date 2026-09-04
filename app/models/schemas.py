@@ -24,6 +24,9 @@ class DailyReportStatusEnum(str, Enum):
     PENDING = "PENDING"
     AWAITING_SYMPTOM_DESCRIPTION = "AWAITING_SYMPTOM_DESCRIPTION"
     AWAITING_CAUSE = "AWAITING_CAUSE"
+    AWAITING_DIET_ADHERENCE = "AWAITING_DIET_ADHERENCE"
+    AWAITING_DIET_DEVIATION_DESCRIPTION = "AWAITING_DIET_DEVIATION_DESCRIPTION"
+    AWAITING_MEDICATION_ADHERENCE = "AWAITING_MEDICATION_ADHERENCE"
     COMPLETED = "COMPLETED"
     EXPIRED = "EXPIRED"
 
@@ -370,6 +373,16 @@ class AnamneseRead(AnamneseBase, ORMModel):
     updated_at: datetime
 
 
+class SupplementCreate(StrictRequestModel):
+    name: ShortPlainText
+
+
+class SupplementRead(ORMModel):
+    id: int
+    name: str
+    created_at: datetime
+
+
 class ProfessionalProfileBase(StrictRequestModel):
     license_number: Optional[str] = Field(default=None, max_length=64)
     license_state: Optional[str] = Field(default=None, max_length=32)
@@ -501,6 +514,8 @@ class DailyReportRead(DailyReportBase, ORMModel):
     monitoring_plan_id: int
     report_date: date
     had_symptoms: Optional[bool] = None
+    diet_adherence: Optional[bool] = None
+    medication_adherence: Optional[bool] = None
     status: DailyReportStatusEnum
     awaiting_response: bool
     awaiting_cause: bool
