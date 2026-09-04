@@ -480,6 +480,14 @@ class ProfessionalService:
             alerts=self.dashboard_service._build_alerts(monitoring, today_summary, anamnese),
         )
 
+    # Capped (well under InsightService.MAX_REPORT_CHARS) so the check-in
+    # report that follows always survives gerar_interpretacao_com_uso's
+    # silent truncation, no matter how long the anamnese is. Order is kept
+    # anamnese-first — health-agent-front's AiReportsJourney.tsx strips a
+    # leading "ANAMNESE DO PACIENTE:" label off clinical_summary to render
+    # the patient narrative, so this string must keep starting with it.
+    MAX_ANAMNESE_CHARS_IN_SUMMARY = 2000
+
     def _build_clinical_summary(self, patient_id: int, periodo: str) -> str:
         report_text = ReportService(self.db).gerar_relatorio(patient_id, periodo)
         anamnese = self.db.query(Anamnese).filter(Anamnese.user_id == patient_id).first()
@@ -489,7 +497,7 @@ class ProfessionalService:
             anamnese_text = AnamneseClinicalService.hydrate(anamnese).info
         return "\n\n".join([
             "ANAMNESE DO PACIENTE:",
-            anamnese_text,
+            anamnese_text[: self.MAX_ANAMNESE_CHARS_IN_SUMMARY],
             "RELATÓRIO DE SINTOMAS E CHECK-INS:",
             report_text,
         ])

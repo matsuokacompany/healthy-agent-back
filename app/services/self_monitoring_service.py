@@ -27,6 +27,9 @@ from app.services.self_monitoring_insight_clinical_service import SelfMonitoring
 DEFAULT_EVOLUTION_PERIOD_DAYS = 30
 INSIGHT_COOLDOWN_DAYS = 15
 INSIGHT_PROMPT_OVERHEAD_TOKENS = 400
+# Leaves comfortable room, under InsightService.MAX_REPORT_CHARS, for the
+# automonitoramento JSON that's placed ahead of it in the prompt.
+MAX_ANAMNESE_CHARS = 2000
 
 
 @dataclass(frozen=True)
@@ -173,11 +176,23 @@ class SelfMonitoringService:
 
         anamnese = self.db.query(Anamnese).filter(Anamnese.user_id == current_user.id).first()
         anamnese_text = AnamneseClinicalService.hydrate(anamnese).info if anamnese else "Anamnese não registrada."
+        # The automonitoramento data goes FIRST and the anamnese is capped:
+        # InsightService.gerar_interpretacao_com_uso silently truncates
+        # clinical_text to MAX_REPORT_CHARS before calling the model, so
+        # whatever came last in this string could be cut off entirely —
+        # putting the actual check-in numbers last (as this used to) risked
+        # the model answering from the anamnese alone, with no real data to
+        # ground the summary in.
+        # timeline is a per-week breakdown nobody reads here (the prompt
+        # only asks for resumo/pontos/sugestao/especialidade/urgencia) —
+        # excluding it keeps the payload lean instead of spending truncation
+        # budget on a weekly table the model was never asked to use.
+        summary_data = summary.model_dump(mode="json", exclude={"timeline", "patient_id"})
         clinical_text = "\n\n".join([
-            "ANAMNESE DO PACIENTE:",
-            anamnese_text,
             "DADOS DE AUTOMONITORAMENTO:",
-            json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")),
+            json.dumps(summary_data, ensure_ascii=False, separators=(",", ":")),
+            "ANAMNESE DO PACIENTE:",
+            anamnese_text[:MAX_ANAMNESE_CHARS],
         ])
         estimated_input_tokens = math.ceil(len(clinical_text) / 4) + INSIGHT_PROMPT_OVERHEAD_TOKENS
         if estimated_input_tokens > cost_policy.max_input_tokens:
