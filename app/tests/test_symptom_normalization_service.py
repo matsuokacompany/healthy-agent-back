@@ -203,6 +203,32 @@ def test_normalize_swallows_provider_errors(monkeypatch):
     assert db.query(DailyReportSymptomTerm).count() == 0
 
 
+def test_clear_removes_existing_term_links():
+    db = build_session()
+    term = SymptomTerm(label="Cefaleia")
+    db.add(term)
+    db.commit()
+    db.refresh(term)
+    report = create_patient_with_report(db, symptom_description="Dor de cabeça")
+    db.add(DailyReportSymptomTerm(daily_report_id=report.id, symptom_term_id=term.id, patient_id=report.user_id))
+    db.commit()
+
+    SymptomNormalizationService.clear(db, report)
+
+    assert linked_labels(db, report.id) == []
+    # The shared vocabulary term itself is untouched, only the link row.
+    assert db.query(SymptomTerm).count() == 1
+
+
+def test_clear_is_a_noop_when_there_is_nothing_to_clear():
+    db = build_session()
+    report = create_patient_with_report(db, had_symptoms=False, symptom_description=None)
+
+    SymptomNormalizationService.clear(db, report)  # must not raise
+
+    assert linked_labels(db, report.id) == []
+
+
 def test_normalize_recovers_the_session_after_a_failed_write_so_later_reports_still_work(monkeypatch):
     # A write-time failure partway through _normalize (e.g. a flush-time
     # IntegrityError) leaves the SQLAlchemy session in a "pending rollback"

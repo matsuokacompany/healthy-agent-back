@@ -171,6 +171,10 @@ class DailyReportService:
         db.commit()
         if had_symptoms is True:
             SymptomNormalizationService.normalize(db, report, symptom_description)
+        else:
+            # Editing away from "had symptoms" invalidates any term links
+            # from the description that used to be here.
+            SymptomNormalizationService.clear(db, report)
         db.refresh(report)
         return cls.hydrate_clinical(report)
 
@@ -183,6 +187,7 @@ class DailyReportService:
         report.awaiting_cause = False
         report.status = DailyReportStatusEnum.PENDING
         db.commit()
+        SymptomNormalizationService.clear(db, report)
         db.refresh(report)
         return report
 

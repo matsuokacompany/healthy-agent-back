@@ -42,6 +42,8 @@ def get_self_monitoring_evolution_report(
 
 @router.get("/insight", response_model=SelfMonitoringInsightRead)
 def get_self_monitoring_insight(
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -54,6 +56,8 @@ def get_self_monitoring_insight(
         max_cost_usd=settings.AI_REPORT_MAX_COST_USD,
         input_cost_per_million_usd=settings.AI_REPORT_INPUT_COST_PER_MILLION_USD,
         output_cost_per_million_usd=settings.AI_REPORT_OUTPUT_COST_PER_MILLION_USD,
+        start_date=start_date,
+        end_date=end_date,
     )
 
 

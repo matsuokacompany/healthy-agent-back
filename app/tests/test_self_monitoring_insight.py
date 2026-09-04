@@ -146,6 +146,74 @@ def test_insight_generates_and_persists_summary(monkeypatch):
     assert record.next_generation_at == record.generated_at + timedelta(days=15)
 
 
+def test_insight_generates_for_a_custom_period_up_to_one_year(monkeypatch):
+    db = build_session()
+    patient, plan = create_patient_with_active_subscription(db)
+    period_start = date.today() - timedelta(days=364)
+    create_completed_checkins(db, patient=patient, plan=plan, start_date=period_start)
+    monkeypatch.setattr(
+        "app.services.self_monitoring_service.InsightService",
+        SuccessfulInsightService,
+    )
+
+    result = SelfMonitoringService(db).insight_report(
+        patient, **cost_kwargs(), start_date=period_start, end_date=date.today()
+    )
+
+    assert result.sufficient_data is True
+    record = db.query(SelfMonitoringInsight).filter(SelfMonitoringInsight.patient_id == patient.id).one()
+    assert record.start_date == period_start
+    assert record.end_date == date.today()
+
+
+def test_insight_rejects_period_longer_than_a_year():
+    db = build_session()
+    patient, _ = create_patient_with_active_subscription(db)
+
+    with pytest.raises(HTTPException) as exc_info:
+        SelfMonitoringService(db).insight_report(
+            patient,
+            **cost_kwargs(),
+            start_date=date.today() - timedelta(days=400),
+            end_date=date.today(),
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == "PERIOD_TOO_LONG"
+
+
+def test_insight_rejects_start_date_after_end_date():
+    db = build_session()
+    patient, _ = create_patient_with_active_subscription(db)
+
+    with pytest.raises(HTTPException) as exc_info:
+        SelfMonitoringService(db).insight_report(
+            patient,
+            **cost_kwargs(),
+            start_date=date.today(),
+            end_date=date.today() - timedelta(days=1),
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == "PERIOD_START_AFTER_END"
+
+
+def test_insight_rejects_end_date_in_the_future():
+    db = build_session()
+    patient, _ = create_patient_with_active_subscription(db)
+
+    with pytest.raises(HTTPException) as exc_info:
+        SelfMonitoringService(db).insight_report(
+            patient,
+            **cost_kwargs(),
+            start_date=date.today(),
+            end_date=date.today() + timedelta(days=1),
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == "PERIOD_END_IN_FUTURE"
+
+
 def test_insight_reuses_cached_row_within_cooldown(monkeypatch):
     db = build_session()
     patient, plan = create_patient_with_active_subscription(db)

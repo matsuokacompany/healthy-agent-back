@@ -10,11 +10,13 @@ from app.models.models import (
     CheckTypeEnum,
     DailyReport,
     DailyReportStatusEnum,
+    DailyReportSymptomTerm,
     MonitoringPlan,
     MonitoringProfessional,
     Notification,
     NotificationKindEnum,
     ProfessionalProfile,
+    SymptomTerm,
     User,
 )
 from app.services.daily_report_service import DailyReportService
@@ -364,6 +366,34 @@ def test_update_patient_response_requires_description_when_symptoms_are_reported
     assert report.status == DailyReportStatusEnum.PENDING
 
 
+def test_update_patient_response_clears_stale_symptom_terms_when_marked_without_symptoms():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    db.commit()
+
+    term = SymptomTerm(label="Cefaleia")
+    db.add(term)
+    db.commit()
+    db.refresh(term)
+    db.add(DailyReportSymptomTerm(daily_report_id=report.id, symptom_term_id=term.id, patient_id=user.id))
+    db.commit()
+
+    DailyReportService.update_patient_response(
+        db,
+        report,
+        had_symptoms=False,
+        symptom_description=None,
+    )
+
+    remaining = (
+        db.query(DailyReportSymptomTerm)
+        .filter(DailyReportSymptomTerm.daily_report_id == report.id)
+        .all()
+    )
+    assert remaining == []
+
+
 def test_delete_patient_response_reopens_report_for_answering():
     db = build_session()
     user, plan = create_user_and_plan(db)
@@ -385,6 +415,13 @@ def test_delete_patient_response_reopens_report_for_answering():
     db.add(report)
     db.commit()
 
+    term = SymptomTerm(label="Cefaleia")
+    db.add(term)
+    db.commit()
+    db.refresh(term)
+    db.add(DailyReportSymptomTerm(daily_report_id=report.id, symptom_term_id=term.id, patient_id=user.id))
+    db.commit()
+
     DailyReportService.delete_patient_response(db, report)
 
     assert report.completed is False
@@ -394,3 +431,9 @@ def test_delete_patient_response_reopens_report_for_answering():
     assert report.had_symptoms is None
     assert report.symptom_description is None
     assert report.suspected_cause is None
+    remaining = (
+        db.query(DailyReportSymptomTerm)
+        .filter(DailyReportSymptomTerm.daily_report_id == report.id)
+        .all()
+    )
+    assert remaining == []
