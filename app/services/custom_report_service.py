@@ -108,7 +108,7 @@ class CustomReportService:
 
         symptoms = [
             CustomClinicalSymptomOccurrence(
-                description=labels[normalized],
+                description=self._display_description(labels[normalized], symptom_reports),
                 occurrences=len(symptom_reports),
                 first_reported_at=min(report.report_date for report in symptom_reports),
                 last_reported_at=max(report.report_date for report in symptom_reports),
@@ -116,6 +116,20 @@ class CustomReportService:
             for normalized, symptom_reports in occurrences.items()
         ]
         return sorted(symptoms, key=lambda item: (-item.occurrences, item.description.casefold()))
+
+    @staticmethod
+    def _display_description(label: str, symptom_reports: list[DailyReport]) -> str:
+        # A patient recognizes their own words ("ardência na pálpebra"), not
+        # the clinical term alone ("Erupção cutânea") — so lead with what
+        # they actually wrote (their most recent phrasing of it) and keep
+        # the term as a parenthetical for whoever reads the report next.
+        # When the term IS the raw text (not yet classified), there's
+        # nothing to disambiguate, so it's shown as-is.
+        latest_report = max(symptom_reports, key=lambda report: report.report_date)
+        raw_text = " ".join(latest_report.symptom_description.split())
+        if raw_text.casefold() == label.casefold():
+            return label
+        return f"{raw_text} ({label})"
 
     def _build_timeline(
         self,
