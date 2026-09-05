@@ -22,8 +22,9 @@ from app.models.models import (
 )
 from app.services.daily_report_service import DailyReportService
 from app.services.dunning_service import DunningService
-from app.services.notification_service import notify_checkin_pending
+from app.services.notification_service import notify_checkin_pending, notify_supplement_course_ended
 from app.services.payment_service import subscription_grants_access
+from app.services.supplement_service import SupplementService
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ _scheduler: AsyncIOScheduler | None = None
 SCHEDULER_ADVISORY_LOCK_ID = 2026063001
 DUNNING_ADVISORY_LOCK_ID = 2026063002
 CHECKIN_REMINDER_ADVISORY_LOCK_ID = 2026063003
+SUPPLEMENT_NOTIFICATION_ADVISORY_LOCK_ID = 2026063004
 
 
 def _mask_identifier(value: str | None) -> str | None:
@@ -270,6 +272,51 @@ async def send_checkin_reminders() -> None:
     logger.info("CHECKIN_REMINDERS DONE | sent=%s", reminders_sent)
 
 
+async def send_supplement_course_ended_notifications() -> None:
+    """Runs once daily. A duration-bound supplement already stops being
+    named in the WhatsApp medication question once its course ends (see
+    SupplementService.is_active) -- this is what actually tells the patient
+    (and any assigned professionals) that it's done, exactly once per
+    supplement (Supplement.ended_notification_sent_at)."""
+    logger.info("SUPPLEMENT_COURSE_ENDED_NOTIFICATIONS START")
+
+    db = SessionLocal()
+    set_database_service_context(db, "scheduler")
+    lock_acquired = False
+    notified = 0
+
+    try:
+        lock_acquired = _try_acquire_scheduler_lock(db, SUPPLEMENT_NOTIFICATION_ADVISORY_LOCK_ID)
+        if not lock_acquired:
+            logger.info("SUPPLEMENT_COURSE_ENDED_NOTIFICATIONS SKIPPED | reason=advisory_lock_busy")
+            return
+
+        tz = ZoneInfo(settings.SCHEDULER_TIMEZONE)
+        today = datetime.now(tz).date()
+
+        for supplement in SupplementService(db).list_courses_needing_end_notification(today):
+            patient = db.query(User).filter(User.id == supplement.patient_id).first()
+            if not patient:
+                continue
+            notify_supplement_course_ended(db, patient=patient, supplement=supplement)
+            supplement.ended_notification_sent_at = datetime.now(timezone.utc)
+            notified += 1
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("FATAL ERROR send_supplement_course_ended_notifications")
+    finally:
+        if lock_acquired:
+            try:
+                _release_scheduler_lock(db, SUPPLEMENT_NOTIFICATION_ADVISORY_LOCK_ID)
+            except Exception:
+                logger.exception("Failed to release supplement notification advisory lock")
+        db.close()
+
+    logger.info("SUPPLEMENT_COURSE_ENDED_NOTIFICATIONS DONE | notified=%s", notified)
+
+
 def start_scheduler(bot_manager):
     global _scheduler
 
@@ -314,6 +361,13 @@ def start_scheduler(bot_manager):
             timezone=tz,
         ),
         id="checkin_reminders",
+        replace_existing=True,
+    )
+
+    _scheduler.add_job(
+        send_supplement_course_ended_notifications,
+        CronTrigger(hour=8, minute=30, timezone=tz),
+        id="supplement_course_ended_notifications",
         replace_existing=True,
     )
 

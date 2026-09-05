@@ -385,6 +385,7 @@ def test_bot_service_matches_normalized_phone(monkeypatch):
 def test_bot_service_matches_stored_phone_after_normalizing_database_value(monkeypatch):
     db = build_session()
     user, _ = create_pending_report(db, phone="+55 (43) 99126-6196")
+    user_id = user.id
     monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
 
     service = BotService()
@@ -395,7 +396,13 @@ def test_bot_service_matches_stored_phone_after_normalizing_database_value(monke
         message_id="msg-formatted-stored-1",
     )
 
-    assert user.phone == "+55 (43) 99126-6196"
+    # process_incoming's internal SessionLocal() calls close "their" session
+    # when done -- since SessionLocal is patched to return this same test
+    # session, that detaches `user` (even `user.id` becomes unreadable);
+    # re-fetch by the id captured before the call instead of touching the
+    # stale reference.
+    reloaded = db.query(User).filter(User.id == user_id).one()
+    assert reloaded.phone == "+55 (43) 99126-6196"
     assert "dieta" in response.text
     assert response.ask_followup is True
 
@@ -403,6 +410,7 @@ def test_bot_service_matches_stored_phone_after_normalizing_database_value(monke
 def test_bot_service_matches_brazilian_whatsapp_id_without_extra_ninth_digit(monkeypatch):
     db = build_session()
     user, _ = create_pending_report(db, phone="5543991266196")
+    user_id = user.id
     monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
 
     service = BotService()
@@ -413,9 +421,13 @@ def test_bot_service_matches_brazilian_whatsapp_id_without_extra_ninth_digit(mon
         message_id="msg-br-ninth-1",
     )
 
-    db.refresh(user)
-    assert user.phone == "5543991266196"
-    assert user.whatsapp_wa_id == "554391266196"
+    # See the comment in test_bot_service_matches_stored_phone_after_normalizing_database_value
+    # -- process_incoming detaches `user` from this shared session, so
+    # db.refresh(user) can't work; re-fetch it instead, by the id captured
+    # before the call.
+    reloaded = db.query(User).filter(User.id == user_id).one()
+    assert reloaded.phone == "5543991266196"
+    assert reloaded.whatsapp_wa_id == "554391266196"
     assert "dieta" in response.text
     assert response.ask_followup is True
 
@@ -425,6 +437,7 @@ def test_bot_service_uses_persisted_whatsapp_wa_id_as_primary_identity(monkeypat
     user, _ = create_pending_report(db, phone="5543991266196")
     user.whatsapp_wa_id = "554391266196"
     db.commit()
+    user_id = user.id
     monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
 
     service = BotService()
@@ -435,9 +448,9 @@ def test_bot_service_uses_persisted_whatsapp_wa_id_as_primary_identity(monkeypat
         message_id="msg-primary-wa-id-1",
     )
 
-    db.refresh(user)
-    assert user.phone == "5543991266196"
-    assert user.whatsapp_wa_id == "554391266196"
+    reloaded = db.query(User).filter(User.id == user_id).one()
+    assert reloaded.phone == "5543991266196"
+    assert reloaded.whatsapp_wa_id == "554391266196"
     assert "dieta" in response.text
     assert response.ask_followup is True
 
@@ -445,6 +458,7 @@ def test_bot_service_uses_persisted_whatsapp_wa_id_as_primary_identity(monkeypat
 def test_bot_service_links_wa_id_once_from_legacy_phone_match(monkeypatch):
     db = build_session()
     user, _ = create_pending_report(db, phone="5543991266196")
+    user_id = user.id
     monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
 
     service = BotService()
@@ -455,35 +469,37 @@ def test_bot_service_links_wa_id_once_from_legacy_phone_match(monkeypatch):
         message_id="msg-legacy-wa-id-link-1",
     )
 
-    db.refresh(user)
+    reloaded = db.query(User).filter(User.id == user_id).one()
     assert "dieta" in response.text
-    assert user.whatsapp_wa_id == "554391266196"
+    assert reloaded.whatsapp_wa_id == "554391266196"
 
 
 def test_bot_service_ignores_duplicate_whatsapp_message_id(monkeypatch):
     db = build_session()
     user, report = create_pending_report(db, phone="5543991266196")
+    phone = user.phone
+    report_id = report.id
     monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
 
     service = BotService()
     first = service.process_incoming(
         channel="whatsapp",
-        external_user_id=user.phone,
+        external_user_id=phone,
         message_text="Não tive sintomas",
         message_id="wamid.duplicate-test",
     )
     second = service.process_incoming(
         channel="whatsapp",
-        external_user_id=user.phone,
+        external_user_id=phone,
         message_text="Não tive sintomas",
         message_id="wamid.duplicate-test",
     )
 
-    db.refresh(report)
+    reloaded_report = db.query(DailyReport).filter(DailyReport.id == report_id).one()
     assert "dieta" in first.text
     assert second.duplicate is True
     assert second.text == ""
-    assert report.status == DailyReportStatusEnum.AWAITING_DIET_ADHERENCE
+    assert reloaded_report.status == DailyReportStatusEnum.AWAITING_DIET_ADHERENCE
     assert db.query(WhatsAppMessage).filter(WhatsAppMessage.message_id == "wamid.duplicate-test").count() == 1
 
 
@@ -647,8 +663,8 @@ def test_bot_service_recovers_stale_processing_messages(monkeypatch):
         normalized_user_id="5543991266196",
     )
 
-    db.refresh(message)
+    reloaded = db.query(WhatsAppMessage).filter(WhatsAppMessage.message_id == "wamid.stale-processing").one()
     assert reserved is False
-    assert message.status == "FAILED"
-    assert message.response_text == "Processing timed out before completion"
-    assert message.processed_at is not None
+    assert reloaded.status == "FAILED"
+    assert reloaded.response_text == "Processing timed out before completion"
+    assert reloaded.processed_at is not None

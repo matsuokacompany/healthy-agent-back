@@ -484,6 +484,22 @@ class ProfessionalPatientCreate(UserBase):
             raise ValueError("Invalid Brazilian mobile phone number")
         return digits
 
+    @field_validator("cpf")
+    @classmethod
+    def validate_cpf(cls, value: Optional[str]) -> Optional[str]:
+        # Normalizing to digits here (like SignupRequest.cpf) means the
+        # duplicate-CPF check in ProfessionalService.create_patient can't be
+        # bypassed by entering the same CPF with different punctuation
+        # ("123.456.789-00" vs "12345678900") -- a real, if crude, guard
+        # against re-registering the same patient under a new email to dodge
+        # the professional's active-patient cap.
+        if not value:
+            return value
+        digits = only_digits(value)
+        if not is_valid_cpf(digits):
+            raise ValueError("Invalid CPF")
+        return digits
+
 
 class ProfessionalPatientCreateResponse(BaseModel):
     patient: UserRead
@@ -715,6 +731,8 @@ class PatientDashboardCalendarCheckin(BaseModel):
     status: DailyReportStatusEnum
     completed: bool
     had_symptoms: Optional[bool] = None
+    diet_adherence: Optional[bool] = None
+    medication_adherence: Optional[bool] = None
     prompt_sent_at: datetime
     answered_at: Optional[datetime] = None
 
@@ -725,6 +743,8 @@ class PatientDashboardCalendarDay(BaseModel):
     completed: bool
     pending: bool
     has_symptoms: bool
+    diet_followed: bool = False
+    medication_taken: bool = False
     statuses: List[DailyReportStatusEnum] = Field(default_factory=list)
     checkins: List[PatientDashboardCalendarCheckin] = Field(default_factory=list)
 

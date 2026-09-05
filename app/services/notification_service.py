@@ -13,6 +13,7 @@ from app.models.models import (
     Notification,
     NotificationKindEnum,
     ProfessionalProfile,
+    Supplement,
     User,
 )
 
@@ -83,3 +84,24 @@ def notify_checkin_pending(db: Session, *, patient_user_id: int) -> None:
         kind=NotificationKindEnum.CHECKIN_PENDING,
         message="Seu check-in de hoje ainda está pendente. Responda no WhatsApp antes que expire.",
     )
+
+
+def notify_supplement_course_ended(db: Session, *, patient: User, supplement: Supplement) -> None:
+    """Called once, by the daily scheduler job, the first time a
+    duration-bound supplement's course has elapsed -- the WhatsApp
+    medication question already stopped naming it (see
+    SupplementService.is_active), so this is what actually tells the
+    patient (and any assigned professionals) it's done."""
+    create_notification(
+        db,
+        user_id=patient.id,
+        kind=NotificationKindEnum.SUPPLEMENT_COURSE_ENDED,
+        message=f"O período de uso de {supplement.name} chegou ao fim.",
+    )
+    for professional_user_id in assigned_professional_user_ids(db, patient.id):
+        create_notification(
+            db,
+            user_id=professional_user_id,
+            kind=NotificationKindEnum.SUPPLEMENT_COURSE_ENDED,
+            message=f"O período de uso de {supplement.name} chegou ao fim para {patient.name}.",
+        )

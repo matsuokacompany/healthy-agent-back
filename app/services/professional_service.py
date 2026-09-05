@@ -33,10 +33,12 @@ from app.models.schemas import (
     CustomAiReportCreateRequest,
     CustomAiReportResponse,
     CustomAiReportListResponse,
+    SupplementCreate,
 )
 from app.core.auth import assign_role, invite_supabase_user
 from app.core.access_policy import AccessPolicy
 from app.core.permissions import is_admin, require_role
+from app.services.ai_report_clinical_service import AiReportClinicalService
 from app.services.insight_service import InsightService
 from app.services.custom_report_preview_service import CustomReportPreviewService
 from app.services.custom_report_generation_service import CustomReportCostPolicy, CustomReportGenerationService
@@ -48,6 +50,7 @@ from app.services.payment_service import PaymentService
 from app.services.professional_capacity_service import patient_has_own_subscription, require_patient_cap
 from app.services.report_service import ReportService
 from app.services.anamnese_clinical_service import AnamneseClinicalService
+from app.services.supplement_service import SupplementService
 
 
 class ProfessionalService:
@@ -260,6 +263,29 @@ class ProfessionalService:
         self.db.commit()
         self.db.refresh(anamnese)
         return AnamneseClinicalService.hydrate(anamnese)
+
+    def list_supplements(self, current_user: User, patient_id: int) -> list[Supplement]:
+        self._require_patient_access(current_user, patient_id)
+        return SupplementService(self.db).list_for_patient(patient_id)
+
+    def create_supplement(
+        self,
+        current_user: User,
+        patient_id: int,
+        payload: SupplementCreate,
+    ) -> Supplement:
+        self._require_patient_access(current_user, patient_id)
+        return SupplementService(self.db).create_for_patient(
+            patient_id,
+            payload.name,
+            dosage_times=payload.dosage_times,
+            dosage_period=payload.dosage_period,
+            duration_days=payload.duration_days,
+        )
+
+    def delete_supplement(self, current_user: User, patient_id: int, supplement_id: int) -> bool:
+        self._require_patient_access(current_user, patient_id)
+        return SupplementService(self.db).delete_for_patient(patient_id, supplement_id)
 
     def generate_ai_report(
         self,

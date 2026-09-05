@@ -397,6 +397,8 @@ class PatientDashboardService:
                 status=report.status,
                 completed=report.completed,
                 had_symptoms=report.had_symptoms,
+                diet_adherence=report.diet_adherence,
+                medication_adherence=report.medication_adherence,
                 prompt_sent_at=report.prompt_sent_at,
                 answered_at=report.updated_at if report.completed else None,
             )
@@ -408,6 +410,8 @@ class PatientDashboardService:
             completed=bool(reports) and all(report.completed for report in reports),
             pending=any(not report.completed for report in reports),
             has_symptoms=any(report.had_symptoms is True for report in reports),
+            diet_followed=any(report.diet_adherence is True for report in reports),
+            medication_taken=any(report.medication_adherence is True for report in reports),
             statuses=[report.status for report in reports],
             checkins=checkins,
         )

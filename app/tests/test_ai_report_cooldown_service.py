@@ -48,9 +48,18 @@ def test_release_once_expires_matching_cooldown():
     )
 
     db.refresh(report)
-    assert report.next_generation_at == now
+    # SQLite (this test's engine) drops tzinfo on DateTime(timezone=True)
+    # round-trip even though the value written was UTC-aware -- same quirk
+    # documented in payment_service.py's subscription_grants_access.
+    next_generation_at = report.next_generation_at
+    if next_generation_at.tzinfo is None:
+        next_generation_at = next_generation_at.replace(tzinfo=timezone.utc)
+    assert next_generation_at == now
     assert response.report_id == report.id
-    assert response.previous_next_generation_at == now + timedelta(days=19)
+    previous_next_generation_at = response.previous_next_generation_at
+    if previous_next_generation_at.tzinfo is None:
+        previous_next_generation_at = previous_next_generation_at.replace(tzinfo=timezone.utc)
+    assert previous_next_generation_at == now + timedelta(days=19)
     assert response.released_by_user_id == super_admin.id
 
 
