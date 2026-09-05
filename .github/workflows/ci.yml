@@ -8,7 +8,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: sqlite:///:memory:
+      DATABASE_URL: "sqlite:///:memory:"
       WHATSAPP_VERIFY_TOKEN: test
       WHATSAPP_PHONE_NUMBER_ID: test
       WHATSAPP_ACCESS_TOKEN: test
