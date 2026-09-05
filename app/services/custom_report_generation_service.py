@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 from app.models.models import AiReportCache, AiReportStatusEnum, Anamnese
 from app.models.schemas import CustomAiReportCreateRequest, CustomAiReportResponse
 from app.services.custom_report_preview_service import CustomReportPreviewService
-from app.services.custom_report_service import CustomReportService
 from app.services.insight_service import InsightService
 from app.services.anamnese_clinical_service import AnamneseClinicalService
 from app.services.ai_report_clinical_service import AiReportClinicalService

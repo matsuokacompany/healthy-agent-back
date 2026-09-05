@@ -38,6 +38,7 @@ from app.models.schemas import (
 from app.core.auth import assign_role, invite_supabase_user
 from app.core.access_policy import AccessPolicy
 from app.core.permissions import is_admin, require_role
+from app.services.ai_report_clinical_service import AiReportClinicalService
 from app.services.insight_service import InsightService
 from app.services.custom_report_preview_service import CustomReportPreviewService
 from app.services.custom_report_generation_service import CustomReportCostPolicy, CustomReportGenerationService

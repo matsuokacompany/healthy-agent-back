@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: sqlite:///:memory:
+      WHATSAPP_VERIFY_TOKEN: test
+      WHATSAPP_PHONE_NUMBER_ID: test
+      WHATSAPP_ACCESS_TOKEN: test
+      WHATSAPP_DAILY_TEMPLATE_NAME: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: ruff check .
+      - run: pytest -q

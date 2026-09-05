@@ -1,0 +1,13 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+# Correctness-focused rules only (unused imports, undefined names, syntax
+# issues) -- deliberately NOT enabling line-length (E501) or import-sorting
+# (I), which would each flag hundreds of pre-existing lines across the repo
+# and force a giant, unrelated reformat just to turn linting on. This is
+# meant to catch real bugs (e.g. a used-but-never-imported name) going
+# forward, not to enforce a house style retroactively.
+select = ["E", "F", "W"]
+ignore = ["E501"]
