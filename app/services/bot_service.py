@@ -431,7 +431,10 @@ class BotService:
         if status == "ASK_MEDICATION_ADHERENCE":
             supplement_names = []
             if db is not None and user is not None:
-                supplement_names = SupplementService.list_names(
+                # Skip courses whose duration has already elapsed -- a
+                # 10-day antibiotic finished on day 15 shouldn't keep being
+                # asked about.
+                supplement_names = SupplementService.list_active_names(
                     SupplementService(db).list_for_patient(user.id)
                 )
             if supplement_names:

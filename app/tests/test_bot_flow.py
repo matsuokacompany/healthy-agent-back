@@ -174,6 +174,31 @@ def test_medication_prompt_falls_back_to_generic_text_without_supplements(monkey
     assert "remédios/suplementos como planejado" in response.text
 
 
+def test_medication_prompt_excludes_supplements_past_their_duration(monkeypatch):
+    from datetime import date, timedelta
+
+    db = build_session()
+    user, _ = create_pending_self_service_report(db, phone="994")
+    db.add(Supplement(patient_id=user.id, name="Vitamina D"))
+    db.add(
+        Supplement(
+            patient_id=user.id,
+            name="Amoxicilina",
+            started_at=date.today() - timedelta(days=20),
+            duration_days=10,
+        )
+    )
+    db.commit()
+    monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
+
+    service = BotService()
+    service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Não tive sintomas", message_id="msg-med-5")
+    response = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="diet_yes", message_id="msg-med-6")
+
+    assert "Vitamina D" in response.text
+    assert "Amoxicilina" not in response.text
+
+
 def test_bot_service_negative_flow(monkeypatch):
     db = build_session()
     user, _ = create_pending_report(db, phone="777")

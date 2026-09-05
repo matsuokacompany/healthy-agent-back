@@ -17,6 +17,7 @@ from app.models.models import (
     MonitoringProfessional,
     ProfessionalProfile,
     RoleNameEnum,
+    Supplement,
     User,
 )
 from app.models.schemas import (
@@ -122,6 +123,16 @@ class ProfessionalService:
                 active=True,
             )
         )
+        for supplement in payload.supplements:
+            self.db.add(
+                Supplement(
+                    patient_id=patient.id,
+                    name=supplement.name,
+                    dosage_times=supplement.dosage_times,
+                    dosage_period=supplement.dosage_period.value,
+                    duration_days=supplement.duration_days,
+                )
+            )
         self.db.commit()
         self.db.refresh(patient)
         self.db.refresh(plan)

@@ -15,6 +15,7 @@ from app.models.models import (
     ProfessionalProfile,
     Role,
     RoleNameEnum,
+    Supplement,
     User,
     UserRole,
 )
@@ -93,6 +94,31 @@ def test_professional_creates_patient_plan_and_own_link_atomically(monkeypatch):
     assert link.monitoring_plan_id == result.monitoring_plan.id
     assert link.professional_profile_id == profile.id
     assert link.role == "responsible"
+
+
+def test_professional_creates_patient_with_supplements(monkeypatch):
+    monkeypatch.setattr(professional_service_module, "invite_supabase_user", lambda email, name=None: None)
+    db = build_session()
+    professional, _ = create_professional(db)
+
+    result = ProfessionalService(db).create_patient(
+        professional,
+        patient_payload(
+            supplements=[
+                {"name": "Vitamina D"},
+                {"name": "Amoxicilina", "dosage_times": 3, "dosage_period": "WEEK", "duration_days": 10},
+            ]
+        ),
+    )
+
+    supplements = db.query(Supplement).filter(Supplement.patient_id == result.patient.id).order_by(Supplement.id).all()
+    assert [s.name for s in supplements] == ["Vitamina D", "Amoxicilina"]
+    assert supplements[0].dosage_times == 1
+    assert supplements[0].dosage_period == "DAY"
+    assert supplements[0].duration_days is None
+    assert supplements[1].dosage_times == 3
+    assert supplements[1].dosage_period == "WEEK"
+    assert supplements[1].duration_days == 10
 
 
 def test_professional_creates_patient_when_supabase_invite_fails(monkeypatch):

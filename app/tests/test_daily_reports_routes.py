@@ -77,6 +77,41 @@ def test_patient_can_update_own_response():
     assert response.json()["symptom_description"] == "Dor de cabeça"
 
 
+def test_patient_can_edit_diet_and_medication_adherence():
+    client, db, current_user, _ = build_client()
+    report = create_report(db, current_user)
+    report.diet_adherence = False
+    report.medication_adherence = False
+    report.completed = True
+    db.commit()
+
+    response = client.patch(
+        f"/daily-reports/{report.id}",
+        json={"diet_adherence": True, "medication_adherence": True},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["diet_adherence"] is True
+    assert body["medication_adherence"] is True
+
+
+def test_patient_can_edit_lifestyle_notes_independently_of_symptoms():
+    client, db, current_user, _ = build_client()
+    report = create_report(db, current_user)
+    report.diet_adherence = False
+    report.completed = True
+    db.commit()
+
+    response = client.patch(
+        f"/daily-reports/{report.id}",
+        json={"lifestyle_notes": "Comi doce fora da dieta"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["lifestyle_notes"] == "Comi doce fora da dieta"
+
+
 def test_patient_cannot_update_another_patients_response():
     client, db, _, other_user = build_client()
     report = create_report(db, other_user)

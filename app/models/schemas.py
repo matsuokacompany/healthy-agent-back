@@ -373,13 +373,27 @@ class AnamneseRead(AnamneseBase, ORMModel):
     updated_at: datetime
 
 
+class SupplementDosagePeriodEnum(str, Enum):
+    DAY = "DAY"
+    WEEK = "WEEK"
+    MONTH = "MONTH"
+
+
 class SupplementCreate(StrictRequestModel):
     name: ShortPlainText
+    dosage_times: int = Field(default=1, ge=1, le=99)
+    dosage_period: SupplementDosagePeriodEnum = SupplementDosagePeriodEnum.DAY
+    # None = indeterminate/ongoing course, keep asking about it forever.
+    duration_days: Optional[int] = Field(default=None, ge=1, le=3650)
 
 
 class SupplementRead(ORMModel):
     id: int
     name: str
+    dosage_times: int
+    dosage_period: SupplementDosagePeriodEnum
+    started_at: date
+    duration_days: Optional[int] = None
     created_at: datetime
 
 
@@ -445,6 +459,11 @@ class ProfessionalPatientCreate(UserBase):
     plan_description: Optional[str] = Field(default=None, max_length=2_000)
     plan_start_date: Optional[date] = None
     plan_end_date: Optional[date] = None
+    # Medications/supplements the professional already knows about at intake
+    # — same shape the patient later manages themselves on their anamnese
+    # page (SupplementCreate), so the dosage schedule feeds the WhatsApp
+    # medication question the same way for both origins.
+    supplements: List[SupplementCreate] = Field(default_factory=list, max_length=50)
 
     @field_validator("name")
     @classmethod
@@ -503,6 +522,9 @@ class DailyReportCreate(BaseModel):
 class DailyReportUpdate(BaseModel):
     had_symptoms: Optional[bool] = None
     symptom_description: Optional[str] = Field(None, max_length=280)
+    diet_adherence: Optional[bool] = None
+    medication_adherence: Optional[bool] = None
+    lifestyle_notes: Optional[str] = Field(None, max_length=280)
 
     class Config:
         extra = "forbid"
@@ -516,6 +538,7 @@ class DailyReportRead(DailyReportBase, ORMModel):
     had_symptoms: Optional[bool] = None
     diet_adherence: Optional[bool] = None
     medication_adherence: Optional[bool] = None
+    lifestyle_notes: Optional[str] = None
     status: DailyReportStatusEnum
     awaiting_response: bool
     awaiting_cause: bool

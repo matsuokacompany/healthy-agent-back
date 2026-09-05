@@ -24,7 +24,13 @@ def create_my_supplement(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return SupplementService(db).create(current_user, payload.name)
+    return SupplementService(db).create(
+        current_user,
+        payload.name,
+        dosage_times=payload.dosage_times,
+        dosage_period=payload.dosage_period,
+        duration_days=payload.duration_days,
+    )
 
 
 @router.delete("/{supplement_id}", status_code=status.HTTP_204_NO_CONTENT)

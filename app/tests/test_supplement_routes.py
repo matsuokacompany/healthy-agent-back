@@ -97,3 +97,27 @@ def test_create_supplement_rejects_blank_name():
     response = client.post("/supplements/", json={"name": "   "})
 
     assert response.status_code == 422
+
+
+def test_create_supplement_defaults_to_daily_indeterminate():
+    client, _, _, _ = build_client()
+
+    created = client.post("/supplements/", json={"name": "Vitamina D"}).json()
+
+    assert created["dosage_times"] == 1
+    assert created["dosage_period"] == "DAY"
+    assert created["duration_days"] is None
+    assert created["started_at"] is not None
+
+
+def test_create_supplement_accepts_custom_dosage_schedule():
+    client, _, _, _ = build_client()
+
+    created = client.post(
+        "/supplements/",
+        json={"name": "Amoxicilina", "dosage_times": 3, "dosage_period": "WEEK", "duration_days": 10},
+    ).json()
+
+    assert created["dosage_times"] == 3
+    assert created["dosage_period"] == "WEEK"
+    assert created["duration_days"] == 10

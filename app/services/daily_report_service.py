@@ -203,6 +203,9 @@ class DailyReportService:
         *,
         had_symptoms: bool | None = None,
         symptom_description: str | None = None,
+        diet_adherence: bool | None = None,
+        medication_adherence: bool | None = None,
+        lifestyle_notes: str | None = None,
     ) -> DailyReport:
         if had_symptoms is True:
             symptom_description = (symptom_description or "").strip()
@@ -210,12 +213,15 @@ class DailyReportService:
                 raise ValueError("A symptom description is required when symptoms are reported")
 
         report.had_symptoms = had_symptoms
+        report.diet_adherence = diet_adherence
+        report.medication_adherence = medication_adherence
         cls._write_clinical(
             report,
             symptom_description=symptom_description if had_symptoms is not False else None,
             # Cause collection is retired. Editing a report also erases any
             # legacy value that predates this API version.
             suspected_cause=None,
+            lifestyle_notes=lifestyle_notes or None,
         )
         report.completed = True
         report.awaiting_response = False

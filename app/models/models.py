@@ -74,6 +74,15 @@ class MonitoringPlanOriginEnum(str, enum.Enum):
     SELF_SERVICE = "SELF_SERVICE"
 
 
+class SupplementDosagePeriodEnum(str, enum.Enum):
+    """The unit `Supplement.dosage_times` counts against -- "2 times per
+    DAY", "3 times per WEEK", etc."""
+
+    DAY = "DAY"
+    WEEK = "WEEK"
+    MONTH = "MONTH"
+
+
 class SubscriptionStatusEnum(str, enum.Enum):
     PENDING = "PENDING"
     TRIALING = "TRIALING"
@@ -334,6 +343,18 @@ class Supplement(Base):
     id = Column(Integer, primary_key=True)
     patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     name = Column(String, nullable=False)
+    # How often it's taken ("2 times per DAY") -- purely informational/display
+    # today; the WhatsApp medication question still asks about all of them in
+    # one shot rather than scheduling per-frequency reminders (see README
+    # "Otimização de custo do WhatsApp").
+    dosage_times = Column(Integer, nullable=False, default=1)
+    dosage_period = Column(String, nullable=False, default=SupplementDosagePeriodEnum.DAY.value)
+    started_at = Column(Date, nullable=False, default=lambda: datetime.now(timezone.utc).date())
+    # None means indeterminate/ongoing -- the WhatsApp question keeps naming
+    # this supplement forever. Once set, the course is treated as finished
+    # (and dropped from the question) started_at + duration_days days after
+    # started_at -- see SupplementService.is_active.
+    duration_days = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
