@@ -77,6 +77,39 @@ def test_patient_create_allows_omitted_phone():
     assert payload.phone is None
 
 
+def test_patient_create_rejects_invalid_cpf_checksum():
+    with pytest.raises(ValidationError):
+        patient_payload(cpf="123.456.789-00")
+
+
+def test_patient_create_normalizes_cpf_to_digits():
+    payload = patient_payload(cpf="111.444.777-35")
+    assert payload.cpf == "11144477735"
+
+
+def test_patient_create_allows_omitted_cpf():
+    payload = patient_payload(cpf=None)
+    assert payload.cpf is None
+
+
+def test_create_patient_rejects_reformatted_duplicate_cpf(monkeypatch):
+    # A professional re-registering the same real patient under a new email
+    # to dodge the active-patient cap can't route around the duplicate-CPF
+    # guard just by punctuating the CPF differently -- both payloads
+    # normalize to the same digits.
+    monkeypatch.setattr(professional_service_module, "invite_supabase_user", lambda email, name=None: None)
+    db = build_session()
+    professional, _ = create_professional(db)
+    ProfessionalService(db).create_patient(professional, patient_payload(cpf="111.444.777-35"))
+
+    with pytest.raises(HTTPException) as exc_info:
+        ProfessionalService(db).create_patient(
+            professional, patient_payload(email="outro@example.com", cpf="11144477735")
+        )
+
+    assert exc_info.value.status_code == 409
+
+
 def test_professional_creates_patient_plan_and_own_link_atomically(monkeypatch):
     invited_id = uuid.uuid4()
     monkeypatch.setattr(professional_service_module, "invite_supabase_user", lambda email, name=None: invited_id)
