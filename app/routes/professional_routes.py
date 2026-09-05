@@ -2,7 +2,7 @@ from datetime import date
 from typing import Literal
 import os
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user
@@ -29,6 +29,8 @@ from app.models.schemas import (
     ProfessionalPatientRead,
     ProfessionalPatientCreate,
     ProfessionalPatientCreateResponse,
+    SupplementCreate,
+    SupplementRead,
 )
 from app.services.patient_dashboard_service import PaginationParams, ReportFilters
 from app.services.patient_link_service import PatientLinkService
@@ -148,6 +150,42 @@ def update_professional_patient_anamnese(
     current_user: User = Depends(get_current_user),
 ):
     return ProfessionalService(db).update_anamnese(current_user, patient_id, payload.info)
+
+
+@router.get("/patients/{patient_id}/supplements", response_model=list[SupplementRead])
+def list_professional_patient_supplements(
+    patient_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return ProfessionalService(db).list_supplements(current_user, patient_id)
+
+
+@router.post(
+    "/patients/{patient_id}/supplements",
+    response_model=SupplementRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_professional_patient_supplement(
+    patient_id: int,
+    payload: SupplementCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return ProfessionalService(db).create_supplement(current_user, patient_id, payload)
+
+
+@router.delete("/patients/{patient_id}/supplements/{supplement_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_professional_patient_supplement(
+    patient_id: int,
+    supplement_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    deleted = ProfessionalService(db).delete_supplement(current_user, patient_id, supplement_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Supplement not found")
+    return None
 
 
 @router.post("/patients/{patient_id}/ai-report", response_model=ProfessionalAiReportResponse)

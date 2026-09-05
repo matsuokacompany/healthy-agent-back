@@ -6,10 +6,12 @@ from app.models.models import Supplement, SupplementDosagePeriodEnum, User
 
 
 class SupplementService:
-    """Patient-managed list of supplements/medications — self-owned, unlike
-    Anamnese.info which is professional-authored. Read by
-    DailyReportService/BotService to name them in the self-service
-    WhatsApp medication-adherence question."""
+    """List of a patient's supplements/medications. Writable both by the
+    patient themselves (anamnese page) and by a professional actively linked
+    to that patient (patient detail page) -- see the `supplements_write` RLS
+    policy (`can_access_patient`), same rule already used for Anamnese.info.
+    Read by DailyReportService/BotService to name them in the
+    medication-adherence question."""
 
     def __init__(self, db: Session):
         self.db = db
@@ -49,13 +51,30 @@ class SupplementService:
         dosage_period: SupplementDosagePeriodEnum | str = SupplementDosagePeriodEnum.DAY,
         duration_days: int | None = None,
     ) -> Supplement:
+        return self.create_for_patient(
+            patient.id,
+            name,
+            dosage_times=dosage_times,
+            dosage_period=dosage_period,
+            duration_days=duration_days,
+        )
+
+    def create_for_patient(
+        self,
+        patient_id: int,
+        name: str,
+        *,
+        dosage_times: int = 1,
+        dosage_period: SupplementDosagePeriodEnum | str = SupplementDosagePeriodEnum.DAY,
+        duration_days: int | None = None,
+    ) -> Supplement:
         # Accepts either this module's enum or the (identical-valued) Pydantic
         # schema enum from the request payload -- both are str subclasses, so
         # normalize via .value/str() rather than an isinstance check that
         # would only match one of them.
         dosage_period_value = dosage_period.value if hasattr(dosage_period, "value") else str(dosage_period)
         supplement = Supplement(
-            patient_id=patient.id,
+            patient_id=patient_id,
             name=name,
             dosage_times=dosage_times,
             dosage_period=dosage_period_value,
@@ -67,10 +86,13 @@ class SupplementService:
         return supplement
 
     def delete(self, patient: User, supplement_id: int) -> bool:
+        return self.delete_for_patient(patient.id, supplement_id)
+
+    def delete_for_patient(self, patient_id: int, supplement_id: int) -> bool:
         supplement = (
             self.db.query(Supplement)
             .filter(Supplement.id == supplement_id)
-            .filter(Supplement.patient_id == patient.id)
+            .filter(Supplement.patient_id == patient_id)
             .first()
         )
         if not supplement:

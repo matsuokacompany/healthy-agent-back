@@ -19,7 +19,7 @@ from app.models.models import (
     User,
     UserRole,
 )
-from app.models.schemas import ProfessionalPatientCreate, UserCreate
+from app.models.schemas import ProfessionalPatientCreate, SupplementCreate, UserCreate
 from app.services import professional_service as professional_service_module
 from app.services.professional_service import ProfessionalService
 from app.services.user_service import UserService
@@ -214,6 +214,46 @@ def test_professional_cannot_create_duplicate_patient_anamnese():
         service.create_anamnese(professional, patient.id, "Duplicada")
 
     assert exc_info.value.status_code == 409
+
+
+def test_professional_manages_supplements_for_monitored_patient():
+    db = build_session()
+    professional, profile = create_professional(db)
+    patient = create_monitored_patient(db, profile)
+    service = ProfessionalService(db)
+
+    created = service.create_supplement(
+        professional,
+        patient.id,
+        SupplementCreate(name="Amoxicilina", dosage_times=3, dosage_period="WEEK", duration_days=10),
+    )
+
+    assert created.patient_id == patient.id
+    assert [s.name for s in service.list_supplements(professional, patient.id)] == ["Amoxicilina"]
+
+    assert service.delete_supplement(professional, patient.id, created.id) is True
+    assert service.list_supplements(professional, patient.id) == []
+
+
+def test_professional_cannot_manage_supplements_for_unmonitored_patient():
+    db = build_session()
+    professional, _ = create_professional(db)
+    patient = User(name="Sem vínculo", email="sem-vinculo-supp@example.com")
+    db.add(patient)
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        ProfessionalService(db).create_supplement(professional, patient.id, SupplementCreate(name="Vitamina D"))
+
+    assert exc_info.value.status_code == 403
+
+
+def test_delete_supplement_returns_false_for_unknown_id():
+    db = build_session()
+    professional, profile = create_professional(db)
+    patient = create_monitored_patient(db, profile)
+
+    assert ProfessionalService(db).delete_supplement(professional, patient.id, 999) is False
 
 
 def test_admin_cannot_create_a_professional_user():
