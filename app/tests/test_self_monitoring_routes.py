@@ -224,7 +224,13 @@ def test_create_plan_uses_brazil_calendar_day_not_server_utc_day(monkeypatch):
     # (UTC-3) -- a plan created in this window on a UTC-clocked server must
     # not get "tomorrow" as its start_date, or _get_active_plan's
     # `start_date <= today` filter (computed in Brazil's timezone) rejects
-    # it until the calendar day catches up.
+    # it until the calendar day catches up. Pin SCHEDULER_TIMEZONE explicitly
+    # rather than relying on the ambient environment -- the setting's own
+    # default is "UTC" (see app/core/config.py), which would make this
+    # assertion fail unless the test runner happens to export
+    # SCHEDULER_TIMEZONE=America/Sao_Paulo (only true in production).
+    monkeypatch.setattr(self_monitoring_service_module.settings, "SCHEDULER_TIMEZONE", "America/Sao_Paulo")
+
     class FixedDatetime(datetime):
         @classmethod
         def now(cls, tz=None):
