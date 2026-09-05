@@ -42,6 +42,19 @@ class SupplementService:
     def list_active_names(cls, supplements: list[Supplement], today: date | None = None) -> list[str]:
         return [supplement.name for supplement in supplements if cls.is_active(supplement, today)]
 
+    def list_courses_needing_end_notification(self, today: date | None = None) -> list[Supplement]:
+        """Supplements whose duration has elapsed as of `today` and that
+        haven't been notified about yet -- candidates for the daily
+        send_supplement_course_ended_notifications scheduler job."""
+        today = today or datetime.now(timezone.utc).date()
+        candidates = (
+            self.db.query(Supplement)
+            .filter(Supplement.duration_days.isnot(None))
+            .filter(Supplement.ended_notification_sent_at.is_(None))
+            .all()
+        )
+        return [supplement for supplement in candidates if not self.is_active(supplement, today)]
+
     def create(
         self,
         patient: User,

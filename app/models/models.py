@@ -355,6 +355,10 @@ class Supplement(Base):
     # (and dropped from the question) started_at + duration_days days after
     # started_at -- see SupplementService.is_active.
     duration_days = Column(Integer, nullable=True)
+    # Set once the scheduler has notified the patient (and any assigned
+    # professionals) that this course ended -- keeps the daily job from
+    # re-notifying about the same finished course every day after.
+    ended_notification_sent_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
@@ -617,6 +621,7 @@ class NotificationKindEnum(str, enum.Enum):
     SYMPTOM_REPORTED = "SYMPTOM_REPORTED"
     PATIENT_ASSIGNED = "PATIENT_ASSIGNED"
     CHECKIN_PENDING = "CHECKIN_PENDING"
+    SUPPLEMENT_COURSE_ENDED = "SUPPLEMENT_COURSE_ENDED"
 
 
 class Notification(Base):
