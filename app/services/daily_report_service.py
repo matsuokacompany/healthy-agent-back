@@ -8,7 +8,6 @@ from app.models.models import (
     DailyReport,
     DailyReportStatusEnum,
     MonitoringPlan,
-    MonitoringPlanOriginEnum,
     User,
 )
 from app.core.config import settings
@@ -153,7 +152,7 @@ class DailyReportService:
         if cls._is_negative_response(message_text):
             report.had_symptoms = False
             cls._write_clinical(report, symptom_description=None, suspected_cause=None)
-            return cls._finish_symptom_flow(db, report, completed_status="NEGATIVE")
+            return cls._finish_symptom_flow(db, report)
 
         if cls._is_positive_response(message_text):
             report.had_symptoms = True
@@ -172,31 +171,22 @@ class DailyReportService:
         return result
 
     @classmethod
-    def _finish_symptom_flow(cls, db: Session, report: DailyReport, *, completed_status: str = "COMPLETED") -> str:
+    def _finish_symptom_flow(cls, db: Session, report: DailyReport) -> str:
         """Ends the symptom portion of the daily check-in.
 
-        For self-service (no professional) plans, this defers completion to
-        ask about diet and medication/supplement adherence — two
+        Defers completion for every plan (self-service and professional-led
+        alike) to ask about diet and medication/supplement adherence — two
         deterministic WhatsApp interactive-button questions (diet, then
         medication; see BotService._translate) in the same conversation,
-        instead of a separate template message per question (see
-        MonitoringPlanOriginEnum.SELF_SERVICE and README "Otimização de
-        custo do WhatsApp"). Every other plan completes immediately.
+        instead of a separate template message per question (see README
+        "Otimização de custo do WhatsApp").
         """
-        if cls._plan_is_self_service(report):
-            report.awaiting_response = True
-            report.awaiting_cause = False
-            report.completed = False
-            report.status = DailyReportStatusEnum.AWAITING_DIET_ADHERENCE
-            db.commit()
-            return "ASK_DIET_ADHERENCE"
-
-        report.awaiting_response = False
+        report.awaiting_response = True
         report.awaiting_cause = False
-        report.completed = True
-        report.status = DailyReportStatusEnum.COMPLETED
+        report.completed = False
+        report.status = DailyReportStatusEnum.AWAITING_DIET_ADHERENCE
         db.commit()
-        return completed_status
+        return "ASK_DIET_ADHERENCE"
 
     @classmethod
     def _ask_medication_adherence(cls, db: Session, report: DailyReport) -> str:
@@ -204,11 +194,6 @@ class DailyReportService:
         report.status = DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE
         db.commit()
         return "ASK_MEDICATION_ADHERENCE"
-
-    @staticmethod
-    def _plan_is_self_service(report: DailyReport) -> bool:
-        plan = report.monitoring_plan
-        return bool(plan) and plan.origin == MonitoringPlanOriginEnum.SELF_SERVICE.value
 
     @classmethod
     def update_patient_response(
@@ -218,6 +203,9 @@ class DailyReportService:
         *,
         had_symptoms: bool | None = None,
         symptom_description: str | None = None,
+        diet_adherence: bool | None = None,
+        medication_adherence: bool | None = None,
+        lifestyle_notes: str | None = None,
     ) -> DailyReport:
         if had_symptoms is True:
             symptom_description = (symptom_description or "").strip()
@@ -225,12 +213,15 @@ class DailyReportService:
                 raise ValueError("A symptom description is required when symptoms are reported")
 
         report.had_symptoms = had_symptoms
+        report.diet_adherence = diet_adherence
+        report.medication_adherence = medication_adherence
         cls._write_clinical(
             report,
             symptom_description=symptom_description if had_symptoms is not False else None,
             # Cause collection is retired. Editing a report also erases any
             # legacy value that predates this API version.
             suspected_cause=None,
+            lifestyle_notes=lifestyle_notes or None,
         )
         report.completed = True
         report.awaiting_response = False

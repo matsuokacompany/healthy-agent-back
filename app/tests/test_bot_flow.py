@@ -72,8 +72,19 @@ def test_bot_service_response_flow(monkeypatch):
         message_text="Tive tontura",
         message_id="msg-flow-2",
     )
-    assert second.ask_followup is False
-    assert "concluído" in second.text
+    assert second.ask_followup is True
+    assert "dieta" in second.text
+
+    third = service.process_incoming(
+        channel="whatsapp", external_user_id=user.phone, message_text="diet_yes", message_id="msg-flow-3"
+    )
+    assert third.ask_followup is True
+
+    fourth = service.process_incoming(
+        channel="whatsapp", external_user_id=user.phone, message_text="medication_yes", message_id="msg-flow-4"
+    )
+    assert fourth.ask_followup is False
+    assert "concluído" in fourth.text
 
 
 def test_symptom_prompt_explains_single_optional_image_when_enabled(monkeypatch):
@@ -163,6 +174,31 @@ def test_medication_prompt_falls_back_to_generic_text_without_supplements(monkey
     assert "remédios/suplementos como planejado" in response.text
 
 
+def test_medication_prompt_excludes_supplements_past_their_duration(monkeypatch):
+    from datetime import date, timedelta
+
+    db = build_session()
+    user, _ = create_pending_self_service_report(db, phone="994")
+    db.add(Supplement(patient_id=user.id, name="Vitamina D"))
+    db.add(
+        Supplement(
+            patient_id=user.id,
+            name="Amoxicilina",
+            started_at=date.today() - timedelta(days=20),
+            duration_days=10,
+        )
+    )
+    db.commit()
+    monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
+
+    service = BotService()
+    service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Não tive sintomas", message_id="msg-med-5")
+    response = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="diet_yes", message_id="msg-med-6")
+
+    assert "Vitamina D" in response.text
+    assert "Amoxicilina" not in response.text
+
+
 def test_bot_service_negative_flow(monkeypatch):
     db = build_session()
     user, _ = create_pending_report(db, phone="777")
@@ -171,8 +207,21 @@ def test_bot_service_negative_flow(monkeypatch):
     service = BotService()
     response = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Não tive sintomas", message_id="msg-negative-1")
 
-    assert "Obrigado por informar" in response.text
-    assert response.ask_followup is False
+    # No symptoms still leads into the diet/medication adherence questions
+    # instead of completing immediately.
+    assert "dieta" in response.text
+    assert response.ask_followup is True
+
+    diet_response = service.process_incoming(
+        channel="whatsapp", external_user_id=user.phone, message_text="diet_yes", message_id="msg-negative-2"
+    )
+    assert diet_response.ask_followup is True
+
+    final_response = service.process_incoming(
+        channel="whatsapp", external_user_id=user.phone, message_text="medication_yes", message_id="msg-negative-3"
+    )
+    assert final_response.ask_followup is False
+    assert "concluído" in final_response.text
 
 
 def test_bot_service_does_not_reply_after_report_is_completed(monkeypatch):
@@ -181,13 +230,19 @@ def test_bot_service_does_not_reply_after_report_is_completed(monkeypatch):
     monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
 
     service = BotService()
-    completed = service.process_incoming(
+    service.process_incoming(
         channel="whatsapp",
         external_user_id=user.phone,
         message_text="Não tive sintomas",
         message_id="msg-completed-1",
     )
-    assert "Obrigado por informar" in completed.text
+    service.process_incoming(
+        channel="whatsapp", external_user_id=user.phone, message_text="diet_yes", message_id="msg-completed-1b"
+    )
+    completed = service.process_incoming(
+        channel="whatsapp", external_user_id=user.phone, message_text="medication_yes", message_id="msg-completed-1c"
+    )
+    assert "concluído" in completed.text
 
     extra = service.process_incoming(
         channel="whatsapp",
@@ -323,8 +378,8 @@ def test_bot_service_matches_normalized_phone(monkeypatch):
         message_id="msg-normalized-1",
     )
 
-    assert "Obrigado por informar" in response.text
-    assert response.ask_followup is False
+    assert "dieta" in response.text
+    assert response.ask_followup is True
 
 
 def test_bot_service_matches_stored_phone_after_normalizing_database_value(monkeypatch):
@@ -341,8 +396,8 @@ def test_bot_service_matches_stored_phone_after_normalizing_database_value(monke
     )
 
     assert user.phone == "+55 (43) 99126-6196"
-    assert "Obrigado por informar" in response.text
-    assert response.ask_followup is False
+    assert "dieta" in response.text
+    assert response.ask_followup is True
 
 
 def test_bot_service_matches_brazilian_whatsapp_id_without_extra_ninth_digit(monkeypatch):
@@ -361,8 +416,8 @@ def test_bot_service_matches_brazilian_whatsapp_id_without_extra_ninth_digit(mon
     db.refresh(user)
     assert user.phone == "5543991266196"
     assert user.whatsapp_wa_id == "554391266196"
-    assert "Obrigado por informar" in response.text
-    assert response.ask_followup is False
+    assert "dieta" in response.text
+    assert response.ask_followup is True
 
 
 def test_bot_service_uses_persisted_whatsapp_wa_id_as_primary_identity(monkeypatch):
@@ -383,8 +438,8 @@ def test_bot_service_uses_persisted_whatsapp_wa_id_as_primary_identity(monkeypat
     db.refresh(user)
     assert user.phone == "5543991266196"
     assert user.whatsapp_wa_id == "554391266196"
-    assert "Obrigado por informar" in response.text
-    assert response.ask_followup is False
+    assert "dieta" in response.text
+    assert response.ask_followup is True
 
 
 def test_bot_service_links_wa_id_once_from_legacy_phone_match(monkeypatch):
@@ -401,7 +456,7 @@ def test_bot_service_links_wa_id_once_from_legacy_phone_match(monkeypatch):
     )
 
     db.refresh(user)
-    assert "Obrigado por informar" in response.text
+    assert "dieta" in response.text
     assert user.whatsapp_wa_id == "554391266196"
 
 
@@ -425,10 +480,10 @@ def test_bot_service_ignores_duplicate_whatsapp_message_id(monkeypatch):
     )
 
     db.refresh(report)
-    assert "Obrigado por informar" in first.text
+    assert "dieta" in first.text
     assert second.duplicate is True
     assert second.text == ""
-    assert report.completed is True
+    assert report.status == DailyReportStatusEnum.AWAITING_DIET_ADHERENCE
     assert db.query(WhatsAppMessage).filter(WhatsAppMessage.message_id == "wamid.duplicate-test").count() == 1
 
 
@@ -476,7 +531,8 @@ async def test_whatsapp_channel_does_not_send_response_for_duplicate_message_id(
     await channel.handle_incoming(payload)
 
     assert len(sent_payloads) == 1
-    assert "Obrigado por informar" in sent_payloads[0]["text"]["body"]
+    assert sent_payloads[0]["type"] == "interactive"
+    assert "dieta" in sent_payloads[0]["interactive"]["body"]["text"]
 
 
 def test_wa_id_link_conflict_uses_savepoint_without_global_rollback():

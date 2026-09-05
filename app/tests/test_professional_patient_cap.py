@@ -116,6 +116,66 @@ def test_count_active_patients_ignores_inactive_plans_and_links():
     assert count_active_patients(db, profile.id) == 1
 
 
+def test_count_active_patients_excludes_patients_with_own_subscription():
+    db = build_session()
+    _, profile = create_professional(db)
+    link_patient(db, profile, email="autopagante@example.com")
+    self_paying_patient = link_patient(db, profile, email="assinante@example.com")
+    db.add(
+        Subscription(
+            user_id=self_paying_patient.id,
+            status=SubscriptionStatusEnum.ACTIVE.value,
+            plan_id="monthly",
+        )
+    )
+    db.commit()
+
+    assert count_active_patients(db, profile.id) == 1
+
+
+def test_require_patient_cap_allows_beyond_limit_when_extra_patients_self_pay():
+    db = build_session()
+    professional, profile = create_professional(db, free_until=None)
+    create_active_subscription(db, professional)
+    # cap - 1 non-paying patients plus one self-paying patient: total linked
+    # patients equals the cap, but the self-paying one shouldn't count, so
+    # there's still room for one more.
+    for index in range(DEFAULT_PROFESSIONAL_PATIENT_CAP - 1):
+        link_patient(db, profile, email=f"paciente{index}@example.com")
+    self_paying_patient = link_patient(db, profile, email="assinante-extra@example.com")
+    db.add(
+        Subscription(
+            user_id=self_paying_patient.id,
+            status=SubscriptionStatusEnum.ACTIVE.value,
+            plan_id="monthly",
+        )
+    )
+    db.commit()
+
+    require_patient_cap(db, profile)  # no exception -- the self-paying patient doesn't count
+
+
+def test_list_patients_flags_patients_with_own_subscription():
+    db = build_session()
+    professional, profile = create_professional(db)
+    link_patient(db, profile, email="autopagante@example.com")
+    self_paying_patient = link_patient(db, profile, email="assinante@example.com")
+    db.add(
+        Subscription(
+            user_id=self_paying_patient.id,
+            status=SubscriptionStatusEnum.ACTIVE.value,
+            plan_id="monthly",
+        )
+    )
+    db.commit()
+
+    items = {item.patient_id: item for item in ProfessionalService(db).list_patients(professional)}
+
+    assert items[self_paying_patient.id].has_own_subscription is True
+    other = next(item for pid, item in items.items() if pid != self_paying_patient.id)
+    assert other.has_own_subscription is False
+
+
 def test_resolve_patient_cap_none_when_grandfathered():
     db = build_session()
     _, profile = create_professional(db, free_until=date(2099, 1, 1))

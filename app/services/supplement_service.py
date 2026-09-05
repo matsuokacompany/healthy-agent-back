@@ -1,6 +1,8 @@
+from datetime import date, datetime, timezone
+
 from sqlalchemy.orm import Session
 
-from app.models.models import Supplement, User
+from app.models.models import Supplement, SupplementDosagePeriodEnum, User
 
 
 class SupplementService:
@@ -24,8 +26,41 @@ class SupplementService:
     def list_names(supplements: list[Supplement]) -> list[str]:
         return [supplement.name for supplement in supplements]
 
-    def create(self, patient: User, name: str) -> Supplement:
-        supplement = Supplement(patient_id=patient.id, name=name)
+    @staticmethod
+    def is_active(supplement: Supplement, today: date | None = None) -> bool:
+        """Whether this supplement's course is still running -- False once
+        `duration_days` days have elapsed since `started_at`. None
+        `duration_days` means indeterminate/ongoing, always active."""
+        if supplement.duration_days is None:
+            return True
+        today = today or datetime.now(timezone.utc).date()
+        return (today - supplement.started_at).days < supplement.duration_days
+
+    @classmethod
+    def list_active_names(cls, supplements: list[Supplement], today: date | None = None) -> list[str]:
+        return [supplement.name for supplement in supplements if cls.is_active(supplement, today)]
+
+    def create(
+        self,
+        patient: User,
+        name: str,
+        *,
+        dosage_times: int = 1,
+        dosage_period: SupplementDosagePeriodEnum | str = SupplementDosagePeriodEnum.DAY,
+        duration_days: int | None = None,
+    ) -> Supplement:
+        # Accepts either this module's enum or the (identical-valued) Pydantic
+        # schema enum from the request payload -- both are str subclasses, so
+        # normalize via .value/str() rather than an isinstance check that
+        # would only match one of them.
+        dosage_period_value = dosage_period.value if hasattr(dosage_period, "value") else str(dosage_period)
+        supplement = Supplement(
+            patient_id=patient.id,
+            name=name,
+            dosage_times=dosage_times,
+            dosage_period=dosage_period_value,
+            duration_days=duration_days,
+        )
         self.db.add(supplement)
         self.db.commit()
         self.db.refresh(supplement)

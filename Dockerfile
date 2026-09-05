@@ -1,7 +1,7 @@
 # =========================
 # Builder
 # =========================
-FROM python:3.11-slim-bullseye AS builder
+FROM python:3.11-slim-bookworm AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -26,7 +26,7 @@ RUN pip install --upgrade pip \
 # =========================
 # Runtime
 # =========================
-FROM python:3.11-slim-bullseye
+FROM python:3.11-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -34,7 +34,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     libcairo2 \
-    libffi7 \
+    libffi8 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
