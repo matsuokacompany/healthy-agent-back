@@ -715,6 +715,8 @@ class PatientDashboardCalendarCheckin(BaseModel):
     status: DailyReportStatusEnum
     completed: bool
     had_symptoms: Optional[bool] = None
+    diet_adherence: Optional[bool] = None
+    medication_adherence: Optional[bool] = None
     prompt_sent_at: datetime
     answered_at: Optional[datetime] = None
 
@@ -725,6 +727,8 @@ class PatientDashboardCalendarDay(BaseModel):
     completed: bool
     pending: bool
     has_symptoms: bool
+    diet_followed: bool = False
+    medication_taken: bool = False
     statuses: List[DailyReportStatusEnum] = Field(default_factory=list)
     checkins: List[PatientDashboardCalendarCheckin] = Field(default_factory=list)
 
