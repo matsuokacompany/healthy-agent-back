@@ -368,7 +368,13 @@ def test_create_pending_report_accepts_explicit_report_date():
 def test_create_pending_report_does_not_reset_pending_report_in_progress():
     db = build_session()
     user, plan = create_user_and_plan(db)
-    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    # Fixed midday UTC start -- the +2h step below must land on the same
+    # calendar date, or create_pending_report's report_date lookup misses
+    # and creates a second report instead of reusing this one.
+    start = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
+    report = DailyReportService.create_pending_report(
+        db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING, now=start
+    )
     report.had_symptoms = True
     report.symptom_description = "Dor de cabeça"
     report.status = DailyReportStatusEnum.AWAITING_CAUSE

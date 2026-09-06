@@ -117,6 +117,46 @@ def test_access_ending_reminder_skipped_when_not_canceled():
     assert result["access_ending"] == 0
 
 
+def test_overdue_subscription_past_grace_period_is_canceled():
+    db = build_session()
+    user = create_user(db)
+    subscription = Subscription(
+        user_id=user.id,
+        status=SubscriptionStatusEnum.PAST_DUE.value,
+        past_due_at=datetime.now(timezone.utc) - timedelta(days=8),
+    )
+    db.add(subscription)
+    db.commit()
+
+    result = DunningService(db).run_daily_reminders()
+
+    assert result["canceled_nonpayment"] == 1
+    db.refresh(subscription)
+    assert subscription.status == SubscriptionStatusEnum.CANCELED.value
+    assert subscription.past_due_at is None
+    assert db.query(Notification).filter(
+        Notification.user_id == user.id, Notification.kind == "SUBSCRIPTION_CANCELED_NONPAYMENT"
+    ).count() == 1
+
+
+def test_overdue_subscription_within_grace_period_is_not_canceled():
+    db = build_session()
+    user = create_user(db)
+    subscription = Subscription(
+        user_id=user.id,
+        status=SubscriptionStatusEnum.PAST_DUE.value,
+        past_due_at=datetime.now(timezone.utc) - timedelta(days=2),
+    )
+    db.add(subscription)
+    db.commit()
+
+    result = DunningService(db).run_daily_reminders()
+
+    assert result["canceled_nonpayment"] == 0
+    db.refresh(subscription)
+    assert subscription.status == SubscriptionStatusEnum.PAST_DUE.value
+
+
 def test_reactivating_a_canceled_subscription_resets_access_ending_reminder(monkeypatch):
     from app.core.config import settings
 

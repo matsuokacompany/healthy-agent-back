@@ -34,6 +34,7 @@ from app.models.schemas import (
     CustomAiReportResponse,
     CustomAiReportListResponse,
     SupplementCreate,
+    SupplementUpdate,
 )
 from app.core.auth import assign_role, invite_supabase_user
 from app.core.access_policy import AccessPolicy
@@ -281,6 +282,18 @@ class ProfessionalService:
             dosage_times=payload.dosage_times,
             dosage_period=payload.dosage_period,
             duration_days=payload.duration_days,
+        )
+
+    def update_supplement(
+        self,
+        current_user: User,
+        patient_id: int,
+        supplement_id: int,
+        payload: SupplementUpdate,
+    ) -> Supplement | None:
+        self._require_patient_access(current_user, patient_id)
+        return SupplementService(self.db).update_for_patient(
+            patient_id, supplement_id, **payload.model_dump(exclude_unset=True)
         )
 
     def delete_supplement(self, current_user: User, patient_id: int, supplement_id: int) -> bool:

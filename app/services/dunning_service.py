@@ -51,6 +51,26 @@ def notify_payment_overdue(db: Session, subscription: Subscription, user: User) 
     )
 
 
+def notify_subscription_canceled_nonpayment(db: Session, user: User) -> None:
+    message = (
+        "Sua assinatura Julha foi cancelada por falta de pagamento. "
+        "Você pode assinar novamente a qualquer momento na plataforma."
+    )
+    _create_notification(db, user_id=user.id, kind=NotificationKindEnum.SUBSCRIPTION_CANCELED_NONPAYMENT, message=message)
+    send_email(
+        to=user.email,
+        subject="Sua assinatura Julha foi cancelada",
+        body=(
+            f"Olá, {user.name}!\n\n"
+            "Não conseguimos confirmar o pagamento da sua assinatura Julha dentro do prazo, então ela foi cancelada "
+            "e o acesso à plataforma foi encerrado.\n\n"
+            "Se quiser continuar com o acompanhamento, você pode assinar novamente a qualquer momento, direto na "
+            "aba Assinatura da plataforma.\n\n"
+            "Equipe Julha"
+        ),
+    )
+
+
 class DunningService:
     def __init__(self, db: Session):
         self.db = db
@@ -59,8 +79,36 @@ class DunningService:
         set_database_service_context(self.db, "dunning_scheduler")
         trial_count = self._send_trial_ending_reminders()
         access_count = self._send_access_ending_reminders()
+        canceled_count = self._cancel_overdue_subscriptions()
         self.db.commit()
-        return {"trial_ending": trial_count, "access_ending": access_count}
+        return {"trial_ending": trial_count, "access_ending": access_count, "canceled_nonpayment": canceled_count}
+
+    def _cancel_overdue_subscriptions(self) -> int:
+        # Local import -- avoids a payment_service <-> dunning_service import
+        # cycle (payment_service already imports notify_payment_overdue from
+        # this module).
+        from app.services.payment_service import OVERDUE_GRACE_PERIOD_DAYS, PaymentService
+
+        now = datetime.now(timezone.utc)
+        deadline = now - timedelta(days=OVERDUE_GRACE_PERIOD_DAYS)
+        subscriptions = (
+            self.db.query(Subscription)
+            .filter(
+                Subscription.status == SubscriptionStatusEnum.PAST_DUE.value,
+                Subscription.past_due_at.isnot(None),
+                Subscription.past_due_at <= deadline,
+            )
+            .all()
+        )
+        canceled = 0
+        payment_service = PaymentService(self.db)
+        for subscription in subscriptions:
+            user = self.db.query(User).filter(User.id == subscription.user_id).first()
+            payment_service.cancel_for_nonpayment(subscription)
+            if user:
+                notify_subscription_canceled_nonpayment(self.db, user)
+            canceled += 1
+        return canceled
 
     def _send_trial_ending_reminders(self) -> int:
         now = datetime.now(timezone.utc)

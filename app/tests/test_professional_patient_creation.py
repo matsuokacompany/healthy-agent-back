@@ -19,7 +19,7 @@ from app.models.models import (
     User,
     UserRole,
 )
-from app.models.schemas import ProfessionalPatientCreate, SupplementCreate, UserCreate
+from app.models.schemas import ProfessionalPatientCreate, SupplementCreate, SupplementUpdate, UserCreate
 from app.services import professional_service as professional_service_module
 from app.services.professional_service import ProfessionalService
 from app.services.user_service import UserService
@@ -266,6 +266,61 @@ def test_professional_manages_supplements_for_monitored_patient():
 
     assert service.delete_supplement(professional, patient.id, created.id) is True
     assert service.list_supplements(professional, patient.id) == []
+
+
+def test_professional_updates_supplement_for_monitored_patient():
+    db = build_session()
+    professional, profile = create_professional(db)
+    patient = create_monitored_patient(db, profile)
+    service = ProfessionalService(db)
+    created = service.create_supplement(
+        professional,
+        patient.id,
+        SupplementCreate(name="Amoxicilina", dosage_times=3, dosage_period="WEEK", duration_days=10),
+    )
+
+    updated = service.update_supplement(
+        professional,
+        patient.id,
+        created.id,
+        SupplementUpdate(name="Amoxicilina 500mg", duration_days=14),
+    )
+
+    assert updated.name == "Amoxicilina 500mg"
+    assert updated.dosage_times == 3
+    assert updated.dosage_period == "WEEK"
+    assert updated.duration_days == 14
+
+
+def test_update_supplement_returns_none_for_unknown_id():
+    db = build_session()
+    professional, profile = create_professional(db)
+    patient = create_monitored_patient(db, profile)
+
+    result = ProfessionalService(db).update_supplement(
+        professional, patient.id, 999, SupplementUpdate(name="Não existe")
+    )
+
+    assert result is None
+
+
+def test_professional_cannot_update_supplement_for_unmonitored_patient():
+    db = build_session()
+    professional, _ = create_professional(db)
+    patient = User(name="Sem vínculo", email="sem-vinculo-supp-update@example.com")
+    db.add(patient)
+    db.commit()
+    db.refresh(patient)
+    supplement = Supplement(patient_id=patient.id, name="Vitamina D")
+    db.add(supplement)
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        ProfessionalService(db).update_supplement(
+            professional, patient.id, supplement.id, SupplementUpdate(name="Vitamina D3")
+        )
+
+    assert exc_info.value.status_code == 403
 
 
 def test_professional_cannot_manage_supplements_for_unmonitored_patient():

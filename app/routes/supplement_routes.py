@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_user
 from app.core.dependencies import get_db
 from app.models.models import User
-from app.models.schemas import SupplementCreate, SupplementRead
+from app.models.schemas import SupplementCreate, SupplementRead, SupplementUpdate
 from app.services.supplement_service import SupplementService
 
 router = APIRouter(tags=["Supplements"])
@@ -31,6 +31,19 @@ def create_my_supplement(
         dosage_period=payload.dosage_period,
         duration_days=payload.duration_days,
     )
+
+
+@router.patch("/{supplement_id}", response_model=SupplementRead)
+def update_my_supplement(
+    supplement_id: int,
+    payload: SupplementUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    updated = SupplementService(db).update(current_user, supplement_id, **payload.model_dump(exclude_unset=True))
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Supplement not found")
+    return updated
 
 
 @router.delete("/{supplement_id}", status_code=status.HTTP_204_NO_CONTENT)

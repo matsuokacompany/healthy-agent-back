@@ -388,6 +388,16 @@ class SupplementCreate(StrictRequestModel):
     duration_days: Optional[int] = Field(default=None, ge=1, le=3650)
 
 
+class SupplementUpdate(StrictRequestModel):
+    name: Optional[ShortPlainText] = None
+    dosage_times: Optional[int] = Field(default=None, ge=1, le=99)
+    dosage_period: Optional[SupplementDosagePeriodEnum] = None
+    # None = indeterminate/ongoing course. Unset (the field simply absent
+    # from the request) leaves duration_days untouched -- see
+    # SupplementUpdate's use of exclude_unset in SupplementService.update.
+    duration_days: Optional[int] = Field(default=None, ge=1, le=3650)
+
+
 class SupplementRead(ORMModel):
     id: int
     name: str
@@ -748,6 +758,7 @@ class PatientDashboardCalendarDay(BaseModel):
     pending: bool
     has_symptoms: bool
     diet_followed: bool = False
+    exercise_followed: bool = False
     medication_taken: bool = False
     statuses: List[DailyReportStatusEnum] = Field(default_factory=list)
     checkins: List[PatientDashboardCalendarCheckin] = Field(default_factory=list)

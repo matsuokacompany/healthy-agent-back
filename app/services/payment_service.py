@@ -89,6 +89,14 @@ def professional_has_access(profile: ProfessionalProfile, subscription: Subscrip
 # made online, counted from the first payment (see Política de Reembolso §1).
 REFUND_WINDOW_DAYS = 7
 
+# How long a subscription stays PAST_DUE before the daily dunning scan
+# (DunningService._cancel_overdue_subscriptions) cancels it outright. Access
+# is already blocked the whole time (subscription_grants_access only honors
+# ACTIVE/TRIALING) -- this just stops further Asaas charge attempts and
+# resolves the account out of the PAST_DUE limbo instead of leaving it there
+# indefinitely.
+OVERDUE_GRACE_PERIOD_DAYS = 7
+
 ASAAS_BASE_URLS = {
     "sandbox": "https://sandbox.asaas.com/api/v3",
     "production": "https://api.asaas.com/v3",
@@ -267,6 +275,24 @@ class PaymentService:
         self.db.commit()
         self.db.refresh(subscription)
         return subscription
+
+    def cancel_for_nonpayment(self, subscription: Subscription) -> None:
+        """Called by DunningService's daily scan once a PAST_DUE subscription
+        has stayed unpaid past OVERDUE_GRACE_PERIOD_DAYS. Unlike the
+        voluntary cancel_subscription flow, there's no paid-for period left
+        to honor, so this cancels immediately rather than setting
+        cancel_at_period_end."""
+        if subscription.provider_subscription_id:
+            try:
+                self._delete_asaas_subscription(subscription.provider_subscription_id)
+            except HTTPException:
+                logger.warning(
+                    "Failed to delete Asaas subscription while canceling for nonpayment | subscription_id=%s",
+                    subscription.id,
+                )
+        subscription.status = SubscriptionStatusEnum.CANCELED.value
+        subscription.cancel_at_period_end = False
+        subscription.past_due_at = None
 
     def change_plan(self, user: User, plan_id: str) -> dict[str, Any]:
         """Self-service upgrade/downgrade for an already-active subscriber.
@@ -538,6 +564,7 @@ class PaymentService:
 
         if event in {"PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"}:
             subscription.status = SubscriptionStatusEnum.ACTIVE.value
+            subscription.past_due_at = None
             if subscription.first_paid_at is None:
                 subscription.first_paid_at = datetime.now(timezone.utc)
             due_date = payment.get("dueDate")
@@ -547,11 +574,13 @@ class PaymentService:
             was_already_overdue = subscription.status == SubscriptionStatusEnum.PAST_DUE.value
             subscription.status = SubscriptionStatusEnum.PAST_DUE.value
             if not was_already_overdue:
+                subscription.past_due_at = datetime.now(timezone.utc)
                 user = self.db.query(User).filter(User.id == subscription.user_id).first()
                 if user:
                     notify_payment_overdue(self.db, subscription, user)
         elif event in {"PAYMENT_DELETED", "PAYMENT_REFUNDED", "SUBSCRIPTION_DELETED"}:
             subscription.status = SubscriptionStatusEnum.CANCELED.value
+            subscription.past_due_at = None
         else:
             logger.info("Unhandled Asaas webhook event | event=%s", event)
             return

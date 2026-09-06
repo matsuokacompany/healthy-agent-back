@@ -31,6 +31,7 @@ from app.models.schemas import (
     ProfessionalPatientCreateResponse,
     SupplementCreate,
     SupplementRead,
+    SupplementUpdate,
 )
 from app.services.patient_dashboard_service import PaginationParams, ReportFilters
 from app.services.patient_link_service import PatientLinkService
@@ -173,6 +174,20 @@ def create_professional_patient_supplement(
     current_user: User = Depends(get_current_user),
 ):
     return ProfessionalService(db).create_supplement(current_user, patient_id, payload)
+
+
+@router.patch("/patients/{patient_id}/supplements/{supplement_id}", response_model=SupplementRead)
+def update_professional_patient_supplement(
+    patient_id: int,
+    supplement_id: int,
+    payload: SupplementUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    updated = ProfessionalService(db).update_supplement(current_user, patient_id, supplement_id, payload)
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Supplement not found")
+    return updated
 
 
 @router.delete("/patients/{patient_id}/supplements/{supplement_id}", status_code=status.HTTP_204_NO_CONTENT)
