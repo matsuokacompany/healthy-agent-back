@@ -398,6 +398,7 @@ class PatientDashboardService:
                 completed=report.completed,
                 had_symptoms=report.had_symptoms,
                 diet_adherence=report.diet_adherence,
+                exercise_adherence=report.exercise_adherence,
                 medication_adherence=report.medication_adherence,
                 prompt_sent_at=report.prompt_sent_at,
                 answered_at=report.updated_at if report.completed else None,

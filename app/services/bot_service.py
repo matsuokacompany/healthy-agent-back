@@ -428,21 +428,26 @@ class BotService:
                 ask_followup=True,
             )
 
+        if status == "ASK_EXERCISE_ADHERENCE":
+            return BotResponse(
+                text="Mais uma coisa: você treinou ontem?",
+                ask_followup=True,
+                buttons=(("exercise_yes", "Sim"), ("exercise_no", "Não")),
+            )
+
         if status == "ASK_MEDICATION_ADHERENCE":
+            # DailyReportService only ever transitions into this status when
+            # the patient has at least one currently-active supplement (see
+            # _ask_medication_adherence) -- otherwise the question is skipped
+            # entirely, so supplement_names is never empty here.
             supplement_names = []
             if db is not None and user is not None:
-                # Skip courses whose duration has already elapsed -- a
-                # 10-day antibiotic finished on day 15 shouldn't keep being
-                # asked about.
                 supplement_names = SupplementService.list_active_names(
                     SupplementService(db).list_for_patient(user.id)
                 )
-            if supplement_names:
-                what = "todos os seguintes: " + ", ".join(supplement_names)
-            else:
-                what = "seus remédios/suplementos como planejado"
+            what = "todos os seguintes: " + ", ".join(supplement_names)
             return BotResponse(
-                text=f"Última pergunta: você tomou {what} hoje?",
+                text=f"Última pergunta: você tomou {what} ontem?",
                 ask_followup=True,
                 buttons=(("medication_yes", "Sim"), ("medication_no", "Não")),
             )

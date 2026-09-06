@@ -156,22 +156,27 @@ def test_medication_prompt_lists_registered_supplements(monkeypatch):
 
     service = BotService()
     service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Não tive sintomas", message_id="msg-med-1")
-    response = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="diet_yes", message_id="msg-med-2")
+    service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="diet_yes", message_id="msg-med-1b")
+    response = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="exercise_yes", message_id="msg-med-2")
 
     assert "Vitamina D, Ômega 3" in response.text
     assert response.buttons == (("medication_yes", "Sim"), ("medication_no", "Não"))
 
 
-def test_medication_prompt_falls_back_to_generic_text_without_supplements(monkeypatch):
+def test_medication_question_is_skipped_without_supplements(monkeypatch):
     db = build_session()
     user, _ = create_pending_self_service_report(db, phone="993")
     monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
 
     service = BotService()
     service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Não tive sintomas", message_id="msg-med-3")
-    response = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="diet_yes", message_id="msg-med-4")
+    service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="diet_yes", message_id="msg-med-3b")
+    response = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="exercise_yes", message_id="msg-med-4")
 
-    assert "remédios/suplementos como planejado" in response.text
+    # Nothing registered on the platform for this patient -- the medication
+    # question is skipped entirely rather than asking a generic version of it.
+    assert "concluído" in response.text
+    assert response.ask_followup is False
 
 
 def test_medication_prompt_excludes_supplements_past_their_duration(monkeypatch):
@@ -193,7 +198,8 @@ def test_medication_prompt_excludes_supplements_past_their_duration(monkeypatch)
 
     service = BotService()
     service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Não tive sintomas", message_id="msg-med-5")
-    response = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="diet_yes", message_id="msg-med-6")
+    service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="diet_yes", message_id="msg-med-5b")
+    response = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="exercise_yes", message_id="msg-med-6")
 
     assert "Vitamina D" in response.text
     assert "Amoxicilina" not in response.text

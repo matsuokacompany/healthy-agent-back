@@ -34,6 +34,7 @@ class DailyReportStatusEnum(str, enum.Enum):
     AWAITING_CAUSE = "AWAITING_CAUSE"
     AWAITING_DIET_ADHERENCE = "AWAITING_DIET_ADHERENCE"
     AWAITING_DIET_DEVIATION_DESCRIPTION = "AWAITING_DIET_DEVIATION_DESCRIPTION"
+    AWAITING_EXERCISE_ADHERENCE = "AWAITING_EXERCISE_ADHERENCE"
     AWAITING_MEDICATION_ADHERENCE = "AWAITING_MEDICATION_ADHERENCE"
     COMPLETED = "COMPLETED"
     EXPIRED = "EXPIRED"
@@ -393,6 +394,7 @@ class DailyReport(Base):
     # answer to "o que você comeu fora da dieta?", asked when diet_adherence
     # is False.
     diet_adherence = Column(Boolean, nullable=True)
+    exercise_adherence = Column(Boolean, nullable=True)
     medication_adherence = Column(Boolean, nullable=True)
     lifestyle_notes = Column(Text, nullable=True)
     lifestyle_notes_encryption_envelope = Column(JSON, nullable=True)

@@ -13,6 +13,7 @@ from app.models.models import (
 from app.core.config import settings
 from app.services.clinical_data_service import ClinicalDataService
 from app.services.notification_service import notify_symptom_reported
+from app.services.supplement_service import SupplementService
 from app.services.symptom_normalization_service import SymptomNormalizationService
 
 
@@ -61,6 +62,7 @@ class DailyReportService:
         report.suspected_cause_encryption_envelope = None
         report.had_symptoms = None
         report.diet_adherence = None
+        report.exercise_adherence = None
         report.medication_adherence = None
         report.lifestyle_notes = None
         report.lifestyle_notes_encryption_envelope = None
@@ -129,10 +131,17 @@ class DailyReportService:
             # An unrecognized answer just skips ahead rather than blocking
             # completion on a retry loop -- same tradeoff as the rest of
             # this flow (see the marker fallback comment below).
-            return cls._ask_medication_adherence(db, report)
+            return cls._ask_exercise_adherence(db, report)
 
         if report.status == DailyReportStatusEnum.AWAITING_DIET_DEVIATION_DESCRIPTION:
             cls._write_clinical(report, lifestyle_notes=message_text)
+            return cls._ask_exercise_adherence(db, report)
+
+        if report.status == DailyReportStatusEnum.AWAITING_EXERCISE_ADHERENCE:
+            if cls._is_negative_response(message_text):
+                report.exercise_adherence = False
+            elif cls._is_positive_response(message_text):
+                report.exercise_adherence = True
             return cls._ask_medication_adherence(db, report)
 
         if report.status == DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE:
@@ -175,11 +184,13 @@ class DailyReportService:
         """Ends the symptom portion of the daily check-in.
 
         Defers completion for every plan (self-service and professional-led
-        alike) to ask about diet and medication/supplement adherence — two
-        deterministic WhatsApp interactive-button questions (diet, then
-        medication; see BotService._translate) in the same conversation,
-        instead of a separate template message per question (see README
-        "Otimização de custo do WhatsApp").
+        alike) to ask about diet, exercise, and medication/supplement
+        adherence — deterministic WhatsApp interactive-button questions
+        (diet, then exercise, then medication; see BotService._translate) in
+        the same conversation, instead of a separate template message per
+        question (see README "Otimização de custo do WhatsApp"). All of
+        these questions are about the report's day (yesterday, from the
+        patient's point of view — see app/bot/scheduler.py's report_date).
         """
         report.awaiting_response = True
         report.awaiting_cause = False
@@ -189,7 +200,26 @@ class DailyReportService:
         return "ASK_DIET_ADHERENCE"
 
     @classmethod
+    def _ask_exercise_adherence(cls, db: Session, report: DailyReport) -> str:
+        report.awaiting_response = True
+        report.status = DailyReportStatusEnum.AWAITING_EXERCISE_ADHERENCE
+        db.commit()
+        return "ASK_EXERCISE_ADHERENCE"
+
+    @classmethod
     def _ask_medication_adherence(cls, db: Session, report: DailyReport) -> str:
+        # Only ask if the patient (or their professional) actually has at
+        # least one currently-active supplement/medication registered on the
+        # platform -- nothing registered, or every course already finished
+        # (SupplementService.is_active), means there's nothing to ask about.
+        supplements = SupplementService(db).list_for_patient(report.user_id)
+        if not SupplementService.list_active_names(supplements):
+            report.awaiting_response = False
+            report.completed = True
+            report.status = DailyReportStatusEnum.COMPLETED
+            db.commit()
+            return "COMPLETED"
+
         report.awaiting_response = True
         report.status = DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE
         db.commit()
@@ -204,6 +234,7 @@ class DailyReportService:
         had_symptoms: bool | None = None,
         symptom_description: str | None = None,
         diet_adherence: bool | None = None,
+        exercise_adherence: bool | None = None,
         medication_adherence: bool | None = None,
         lifestyle_notes: str | None = None,
     ) -> DailyReport:
@@ -214,6 +245,7 @@ class DailyReportService:
 
         report.had_symptoms = had_symptoms
         report.diet_adherence = diet_adherence
+        report.exercise_adherence = exercise_adherence
         report.medication_adherence = medication_adherence
         cls._write_clinical(
             report,
@@ -243,6 +275,7 @@ class DailyReportService:
     def delete_patient_response(cls, db: Session, report: DailyReport) -> DailyReport:
         report.had_symptoms = None
         report.diet_adherence = None
+        report.exercise_adherence = None
         report.medication_adherence = None
         cls._write_clinical(report, symptom_description=None, suspected_cause=None, lifestyle_notes=None)
         report.completed = False
@@ -268,6 +301,7 @@ class DailyReportService:
                         DailyReportStatusEnum.AWAITING_CAUSE,
                         DailyReportStatusEnum.AWAITING_DIET_ADHERENCE,
                         DailyReportStatusEnum.AWAITING_DIET_DEVIATION_DESCRIPTION,
+                        DailyReportStatusEnum.AWAITING_EXERCISE_ADHERENCE,
                         DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE,
                     ]
                 )
@@ -373,6 +407,7 @@ class DailyReportService:
             "sintomas_sim",
             "tive_sintomas",
             "diet_yes",
+            "exercise_yes",
             "medication_yes",
         )
         return normalized in positive_markers or any(marker in normalized for marker in positive_markers)
@@ -392,6 +427,7 @@ class DailyReportService:
             "sintomas_nao",
             "nao_tive_sintomas",
             "diet_no",
+            "exercise_no",
             "medication_no",
         )
         return normalized in negative_markers or any(marker in normalized for marker in negative_markers)
