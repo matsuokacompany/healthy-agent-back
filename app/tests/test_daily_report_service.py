@@ -81,17 +81,22 @@ def test_daily_report_button_flow_complete():
     assert report.symptom_description is None
 
     assert DailyReportService.process_response(db, user, "Dor de cabeça e tontura") == "ASK_DIET_ADHERENCE"
-    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_MEDICATION_ADHERENCE"
-    assert DailyReportService.process_response(db, user, "medication_yes") == "COMPLETED"
+    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_EXERCISE_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "exercise_yes") == "COMPLETED"
 
     db.refresh(report)
     assert report.completed is True
     assert report.status == DailyReportStatusEnum.COMPLETED
     assert report.symptom_description == "Dor de cabeça e tontura"
     assert report.suspected_cause is None
+    assert report.diet_adherence is True
+    assert report.exercise_adherence is True
+    # No supplements registered for this patient, so the medication
+    # question was skipped entirely.
+    assert report.medication_adherence is None
 
 
-def test_self_service_plan_asks_diet_then_medication_after_positive_symptoms():
+def test_self_service_plan_asks_diet_then_exercise_then_completes_without_supplements():
     db = build_session()
     user, plan = create_user_and_self_service_plan(db)
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
@@ -106,17 +111,20 @@ def test_self_service_plan_asks_diet_then_medication_after_positive_symptoms():
     assert report.symptom_description == "Dor de cabeça"
 
     # Deterministic button tap (diet_yes), not free text.
-    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_MEDICATION_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_EXERCISE_ADHERENCE"
     db.refresh(report)
-    assert report.status == DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE
+    assert report.status == DailyReportStatusEnum.AWAITING_EXERCISE_ADHERENCE
     assert report.diet_adherence is True
     assert report.completed is False
 
-    assert DailyReportService.process_response(db, user, "medication_yes") == "COMPLETED"
+    # No supplements registered for this patient -- the medication question
+    # is skipped entirely once exercise adherence is answered.
+    assert DailyReportService.process_response(db, user, "exercise_yes") == "COMPLETED"
     db.refresh(report)
     assert report.status == DailyReportStatusEnum.COMPLETED
     assert report.completed is True
-    assert report.medication_adherence is True
+    assert report.exercise_adherence is True
+    assert report.medication_adherence is None
 
 
 def test_self_service_plan_asks_deviation_text_when_diet_button_is_no():
@@ -135,16 +143,19 @@ def test_self_service_plan_asks_deviation_text_when_diet_button_is_no():
     assert report.diet_adherence is False
     assert report.completed is False
 
-    assert DailyReportService.process_response(db, user, "Comi um doce à noite") == "ASK_MEDICATION_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "Comi um doce à noite") == "ASK_EXERCISE_ADHERENCE"
     db.refresh(report)
-    assert report.status == DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE
+    assert report.status == DailyReportStatusEnum.AWAITING_EXERCISE_ADHERENCE
     assert report.lifestyle_notes == "Comi um doce à noite"
 
-    assert DailyReportService.process_response(db, user, "medication_no") == "COMPLETED"
+    # No supplements registered for this patient -- the medication question
+    # is skipped entirely once exercise adherence is answered.
+    assert DailyReportService.process_response(db, user, "exercise_no") == "COMPLETED"
     db.refresh(report)
     assert report.status == DailyReportStatusEnum.COMPLETED
     assert report.completed is True
-    assert report.medication_adherence is False
+    assert report.exercise_adherence is False
+    assert report.medication_adherence is None
 
 
 def test_self_service_plan_accepts_natural_text_alongside_button_ids():
@@ -156,13 +167,16 @@ def test_self_service_plan_accepts_natural_text_alongside_button_ids():
     report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
 
     assert DailyReportService.process_response(db, user, "Não tive sintomas") == "ASK_DIET_ADHERENCE"
-    assert DailyReportService.process_response(db, user, "sim") == "ASK_MEDICATION_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "sim") == "ASK_EXERCISE_ADHERENCE"
     db.refresh(report)
     assert report.diet_adherence is True
 
+    # No supplements registered for this patient -- the medication question
+    # is skipped entirely once exercise adherence is answered.
     assert DailyReportService.process_response(db, user, "nao") == "COMPLETED"
     db.refresh(report)
-    assert report.medication_adherence is False
+    assert report.exercise_adherence is False
+    assert report.medication_adherence is None
 
 
 def test_professional_plan_also_gets_lifestyle_questions():
@@ -177,13 +191,16 @@ def test_professional_plan_also_gets_lifestyle_questions():
     assert report.status == DailyReportStatusEnum.AWAITING_DIET_ADHERENCE
     assert report.completed is False
 
-    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_MEDICATION_ADHERENCE"
-    assert DailyReportService.process_response(db, user, "medication_yes") == "COMPLETED"
+    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_EXERCISE_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "exercise_yes") == "COMPLETED"
     db.refresh(report)
     assert report.status == DailyReportStatusEnum.COMPLETED
     assert report.completed is True
     assert report.diet_adherence is True
-    assert report.medication_adherence is True
+    assert report.exercise_adherence is True
+    # No supplements registered for this patient, so the medication
+    # question was skipped entirely.
+    assert report.medication_adherence is None
 
 
 def link_professional(db, patient_plan):
@@ -270,8 +287,8 @@ def test_daily_report_negative_completes_open_report():
     db.commit()
 
     assert DailyReportService.process_response(db, user, "Não tive sintomas") == "ASK_DIET_ADHERENCE"
-    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_MEDICATION_ADHERENCE"
-    assert DailyReportService.process_response(db, user, "medication_yes") == "COMPLETED"
+    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_EXERCISE_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "exercise_yes") == "COMPLETED"
 
     db.refresh(report)
     assert report.completed is True
@@ -288,8 +305,8 @@ def test_daily_report_free_text_symptom_completes_without_cause():
     db.commit()
 
     assert DailyReportService.process_response(db, user, "Tive dor de cabeça") == "ASK_DIET_ADHERENCE"
-    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_MEDICATION_ADHERENCE"
-    assert DailyReportService.process_response(db, user, "medication_yes") == "COMPLETED"
+    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_EXERCISE_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "exercise_yes") == "COMPLETED"
 
     db.refresh(report)
     assert report.completed is True
@@ -309,8 +326,8 @@ def test_daily_report_symptom_details_complete_without_cause():
 
     assert DailyReportService.process_response(db, user, "Tive sintomas") == "ASK_SYMPTOM_DESCRIPTION"
     assert DailyReportService.process_response(db, user, "Dor de cabeça e tontura") == "ASK_DIET_ADHERENCE"
-    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_MEDICATION_ADHERENCE"
-    assert DailyReportService.process_response(db, user, "medication_yes") == "COMPLETED"
+    assert DailyReportService.process_response(db, user, "diet_yes") == "ASK_EXERCISE_ADHERENCE"
+    assert DailyReportService.process_response(db, user, "exercise_yes") == "COMPLETED"
 
     db.refresh(report)
     assert report.completed is True

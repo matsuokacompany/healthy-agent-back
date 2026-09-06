@@ -69,6 +69,7 @@ def update_report(
             had_symptoms=payload.get("had_symptoms", report.had_symptoms),
             symptom_description=payload.get("symptom_description", report.symptom_description),
             diet_adherence=payload.get("diet_adherence", report.diet_adherence),
+            exercise_adherence=payload.get("exercise_adherence", report.exercise_adherence),
             medication_adherence=payload.get("medication_adherence", report.medication_adherence),
             lifestyle_notes=payload.get("lifestyle_notes", report.lifestyle_notes),
         )

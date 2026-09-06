@@ -26,6 +26,7 @@ class DailyReportStatusEnum(str, Enum):
     AWAITING_CAUSE = "AWAITING_CAUSE"
     AWAITING_DIET_ADHERENCE = "AWAITING_DIET_ADHERENCE"
     AWAITING_DIET_DEVIATION_DESCRIPTION = "AWAITING_DIET_DEVIATION_DESCRIPTION"
+    AWAITING_EXERCISE_ADHERENCE = "AWAITING_EXERCISE_ADHERENCE"
     AWAITING_MEDICATION_ADHERENCE = "AWAITING_MEDICATION_ADHERENCE"
     COMPLETED = "COMPLETED"
     EXPIRED = "EXPIRED"
@@ -539,6 +540,7 @@ class DailyReportUpdate(BaseModel):
     had_symptoms: Optional[bool] = None
     symptom_description: Optional[str] = Field(None, max_length=280)
     diet_adherence: Optional[bool] = None
+    exercise_adherence: Optional[bool] = None
     medication_adherence: Optional[bool] = None
     lifestyle_notes: Optional[str] = Field(None, max_length=280)
 
@@ -553,6 +555,7 @@ class DailyReportRead(DailyReportBase, ORMModel):
     report_date: date
     had_symptoms: Optional[bool] = None
     diet_adherence: Optional[bool] = None
+    exercise_adherence: Optional[bool] = None
     medication_adherence: Optional[bool] = None
     lifestyle_notes: Optional[str] = None
     status: DailyReportStatusEnum
@@ -732,6 +735,7 @@ class PatientDashboardCalendarCheckin(BaseModel):
     completed: bool
     had_symptoms: Optional[bool] = None
     diet_adherence: Optional[bool] = None
+    exercise_adherence: Optional[bool] = None
     medication_adherence: Optional[bool] = None
     prompt_sent_at: datetime
     answered_at: Optional[datetime] = None
