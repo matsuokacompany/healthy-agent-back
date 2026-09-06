@@ -412,6 +412,7 @@ class PatientDashboardService:
             pending=any(not report.completed for report in reports),
             has_symptoms=any(report.had_symptoms is True for report in reports),
             diet_followed=any(report.diet_adherence is True for report in reports),
+            exercise_followed=any(report.exercise_adherence is True for report in reports),
             medication_taken=any(report.medication_adherence is True for report in reports),
             statuses=[report.status for report in reports],
             checkins=checkins,

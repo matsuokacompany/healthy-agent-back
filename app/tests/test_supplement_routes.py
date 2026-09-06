@@ -68,6 +68,54 @@ def test_patient_can_delete_own_supplement():
     assert client.get("/supplements/me").json() == []
 
 
+def test_patient_can_update_own_supplement():
+    client, db, patient, _ = build_client()
+    created = client.post("/supplements/", json={"name": "Vitamina D"}).json()
+
+    response = client.patch(
+        f"/supplements/{created['id']}",
+        json={"name": "Vitamina D3", "dosage_times": 2, "dosage_period": "WEEK"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "Vitamina D3"
+    assert body["dosage_times"] == 2
+    assert body["dosage_period"] == "WEEK"
+    assert body["duration_days"] is None
+
+
+def test_update_supplement_only_changes_provided_fields():
+    client, db, patient, _ = build_client()
+    created = client.post(
+        "/supplements/",
+        json={"name": "Amoxicilina", "dosage_times": 3, "dosage_period": "WEEK", "duration_days": 10},
+    ).json()
+
+    response = client.patch(f"/supplements/{created['id']}", json={"duration_days": 15})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "Amoxicilina"
+    assert body["dosage_times"] == 3
+    assert body["dosage_period"] == "WEEK"
+    assert body["duration_days"] == 15
+
+
+def test_patient_cannot_update_another_patients_supplement():
+    client, db, patient, other_patient = build_client()
+    other_supplement = Supplement(patient_id=other_patient.id, name="Ferro")
+    db.add(other_supplement)
+    db.commit()
+    db.refresh(other_supplement)
+
+    response = client.patch(f"/supplements/{other_supplement.id}", json={"name": "Ferro quelato"})
+
+    assert response.status_code == 404
+    db.refresh(other_supplement)
+    assert other_supplement.name == "Ferro"
+
+
 def test_patient_cannot_delete_another_patients_supplement():
     client, db, patient, other_patient = build_client()
     other_supplement = Supplement(patient_id=other_patient.id, name="Ferro")

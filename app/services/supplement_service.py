@@ -98,6 +98,30 @@ class SupplementService:
         self.db.refresh(supplement)
         return supplement
 
+    def update(self, patient: User, supplement_id: int, **fields) -> Supplement | None:
+        return self.update_for_patient(patient.id, supplement_id, **fields)
+
+    def update_for_patient(self, patient_id: int, supplement_id: int, **fields) -> Supplement | None:
+        supplement = (
+            self.db.query(Supplement)
+            .filter(Supplement.id == supplement_id)
+            .filter(Supplement.patient_id == patient_id)
+            .first()
+        )
+        if not supplement:
+            return None
+        # Same enum-or-string normalization as create_for_patient -- fields
+        # comes from SupplementUpdate.model_dump(exclude_unset=True), so only
+        # keys the caller actually sent are present here.
+        dosage_period = fields.get("dosage_period")
+        if dosage_period is not None:
+            fields["dosage_period"] = dosage_period.value if hasattr(dosage_period, "value") else str(dosage_period)
+        for field, value in fields.items():
+            setattr(supplement, field, value)
+        self.db.commit()
+        self.db.refresh(supplement)
+        return supplement
+
     def delete(self, patient: User, supplement_id: int) -> bool:
         return self.delete_for_patient(patient.id, supplement_id)
 
