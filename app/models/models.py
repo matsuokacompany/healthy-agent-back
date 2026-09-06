@@ -603,6 +603,11 @@ class Subscription(Base):
     # it stops applying (trial extended/converted, cancellation undone).
     trial_ending_reminder_sent_at = Column(DateTime(timezone=True), nullable=True)
     access_ending_reminder_sent_at = Column(DateTime(timezone=True), nullable=True)
+    # Set on the PAST_DUE transition (handle_webhook_event's PAYMENT_OVERDUE
+    # branch), cleared once the subscription leaves PAST_DUE (paid, or
+    # canceled) -- the anchor DunningService uses to auto-cancel a
+    # subscription that's stayed unpaid past the grace period.
+    past_due_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
@@ -624,6 +629,7 @@ class NotificationKindEnum(str, enum.Enum):
     PATIENT_ASSIGNED = "PATIENT_ASSIGNED"
     CHECKIN_PENDING = "CHECKIN_PENDING"
     SUPPLEMENT_COURSE_ENDED = "SUPPLEMENT_COURSE_ENDED"
+    SUBSCRIPTION_CANCELED_NONPAYMENT = "SUBSCRIPTION_CANCELED_NONPAYMENT"
 
 
 class Notification(Base):

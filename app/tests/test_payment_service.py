@@ -381,6 +381,43 @@ def test_webhook_payment_overdue_marks_past_due():
 
     db.refresh(subscription)
     assert subscription.status == SubscriptionStatusEnum.PAST_DUE.value
+    assert subscription.past_due_at is not None
+
+
+def test_webhook_payment_overdue_does_not_reset_past_due_at_on_repeat_webhook():
+    db = build_session()
+    user = create_user(db)
+    subscription = Subscription(user_id=user.id, status=SubscriptionStatusEnum.ACTIVE.value, provider_subscription_id="sub_123")
+    db.add(subscription)
+    db.commit()
+
+    PaymentService(db).handle_webhook_event({"event": "PAYMENT_OVERDUE", "payment": {"subscription": "sub_123"}})
+    db.refresh(subscription)
+    first_past_due_at = subscription.past_due_at
+
+    PaymentService(db).handle_webhook_event({"event": "PAYMENT_OVERDUE", "payment": {"subscription": "sub_123"}})
+    db.refresh(subscription)
+
+    assert subscription.past_due_at == first_past_due_at
+
+
+def test_webhook_payment_confirmed_clears_past_due_at():
+    db = build_session()
+    user = create_user(db)
+    subscription = Subscription(
+        user_id=user.id,
+        status=SubscriptionStatusEnum.PAST_DUE.value,
+        provider_subscription_id="sub_123",
+        past_due_at=datetime.now(timezone.utc),
+    )
+    db.add(subscription)
+    db.commit()
+
+    PaymentService(db).handle_webhook_event({"event": "PAYMENT_CONFIRMED", "payment": {"subscription": "sub_123"}})
+
+    db.refresh(subscription)
+    assert subscription.status == SubscriptionStatusEnum.ACTIVE.value
+    assert subscription.past_due_at is None
 
 
 def test_webhook_subscription_deleted_cancels():
@@ -393,6 +430,52 @@ def test_webhook_subscription_deleted_cancels():
     PaymentService(db).handle_webhook_event({"event": "SUBSCRIPTION_DELETED", "payment": {"subscription": "sub_123"}})
 
     db.refresh(subscription)
+    assert subscription.status == SubscriptionStatusEnum.CANCELED.value
+
+
+def test_cancel_for_nonpayment_deletes_asaas_subscription_and_cancels(monkeypatch):
+    db = build_session()
+    user = create_user(db)
+    subscription = Subscription(
+        user_id=user.id,
+        status=SubscriptionStatusEnum.PAST_DUE.value,
+        provider_subscription_id="sub_123",
+        past_due_at=datetime.now(timezone.utc) - timedelta(days=8),
+    )
+    db.add(subscription)
+    db.commit()
+    fake_client = FakeAsaasClient()
+    monkeypatch.setattr("app.services.payment_service.httpx.Client", lambda timeout=10.0: fake_client)
+
+    PaymentService(db).cancel_for_nonpayment(subscription)
+
+    assert subscription.status == SubscriptionStatusEnum.CANCELED.value
+    assert subscription.cancel_at_period_end is False
+    assert subscription.past_due_at is None
+    delete_calls = [c for c in fake_client.calls if "/subscriptions/" in c[0]]
+    assert len(delete_calls) == 1
+
+
+def test_cancel_for_nonpayment_cancels_locally_even_if_asaas_delete_fails(monkeypatch):
+    db = build_session()
+    user = create_user(db)
+    subscription = Subscription(
+        user_id=user.id,
+        status=SubscriptionStatusEnum.PAST_DUE.value,
+        provider_subscription_id="sub_123",
+        past_due_at=datetime.now(timezone.utc) - timedelta(days=8),
+    )
+    db.add(subscription)
+    db.commit()
+
+    class FailingClient(FakeAsaasClient):
+        def delete(self, url, headers=None):
+            return FakeResponse(500, {})
+
+    monkeypatch.setattr("app.services.payment_service.httpx.Client", lambda timeout=10.0: FailingClient())
+
+    PaymentService(db).cancel_for_nonpayment(subscription)
+
     assert subscription.status == SubscriptionStatusEnum.CANCELED.value
 
 
