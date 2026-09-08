@@ -32,6 +32,12 @@ class DailyReportStatusEnum(str, Enum):
     EXPIRED = "EXPIRED"
 
 
+class MedicationAdherenceLevelEnum(str, Enum):
+    ALL = "ALL"
+    PARTIAL = "PARTIAL"
+    NONE = "NONE"
+
+
 class MonitoringPlanOriginEnum(str, Enum):
     PROFESSIONAL = "PROFESSIONAL"
     SELF_SERVICE = "SELF_SERVICE"
@@ -552,6 +558,7 @@ class DailyReportUpdate(BaseModel):
     diet_adherence: Optional[bool] = None
     exercise_adherence: Optional[bool] = None
     medication_adherence: Optional[bool] = None
+    medication_adherence_level: Optional[MedicationAdherenceLevelEnum] = None
     lifestyle_notes: Optional[str] = Field(None, max_length=280)
 
     class Config:
@@ -567,6 +574,7 @@ class DailyReportRead(DailyReportBase, ORMModel):
     diet_adherence: Optional[bool] = None
     exercise_adherence: Optional[bool] = None
     medication_adherence: Optional[bool] = None
+    medication_adherence_level: Optional[MedicationAdherenceLevelEnum] = None
     lifestyle_notes: Optional[str] = None
     status: DailyReportStatusEnum
     awaiting_response: bool
@@ -747,6 +755,7 @@ class PatientDashboardCalendarCheckin(BaseModel):
     diet_adherence: Optional[bool] = None
     exercise_adherence: Optional[bool] = None
     medication_adherence: Optional[bool] = None
+    medication_adherence_level: Optional[MedicationAdherenceLevelEnum] = None
     prompt_sent_at: datetime
     answered_at: Optional[datetime] = None
 
@@ -760,6 +769,7 @@ class PatientDashboardCalendarDay(BaseModel):
     diet_followed: bool = False
     exercise_followed: bool = False
     medication_taken: bool = False
+    medication_partial: bool = False
     statuses: List[DailyReportStatusEnum] = Field(default_factory=list)
     checkins: List[PatientDashboardCalendarCheckin] = Field(default_factory=list)
 

@@ -445,12 +445,20 @@ class BotService:
                 supplement_names = SupplementService.list_active_names(
                     SupplementService(db).list_for_patient(user.id)
                 )
-            what = "todos os seguintes: " + ", ".join(supplement_names)
-            return BotResponse(
-                text=f"Última pergunta: você tomou {what} ontem?",
-                ask_followup=True,
-                buttons=(("medication_yes", "Sim"), ("medication_no", "Não")),
-            )
+            items = ", ".join(supplement_names)
+            text = f"Última pergunta: você tomou todos os seus suplementos/remédios ({items}) ontem?"
+            if len(supplement_names) > 1:
+                # A middle "took some but not all" answer only makes sense
+                # with more than one item -- WhatsApp interactive messages
+                # cap out at 3 reply buttons, which is exactly enough for it.
+                buttons = (
+                    ("medication_all", "Sim, tomei todos"),
+                    ("medication_partial", "Não tomei todos"),
+                    ("medication_none", "Não tomei nenhum deles"),
+                )
+            else:
+                buttons = (("medication_all", "Sim, tomei"), ("medication_none", "Não tomei"))
+            return BotResponse(text=text, ask_followup=True, buttons=buttons)
 
         if status == "ASK_CAUSE":
             logger.info("Suppressing deprecated WhatsApp cause prompt to avoid extra message costs")

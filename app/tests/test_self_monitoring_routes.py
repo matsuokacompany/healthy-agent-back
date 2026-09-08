@@ -189,10 +189,25 @@ def test_evolution_report_allowed_when_subscription_active():
     assert response.status_code == 200
 
 
-def test_self_service_patient_cannot_create_anamnese_via_generic_route():
+def test_self_service_patient_can_create_own_anamnese_via_generic_route():
+    # A self-service patient has no professional to ask for one, so unlike
+    # the monitoring-plan endpoint below, this one is intentionally open to
+    # them -- but only for their own user_id (see the next test).
     client, _, patient = build_client()
 
     response = client.post("/anamneses/", json={"user_id": patient.id, "info": "auto-relato"})
+
+    assert response.status_code == 201
+
+
+def test_self_service_patient_still_cannot_create_anamnese_for_another_user():
+    client, db, patient = build_client()
+    other = User(name="Outro Paciente", email="outro@example.com")
+    db.add(other)
+    db.commit()
+    db.refresh(other)
+
+    response = client.post("/anamneses/", json={"user_id": other.id, "info": "não é meu"})
 
     assert response.status_code == 403
 
