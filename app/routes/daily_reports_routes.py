@@ -71,6 +71,7 @@ def update_report(
             diet_adherence=payload.get("diet_adherence", report.diet_adherence),
             exercise_adherence=payload.get("exercise_adherence", report.exercise_adherence),
             medication_adherence=payload.get("medication_adherence", report.medication_adherence),
+            medication_adherence_level=payload.get("medication_adherence_level", report.medication_adherence_level),
             lifestyle_notes=payload.get("lifestyle_notes", report.lifestyle_notes),
         )
     except ValueError as exc:

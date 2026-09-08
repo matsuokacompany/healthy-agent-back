@@ -9,6 +9,7 @@ def build_report(
     diet_adherence=None,
     exercise_adherence=None,
     medication_adherence=None,
+    medication_adherence_level=None,
     had_symptoms=None,
     completed=True,
 ):
@@ -25,6 +26,7 @@ def build_report(
         diet_adherence=diet_adherence,
         exercise_adherence=exercise_adherence,
         medication_adherence=medication_adherence,
+        medication_adherence_level=medication_adherence_level,
         prompt_sent_at=now,
         expires_at=now,
         updated_at=now,
@@ -69,3 +71,22 @@ def test_calendar_checkin_exposes_diet_and_medication_adherence():
     assert day.checkins[0].diet_adherence is True
     assert day.checkins[0].exercise_adherence is True
     assert day.checkins[0].medication_adherence is False
+
+
+def test_calendar_day_flags_partial_medication_adherence():
+    report = build_report(medication_adherence=False, medication_adherence_level="PARTIAL")
+
+    day = PatientDashboardService(db=None)._build_calendar_day(date.today(), [report])
+
+    assert day.medication_partial is True
+    assert day.medication_taken is False
+    assert day.checkins[0].medication_adherence_level == "PARTIAL"
+
+
+def test_calendar_day_does_not_flag_partial_when_full_adherence():
+    report = build_report(medication_adherence=True, medication_adherence_level="ALL")
+
+    day = PatientDashboardService(db=None)._build_calendar_day(date.today(), [report])
+
+    assert day.medication_partial is False
+    assert day.medication_taken is True

@@ -40,6 +40,12 @@ class DailyReportStatusEnum(str, enum.Enum):
     EXPIRED = "EXPIRED"
 
 
+class MedicationAdherenceLevelEnum(str, enum.Enum):
+    ALL = "ALL"
+    PARTIAL = "PARTIAL"
+    NONE = "NONE"
+
+
 class NivelSuspeicaoEnum(str, enum.Enum):
     BAIXO = "baixo"
     MODERADO = "moderado"
@@ -396,6 +402,13 @@ class DailyReport(Base):
     diet_adherence = Column(Boolean, nullable=True)
     exercise_adherence = Column(Boolean, nullable=True)
     medication_adherence = Column(Boolean, nullable=True)
+    # Finer-grained answer than medication_adherence when more than one
+    # supplement/medication is registered -- the patient can say they took
+    # some but not all of them. medication_adherence stays True only for
+    # ALL, so every existing reader of that boolean (calendar icon, exports,
+    # edit UI) keeps working; this column is only for telling PARTIAL apart
+    # from NONE where that distinction matters (e.g. a different calendar icon).
+    medication_adherence_level = Column(String, nullable=True)
     lifestyle_notes = Column(Text, nullable=True)
     lifestyle_notes_encryption_envelope = Column(JSON, nullable=True)
     completed = Column(Boolean, default=False, nullable=False)

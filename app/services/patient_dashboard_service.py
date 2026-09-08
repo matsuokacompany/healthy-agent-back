@@ -14,6 +14,7 @@ from app.models.models import (
     Anamnese,
     DailyReport,
     DailyReportStatusEnum as ModelDailyReportStatusEnum,
+    MedicationAdherenceLevelEnum,
     MonitoringPlan,
     MonitoringProfessional,
     ProfessionalProfile,
@@ -400,6 +401,7 @@ class PatientDashboardService:
                 diet_adherence=report.diet_adherence,
                 exercise_adherence=report.exercise_adherence,
                 medication_adherence=report.medication_adherence,
+                medication_adherence_level=report.medication_adherence_level,
                 prompt_sent_at=report.prompt_sent_at,
                 answered_at=report.updated_at if report.completed else None,
             )
@@ -414,6 +416,9 @@ class PatientDashboardService:
             diet_followed=any(report.diet_adherence is True for report in reports),
             exercise_followed=any(report.exercise_adherence is True for report in reports),
             medication_taken=any(report.medication_adherence is True for report in reports),
+            medication_partial=any(
+                report.medication_adherence_level == MedicationAdherenceLevelEnum.PARTIAL.value for report in reports
+            ),
             statuses=[report.status for report in reports],
             checkins=checkins,
         )

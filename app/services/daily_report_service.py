@@ -7,6 +7,7 @@ from app.models.models import (
     CheckTypeEnum,
     DailyReport,
     DailyReportStatusEnum,
+    MedicationAdherenceLevelEnum,
     MonitoringPlan,
     User,
 )
@@ -64,6 +65,7 @@ class DailyReportService:
         report.diet_adherence = None
         report.exercise_adherence = None
         report.medication_adherence = None
+        report.medication_adherence_level = None
         report.lifestyle_notes = None
         report.lifestyle_notes_encryption_envelope = None
         report.completed = False
@@ -145,10 +147,10 @@ class DailyReportService:
             return cls._ask_medication_adherence(db, report)
 
         if report.status == DailyReportStatusEnum.AWAITING_MEDICATION_ADHERENCE:
-            if cls._is_negative_response(message_text):
-                report.medication_adherence = False
-            elif cls._is_positive_response(message_text):
-                report.medication_adherence = True
+            level = cls._parse_medication_response(message_text)
+            if level is not None:
+                report.medication_adherence_level = level
+                report.medication_adherence = level == MedicationAdherenceLevelEnum.ALL.value
             report.awaiting_response = False
             report.completed = True
             report.status = DailyReportStatusEnum.COMPLETED
@@ -236,6 +238,7 @@ class DailyReportService:
         diet_adherence: bool | None = None,
         exercise_adherence: bool | None = None,
         medication_adherence: bool | None = None,
+        medication_adherence_level: str | None = None,
         lifestyle_notes: str | None = None,
     ) -> DailyReport:
         if had_symptoms is True:
@@ -247,6 +250,18 @@ class DailyReportService:
         report.diet_adherence = diet_adherence
         report.exercise_adherence = exercise_adherence
         report.medication_adherence = medication_adherence
+        # A caller that knows the finer-grained level (the monitoring page's
+        # edit UI) passes it directly; one that only knows the boolean (any
+        # older caller) gets it derived 1:1 -- ALL/NONE, no PARTIAL, same as
+        # what that boolean alone could ever represent.
+        if medication_adherence_level is not None:
+            report.medication_adherence_level = medication_adherence_level
+        elif medication_adherence is True:
+            report.medication_adherence_level = MedicationAdherenceLevelEnum.ALL.value
+        elif medication_adherence is False:
+            report.medication_adherence_level = MedicationAdherenceLevelEnum.NONE.value
+        else:
+            report.medication_adherence_level = None
         cls._write_clinical(
             report,
             symptom_description=symptom_description if had_symptoms is not False else None,
@@ -277,6 +292,7 @@ class DailyReportService:
         report.diet_adherence = None
         report.exercise_adherence = None
         report.medication_adherence = None
+        report.medication_adherence_level = None
         cls._write_clinical(report, symptom_description=None, suspected_cause=None, lifestyle_notes=None)
         report.completed = False
         report.awaiting_response = True
@@ -395,6 +411,30 @@ class DailyReportService:
             .replace("ú", "u")
             .replace("ç", "c")
         )
+
+    @classmethod
+    def _parse_medication_response(cls, message_text: str) -> str | None:
+        """Tri-state answer to the medication/supplement question -- ALL,
+        PARTIAL, or NONE. Kept separate from _is_positive_response/
+        _is_negative_response (which only have a binary notion of "yes"/
+        "no") because more than one registered supplement adds a real
+        middle answer (see BotService._translate's ASK_MEDICATION_ADHERENCE).
+        The legacy medication_yes/medication_no marker checks below are for
+        an in-flight conversation that was sent the old two-button message
+        right before this change deployed.
+        """
+        normalized = cls._normalize_button_text(message_text)
+        if "medication_all" in normalized or "medication_yes" in normalized:
+            return MedicationAdherenceLevelEnum.ALL.value
+        if "medication_partial" in normalized:
+            return MedicationAdherenceLevelEnum.PARTIAL.value
+        if "medication_none" in normalized or "medication_no" in normalized:
+            return MedicationAdherenceLevelEnum.NONE.value
+        if cls._is_positive_response(message_text):
+            return MedicationAdherenceLevelEnum.ALL.value
+        if cls._is_negative_response(message_text):
+            return MedicationAdherenceLevelEnum.NONE.value
+        return None
 
     @classmethod
     def _is_positive_response(cls, message_text: str) -> bool:

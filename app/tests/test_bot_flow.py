@@ -160,7 +160,48 @@ def test_medication_prompt_lists_registered_supplements(monkeypatch):
     response = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="exercise_yes", message_id="msg-med-2")
 
     assert "Vitamina D, Ômega 3" in response.text
-    assert response.buttons == (("medication_yes", "Sim"), ("medication_no", "Não"))
+    assert response.buttons == (
+        ("medication_all", "Sim, tomei todos"),
+        ("medication_partial", "Não tomei todos"),
+        ("medication_none", "Não tomei nenhum deles"),
+    )
+
+
+def test_medication_prompt_offers_only_two_buttons_for_a_single_supplement(monkeypatch):
+    db = build_session()
+    user, _ = create_pending_self_service_report(db, phone="995")
+    db.add(Supplement(patient_id=user.id, name="Vitamina D"))
+    db.commit()
+    monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
+
+    service = BotService()
+    service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Não tive sintomas", message_id="msg-med-single-1")
+    service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="diet_yes", message_id="msg-med-single-1b")
+    response = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="exercise_yes", message_id="msg-med-single-2")
+
+    # A single registered item has no meaningful "partial" answer.
+    assert response.buttons == (("medication_all", "Sim, tomei"), ("medication_none", "Não tomei"))
+
+
+def test_medication_prompt_accepts_partial_answer(monkeypatch):
+    db = build_session()
+    user, report = create_pending_self_service_report(db, phone="996")
+    report_id = report.id
+    db.add(Supplement(patient_id=user.id, name="Vitamina D"))
+    db.add(Supplement(patient_id=user.id, name="Ômega 3"))
+    db.commit()
+    monkeypatch.setattr("app.services.bot_service.SessionLocal", lambda: db)
+
+    service = BotService()
+    service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="Não tive sintomas", message_id="msg-med-partial-1")
+    service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="diet_yes", message_id="msg-med-partial-1b")
+    service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="exercise_yes", message_id="msg-med-partial-2")
+    response = service.process_incoming(channel="whatsapp", external_user_id=user.phone, message_text="medication_partial", message_id="msg-med-partial-3")
+
+    assert "concluído" in response.text
+    reloaded_report = db.query(DailyReport).filter(DailyReport.id == report_id).one()
+    assert reloaded_report.medication_adherence_level == "PARTIAL"
+    assert reloaded_report.medication_adherence is False
 
 
 def test_medication_question_is_skipped_without_supplements(monkeypatch):
