@@ -5,6 +5,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base_class import Base
 from app.models.models import (
+    Anamnese,
     CheckTypeEnum,
     DailyReport,
     DailyReportStatusEnum,
@@ -45,6 +46,10 @@ def create_report(
     completed: bool,
     had_symptoms: bool | None = None,
     symptom_description: str | None = None,
+    diet_adherence: bool | None = None,
+    exercise_adherence: bool | None = None,
+    medication_adherence_level: str | None = None,
+    red_flag_category: str | None = None,
 ):
     prompt_sent_at = datetime.combine(report_date, datetime.min.time(), tzinfo=timezone.utc)
     report = DailyReport(
@@ -55,6 +60,10 @@ def create_report(
         status=DailyReportStatusEnum.COMPLETED if completed else DailyReportStatusEnum.PENDING,
         symptom_description=symptom_description,
         had_symptoms=had_symptoms,
+        diet_adherence=diet_adherence,
+        exercise_adherence=exercise_adherence,
+        medication_adherence_level=medication_adherence_level,
+        red_flag_category=red_flag_category,
         completed=completed,
         awaiting_response=not completed,
         awaiting_cause=False,
@@ -341,3 +350,81 @@ def test_custom_summary_filters_by_patient_and_includes_period_boundaries():
     assert summary.metrics.total_checkins == 2
     assert summary.metrics.checkins_with_symptoms == 0
     assert summary.symptoms == []
+
+
+def test_custom_summary_computes_adherence_percentages_from_completed_reports():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    end_date = date.today()
+    start_date = end_date - timedelta(days=29)
+
+    create_report(db, user=user, plan=plan, report_date=start_date, completed=True, diet_adherence=True, exercise_adherence=False, medication_adherence_level="ALL")
+    create_report(db, user=user, plan=plan, report_date=start_date + timedelta(days=1), completed=True, diet_adherence=True, exercise_adherence=True, medication_adherence_level="NONE")
+    create_report(db, user=user, plan=plan, report_date=start_date + timedelta(days=2), completed=True, diet_adherence=False, exercise_adherence=None, medication_adherence_level=None)
+    # Not completed -- must not count toward any adherence percentage.
+    create_report(db, user=user, plan=plan, report_date=end_date, completed=False, diet_adherence=True)
+
+    summary = CustomReportService(db).build_summary(user.id, start_date, end_date)
+
+    assert summary.adherence.diet_percentage == 66.7
+    assert summary.adherence.exercise_percentage == 50.0
+    assert summary.adherence.medication_percentage == 50.0
+
+
+def test_custom_summary_adherence_is_none_when_never_applicable():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    end_date = date.today()
+    start_date = end_date - timedelta(days=29)
+    create_report(db, user=user, plan=plan, report_date=start_date, completed=True)
+
+    summary = CustomReportService(db).build_summary(user.id, start_date, end_date)
+
+    assert summary.adherence.diet_percentage is None
+    assert summary.adherence.exercise_percentage is None
+    assert summary.adherence.medication_percentage is None
+
+
+def test_custom_summary_lists_red_flag_events_with_label_and_tier():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    end_date = date.today()
+    start_date = end_date - timedelta(days=29)
+
+    create_report(db, user=user, plan=plan, report_date=start_date, completed=True, had_symptoms=True, symptom_description="Dor no peito", red_flag_category="cardiorrespiratorio")
+    create_report(db, user=user, plan=plan, report_date=end_date, completed=True, had_symptoms=False)
+
+    summary = CustomReportService(db).build_summary(user.id, start_date, end_date)
+
+    assert len(summary.red_flag_events) == 1
+    event = summary.red_flag_events[0]
+    assert event.report_date == start_date
+    assert event.category_key == "cardiorrespiratorio"
+    assert event.tier == "absoluto"
+    assert event.category_label
+
+
+def test_custom_summary_includes_risk_factors_marked_true_on_the_anamnese():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    db.add(Anamnese(user_id=user.id, risk_heart_disease=True, risk_diabetes=False, risk_asthma_or_copd=None))
+    db.commit()
+    end_date = date.today()
+    start_date = end_date - timedelta(days=29)
+    create_report(db, user=user, plan=plan, report_date=start_date, completed=True)
+
+    summary = CustomReportService(db).build_summary(user.id, start_date, end_date)
+
+    assert summary.risk_factors == ["Doença cardíaca"]
+
+
+def test_custom_summary_risk_factors_empty_without_anamnese():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    end_date = date.today()
+    start_date = end_date - timedelta(days=29)
+    create_report(db, user=user, plan=plan, report_date=start_date, completed=True)
+
+    summary = CustomReportService(db).build_summary(user.id, start_date, end_date)
+
+    assert summary.risk_factors == []

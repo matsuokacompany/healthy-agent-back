@@ -596,6 +596,7 @@ class DailyReportRead(DailyReportBase, ORMModel):
     medication_adherence: Optional[bool] = None
     medication_adherence_level: Optional[MedicationAdherenceLevelEnum] = None
     lifestyle_notes: Optional[str] = None
+    red_flag_category: Optional[str] = None
     status: DailyReportStatusEnum
     awaiting_response: bool
     awaiting_cause: bool
@@ -1022,6 +1023,23 @@ class CustomClinicalTimelineGroup(BaseModel):
     metrics: CustomClinicalPeriodMetrics
 
 
+class CustomClinicalAdherence(BaseModel):
+    # None (not a percentage) means the question was never applicable in any
+    # completed check-in of the period -- e.g. no active supplement ever
+    # registered -- distinct from 0, an adherence that was actually measured
+    # and came out empty.
+    diet_percentage: Optional[float] = Field(default=None, ge=0, le=100)
+    exercise_percentage: Optional[float] = Field(default=None, ge=0, le=100)
+    medication_percentage: Optional[float] = Field(default=None, ge=0, le=100)
+
+
+class CustomClinicalRedFlagEvent(BaseModel):
+    report_date: date
+    category_key: str
+    category_label: str
+    tier: Literal["absoluto", "contextual"]
+
+
 class CustomClinicalSummary(BaseModel):
     patient_id: int
     start_date: date
@@ -1035,6 +1053,9 @@ class CustomClinicalSummary(BaseModel):
     longest_gap_days: int = Field(ge=0)
     symptoms: List[CustomClinicalSymptomOccurrence] = Field(default_factory=list)
     timeline: List[CustomClinicalTimelineGroup] = Field(default_factory=list)
+    adherence: CustomClinicalAdherence = Field(default_factory=CustomClinicalAdherence)
+    red_flag_events: List[CustomClinicalRedFlagEvent] = Field(default_factory=list)
+    risk_factors: List[str] = Field(default_factory=list)
 
 
 class CustomAiReportPreviewResponse(BaseModel):
