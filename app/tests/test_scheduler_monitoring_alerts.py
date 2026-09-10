@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import app.bot.scheduler as scheduler_module
+from app.core.config import settings
 from app.db.base_class import Base
 from app.models.models import (
     CheckTypeEnum,
@@ -242,3 +243,89 @@ def test_symptom_pattern_alert_has_a_cooldown(patch_session_local):
     asyncio.run(scheduler_module.send_monitoring_alerts())
 
     assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_PATTERN_ALERT.value).count() == 1
+
+
+# --- cumulative symptom clusters ------------------------------------------
+
+def test_three_distinct_signs_in_window_notifies_when_enabled(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "CUMULATIVE_SYMPTOM_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    patient_id = patient.id
+    for offset, term_label in ((2, "dor abdominal"), (8, "coceira"), (15, "urina escura")):
+        add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=offset), term_label=term_label)
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    notifications = db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).all()
+    assert len(notifications) == 1
+    assert notifications[0].user_id == patient_id
+
+
+def test_two_distinct_signs_in_window_does_not_notify(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "CUMULATIVE_SYMPTOM_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    for offset, term_label in ((2, "dor abdominal"), (8, "coceira")):
+        add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=offset), term_label=term_label)
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 0
+
+
+def test_sign_outside_the_window_does_not_count(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "CUMULATIVE_SYMPTOM_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    # Cluster window is 18 days -- the third sign lands on day 25, outside it.
+    for offset, term_label in ((2, "dor abdominal"), (8, "coceira"), (25, "urina escura")):
+        add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=offset), term_label=term_label)
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 0
+
+
+def test_alias_labels_count_as_the_same_sign(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "CUMULATIVE_SYMPTOM_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    patient_id = patient.id
+    # Different labels the normalizer could have produced for the same
+    # underlying signs -- "prurido"/"perda de peso"/"dor no estômago" are
+    # aliases, not new signs, but should still count toward the 3 distinct
+    # signs needed.
+    for offset, term_label in ((2, "dor no estômago"), (8, "prurido"), (15, "perda de peso")):
+        add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=offset), term_label=term_label)
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    notifications = db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).all()
+    assert len(notifications) == 1
+    assert notifications[0].user_id == patient_id
+
+
+def test_cumulative_cluster_alert_has_a_cooldown(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "CUMULATIVE_SYMPTOM_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    for offset, term_label in ((2, "dor abdominal"), (8, "coceira"), (15, "urina escura")):
+        add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=offset), term_label=term_label)
+    db.add(Notification(user_id=patient.id, kind=NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value, message="já avisado"))
+    db.commit()
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 1
+
+
+def test_cumulative_cluster_alert_is_disabled_by_default(patch_session_local):
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    for offset, term_label in ((2, "dor abdominal"), (8, "coceira"), (15, "urina escura")):
+        add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=offset), term_label=term_label)
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 0

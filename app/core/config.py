@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     CLINICAL_ENCRYPTION_ACTIVE_KEY_VERSION: str = "v1"
     CLINICAL_ENCRYPTION_PLAINTEXT_WRITES_ENABLED: bool = True
 
+    # Cross-check-in symptom cluster detection (see
+    # docs/red-flag-padroes-cumulativos-proposta.md and
+    # app/services/red_flag_symptoms.py's CUMULATIVE_SYMPTOM_CLUSTERS). Off
+    # by default: the cluster/window/threshold are a first draft pending
+    # review by the responsible physician, not yet clinically validated.
+    CUMULATIVE_SYMPTOM_ALERTS_ENABLED: bool = False
+
     USER_ID: int = 1
     ENV: str = "dev"
     DEBUG: bool = False
