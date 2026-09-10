@@ -20,7 +20,18 @@ from app.models.models import (
     SymptomTerm,
     User,
 )
+from app.core.config import settings
 from app.services.daily_report_service import DailyReportService
+
+
+class FakeRedFlagInsightService:
+    next_result: dict = {"categoria": None}
+
+    def __init__(self, **kwargs):
+        pass
+
+    def gerar_interpretacao(self, relatorio_texto: str) -> dict:
+        return FakeRedFlagInsightService.next_result
 
 
 def as_utc(value):
@@ -582,3 +593,147 @@ def test_delete_patient_response_reopens_report_for_answering():
         .all()
     )
     assert remaining == []
+
+
+def test_red_flag_match_switches_status_and_notifies_self_service_patient(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.red_flag_detection_service.InsightService",
+        FakeRedFlagInsightService,
+    )
+    FakeRedFlagInsightService.next_result = {"categoria": "cardiorrespiratorio"}
+
+    db = build_session()
+    user, plan = create_user_and_self_service_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    db.commit()
+
+    result = DailyReportService.process_response(db, user, "Aperto forte no peito e falta de ar")
+
+    assert result == "ASK_DIET_ADHERENCE_RED_FLAG"
+    db.refresh(report)
+    assert report.red_flag_category == "cardiorrespiratorio"
+
+    red_flag_notifications = (
+        db.query(Notification)
+        .filter(Notification.kind == NotificationKindEnum.RED_FLAG_SYMPTOM.value)
+        .all()
+    )
+    assert len(red_flag_notifications) == 1
+    assert red_flag_notifications[0].user_id == user.id
+    assert "192" in red_flag_notifications[0].message
+
+
+def test_red_flag_match_also_notifies_the_assigned_professional(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.red_flag_detection_service.InsightService",
+        FakeRedFlagInsightService,
+    )
+    FakeRedFlagInsightService.next_result = {"categoria": "neurologico"}
+
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    professional_user = User(name="Profissional", email=f"pro-{datetime.now().timestamp()}@example.com")
+    db.add(professional_user)
+    db.commit()
+    db.refresh(professional_user)
+    profile = ProfessionalProfile(user_id=professional_user.id, active=True)
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+    db.add(MonitoringProfessional(monitoring_plan_id=plan.id, professional_profile_id=profile.id, role="responsável", active=True))
+    db.commit()
+
+    DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    db.commit()
+
+    DailyReportService.process_response(db, user, "Minha boca entortou e o braço ficou fraco")
+
+    red_flag_notifications = (
+        db.query(Notification)
+        .filter(Notification.kind == NotificationKindEnum.RED_FLAG_SYMPTOM.value)
+        .all()
+    )
+    recipients = {notification.user_id for notification in red_flag_notifications}
+    assert recipients == {user.id, professional_user.id}
+
+
+def test_no_red_flag_match_keeps_the_normal_status(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.red_flag_detection_service.InsightService",
+        FakeRedFlagInsightService,
+    )
+    FakeRedFlagInsightService.next_result = {"categoria": None}
+
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    db.commit()
+
+    result = DailyReportService.process_response(db, user, "Uma coceira leve no braço")
+
+    assert result == "ASK_DIET_ADHERENCE"
+    db.refresh(report)
+    assert report.red_flag_category is None
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.RED_FLAG_SYMPTOM.value).count() == 0
+
+
+def test_editing_a_report_to_a_red_flag_description_notifies_and_sets_the_category(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.red_flag_detection_service.InsightService",
+        FakeRedFlagInsightService,
+    )
+    FakeRedFlagInsightService.next_result = {"categoria": "sangramento_trauma_intoxicacao"}
+
+    db = build_session()
+    user, plan = create_user_and_self_service_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    db.commit()
+    db.refresh(report)
+
+    DailyReportService.update_patient_response(
+        db, report,
+        had_symptoms=True,
+        symptom_description="Vomitei sangue de manhã",
+    )
+
+    db.refresh(report)
+    assert report.red_flag_category == "sangramento_trauma_intoxicacao"
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.RED_FLAG_SYMPTOM.value).count() == 1
+
+
+def test_editing_away_from_had_symptoms_clears_the_red_flag_category(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.red_flag_detection_service.InsightService",
+        FakeRedFlagInsightService,
+    )
+
+    db = build_session()
+    user, plan = create_user_and_self_service_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    report.red_flag_category = "cardiorrespiratorio"
+    db.commit()
+    db.refresh(report)
+
+    DailyReportService.update_patient_response(db, report, had_symptoms=False)
+
+    db.refresh(report)
+    assert report.red_flag_category is None
+
+
+def test_delete_patient_response_clears_the_red_flag_category():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    report.red_flag_category = "neurologico"
+    report.had_symptoms = True
+    report.completed = True
+    db.commit()
+
+    DailyReportService.delete_patient_response(db, report)
+
+    assert report.red_flag_category is None

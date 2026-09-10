@@ -409,6 +409,12 @@ class DailyReport(Base):
     # edit UI) keeps working; this column is only for telling PARTIAL apart
     # from NONE where that distinction matters (e.g. a different calendar icon).
     medication_adherence_level = Column(String, nullable=True)
+    # Key into RED_FLAG_ABSOLUTE_CATEGORIES (app/services/red_flag_symptoms.py)
+    # when RedFlagDetectionService matched the free-text symptom_description
+    # against one of the reviewed categories; NULL otherwise. Not clinically
+    # identifying on its own (it's a short category key, not free text), so
+    # unlike symptom_description it doesn't need envelope encryption.
+    red_flag_category = Column(String, nullable=True)
     lifestyle_notes = Column(Text, nullable=True)
     lifestyle_notes_encryption_envelope = Column(JSON, nullable=True)
     completed = Column(Boolean, default=False, nullable=False)
@@ -646,6 +652,7 @@ class NotificationKindEnum(str, enum.Enum):
     PATIENT_INACTIVE = "PATIENT_INACTIVE"
     MEDICATION_ADHERENCE_ALERT = "MEDICATION_ADHERENCE_ALERT"
     SYMPTOM_PATTERN_ALERT = "SYMPTOM_PATTERN_ALERT"
+    RED_FLAG_SYMPTOM = "RED_FLAG_SYMPTOM"
 
 
 class Notification(Base):

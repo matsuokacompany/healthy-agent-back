@@ -19,6 +19,7 @@ from app.services.notification_service import (
     notify_medication_adherence_none,
     notify_patient_assigned,
     notify_patient_inactive,
+    notify_red_flag_symptom,
     notify_symptom_pattern,
     notify_symptom_reported,
 )
@@ -226,3 +227,33 @@ def test_notify_symptom_pattern_notifies_the_professional_when_assigned():
     assert notification.user_id == professional.id
     assert notification.kind == NotificationKindEnum.SYMPTOM_PATTERN_ALERT.value
     assert patient.name in notification.message
+
+
+def test_notify_red_flag_symptom_always_notifies_the_patient():
+    db = build_session()
+    patient = make_user(db, name="Paciente")
+
+    notify_red_flag_symptom(db, patient=patient, category_label="Sinais cardiorrespiratórios")
+    db.commit()
+
+    notifications = db.query(Notification).filter(Notification.kind == NotificationKindEnum.RED_FLAG_SYMPTOM.value).all()
+    assert len(notifications) == 1
+    assert notifications[0].user_id == patient.id
+    assert "192" in notifications[0].message
+
+
+def test_notify_red_flag_symptom_also_notifies_the_professional_when_assigned():
+    db = build_session()
+    patient = make_user(db, name="Paciente")
+    professional = link_professional(db, patient.id)
+
+    notify_red_flag_symptom(db, patient=patient, category_label="Sinais cardiorrespiratórios")
+    db.commit()
+
+    notifications = db.query(Notification).filter(Notification.kind == NotificationKindEnum.RED_FLAG_SYMPTOM.value).all()
+    assert len(notifications) == 2
+    recipients = {notification.user_id for notification in notifications}
+    assert recipients == {patient.id, professional.id}
+    professional_notification = next(n for n in notifications if n.user_id == professional.id)
+    assert patient.name in professional_notification.message
+    assert "Sinais cardiorrespiratórios" in professional_notification.message

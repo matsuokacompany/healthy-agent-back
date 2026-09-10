@@ -13,6 +13,7 @@ from app.db.security_context import set_database_service_context
 from app.models.models import ClinicalAttachmentSourceEnum, DailyReportStatusEnum, User, WhatsAppMessage
 from app.services.clinical_attachment_service import ClinicalAttachmentService
 from app.services.daily_report_service import DailyReportService
+from app.services.red_flag_symptoms import RED_FLAG_SAFETY_MESSAGE_PT_BR
 from app.services.supplement_service import SupplementService
 
 logger = logging.getLogger(__name__)
@@ -418,6 +419,21 @@ class BotService:
         if status == "ASK_DIET_ADHERENCE":
             return BotResponse(
                 text="Mais uma coisa: você seguiu sua dieta certinho ontem?",
+                ask_followup=True,
+                buttons=(("diet_yes", "Sim"), ("diet_no", "Não")),
+            )
+
+        if status == "ASK_DIET_ADHERENCE_RED_FLAG":
+            # Same next question as ASK_DIET_ADHERENCE above, but prefixed
+            # with the red-flag safety message -- delivered right here, in
+            # this same WhatsApp conversation, instead of only landing in a
+            # notification the patient might not see in time (see
+            # RedFlagDetectionService / red_flag_symptoms.py).
+            return BotResponse(
+                text=(
+                    f"{RED_FLAG_SAFETY_MESSAGE_PT_BR}\n\n"
+                    "Mais uma coisa: você seguiu sua dieta certinho ontem?"
+                ),
                 ask_followup=True,
                 buttons=(("diet_yes", "Sim"), ("diet_no", "Não")),
             )
