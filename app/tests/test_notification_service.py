@@ -20,6 +20,7 @@ from app.services.notification_service import (
     notify_patient_assigned,
     notify_patient_inactive,
     notify_red_flag_symptom,
+    notify_red_flag_symptom_contextual,
     notify_symptom_pattern,
     notify_symptom_reported,
 )
@@ -257,3 +258,38 @@ def test_notify_red_flag_symptom_also_notifies_the_professional_when_assigned():
     professional_notification = next(n for n in notifications if n.user_id == professional.id)
     assert patient.name in professional_notification.message
     assert "Sinais cardiorrespiratórios" in professional_notification.message
+
+
+def test_notify_red_flag_symptom_contextual_always_notifies_the_patient():
+    db = build_session()
+    patient = make_user(db, name="Paciente")
+
+    notify_red_flag_symptom_contextual(
+        db, patient=patient, category_label="Falta de ar leve", risk_factor_label="Doença cardíaca"
+    )
+    db.commit()
+
+    notifications = db.query(Notification).filter(Notification.kind == NotificationKindEnum.RED_FLAG_SYMPTOM.value).all()
+    assert len(notifications) == 1
+    assert notifications[0].user_id == patient.id
+    assert "192" in notifications[0].message
+
+
+def test_notify_red_flag_symptom_contextual_also_notifies_the_professional_naming_the_risk_factor():
+    db = build_session()
+    patient = make_user(db, name="Paciente")
+    professional = link_professional(db, patient.id)
+
+    notify_red_flag_symptom_contextual(
+        db, patient=patient, category_label="Falta de ar leve", risk_factor_label="Doença cardíaca"
+    )
+    db.commit()
+
+    notifications = db.query(Notification).filter(Notification.kind == NotificationKindEnum.RED_FLAG_SYMPTOM.value).all()
+    assert len(notifications) == 2
+    recipients = {notification.user_id for notification in notifications}
+    assert recipients == {patient.id, professional.id}
+    professional_notification = next(n for n in notifications if n.user_id == professional.id)
+    assert patient.name in professional_notification.message
+    assert "Falta de ar leve" in professional_notification.message
+    assert "Doença cardíaca" in professional_notification.message

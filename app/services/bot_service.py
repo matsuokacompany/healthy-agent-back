@@ -13,7 +13,10 @@ from app.db.security_context import set_database_service_context
 from app.models.models import ClinicalAttachmentSourceEnum, DailyReportStatusEnum, User, WhatsAppMessage
 from app.services.clinical_attachment_service import ClinicalAttachmentService
 from app.services.daily_report_service import DailyReportService
-from app.services.red_flag_symptoms import RED_FLAG_SAFETY_MESSAGE_PT_BR
+from app.services.red_flag_symptoms import (
+    RED_FLAG_CONTEXTUAL_SAFETY_MESSAGE_PT_BR,
+    RED_FLAG_SAFETY_MESSAGE_PT_BR,
+)
 from app.services.supplement_service import SupplementService
 
 logger = logging.getLogger(__name__)
@@ -432,6 +435,23 @@ class BotService:
             return BotResponse(
                 text=(
                     f"{RED_FLAG_SAFETY_MESSAGE_PT_BR}\n\n"
+                    "Mais uma coisa: você seguiu sua dieta certinho ontem?"
+                ),
+                ask_followup=True,
+                buttons=(("diet_yes", "Sim"), ("diet_no", "Não")),
+            )
+
+        if status == "ASK_DIET_ADHERENCE_RED_FLAG_CONTEXTUAL":
+            # Same shape as ASK_DIET_ADHERENCE_RED_FLAG above, but for a
+            # CONTEXTUAL-tier match -- a symptom that's only a red flag given
+            # the patient's specific risk-factor history (see
+            # RedFlagDetectionService.detect_for_patient). The message is
+            # deliberately generic (doesn't name the risk factor) so no
+            # extra data needs to be threaded through this status-string
+            # channel; the professional-facing notification names it.
+            return BotResponse(
+                text=(
+                    f"{RED_FLAG_CONTEXTUAL_SAFETY_MESSAGE_PT_BR}\n\n"
                     "Mais uma coisa: você seguiu sua dieta certinho ontem?"
                 ),
                 ask_followup=True,
