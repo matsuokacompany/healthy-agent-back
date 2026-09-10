@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy import or_, text
+from sqlalchemy import func, or_, text
 
 from app.core.config import settings
 from app.db.session import SessionLocal
@@ -13,16 +13,25 @@ from app.models.models import (
     CheckTypeEnum,
     DailyReport,
     DailyReportStatusEnum,
+    DailyReportSymptomTerm,
+    MedicationAdherenceLevelEnum,
     MonitoringPlan,
     MonitoringPlanOriginEnum,
     Notification,
     NotificationKindEnum,
     Subscription,
+    SymptomTerm,
     User,
 )
 from app.services.daily_report_service import DailyReportService
 from app.services.dunning_service import DunningService
-from app.services.notification_service import notify_checkin_pending, notify_supplement_course_ended
+from app.services.notification_service import (
+    notify_checkin_pending,
+    notify_medication_adherence_none,
+    notify_patient_inactive,
+    notify_supplement_course_ended,
+    notify_symptom_pattern,
+)
 from app.services.payment_service import subscription_grants_access
 from app.services.supplement_service import SupplementService
 
@@ -33,6 +42,18 @@ SCHEDULER_ADVISORY_LOCK_ID = 2026063001
 DUNNING_ADVISORY_LOCK_ID = 2026063002
 CHECKIN_REMINDER_ADVISORY_LOCK_ID = 2026063003
 SUPPLEMENT_NOTIFICATION_ADVISORY_LOCK_ID = 2026063004
+MONITORING_ALERTS_ADVISORY_LOCK_ID = 2026063005
+
+# Days of consecutive incomplete check-ins that trigger an inactivity alert --
+# only these two exact streak lengths fire, so the alert lands once when it
+# first becomes worth attention and once as a single escalation, never as a
+# daily repeat for as long as the patient stays silent.
+INACTIVITY_ALERT_DAYS = (3, 7)
+# One deeper than the longest threshold above -- see _fire_inactivity_alert.
+INACTIVITY_LOOKBACK_REPORTS = max(INACTIVITY_ALERT_DAYS) + 1
+SYMPTOM_PATTERN_MIN_OCCURRENCES = 3
+SYMPTOM_PATTERN_WINDOW_DAYS = 7
+SYMPTOM_PATTERN_COOLDOWN_DAYS = 7
 
 
 def _mask_identifier(value: str | None) -> str | None:
@@ -317,6 +338,144 @@ async def send_supplement_course_ended_notifications() -> None:
     logger.info("SUPPLEMENT_COURSE_ENDED_NOTIFICATIONS DONE | notified=%s", notified)
 
 
+def _fire_inactivity_alert(db, patient: User, recent_reports: list[DailyReport]) -> bool:
+    # `recent_reports` is fetched one row deeper than the largest alert
+    # threshold (see INACTIVITY_LOOKBACK) specifically so a streak that has
+    # gone past every threshold reads as "longer than any of them" instead
+    # of being clipped to the last one and re-firing it every day after.
+    streak = 0
+    for report in recent_reports:
+        if report.completed:
+            break
+        streak += 1
+    if streak not in INACTIVITY_ALERT_DAYS:
+        return False
+    notify_patient_inactive(db, patient=patient, days=streak)
+    return True
+
+
+def _fire_medication_alert(db, patient: User, recent_reports: list[DailyReport]) -> bool:
+    completed = [report for report in recent_reports if report.completed]
+    if len(completed) < 2:
+        return False
+    last_two = completed[:2]
+    if any(report.medication_adherence_level != MedicationAdherenceLevelEnum.NONE.value for report in last_two):
+        return False
+    # Fire only the day the streak *reaches* two -- if the completed report
+    # right before these two was already NONE too, this same alert would
+    # already have fired on that earlier run.
+    if len(completed) >= 3 and completed[2].medication_adherence_level == MedicationAdherenceLevelEnum.NONE.value:
+        return False
+    notify_medication_adherence_none(db, patient=patient)
+    return True
+
+
+def _fire_symptom_pattern_alert(db, patient: User, today) -> bool:
+    already_notified = (
+        db.query(Notification)
+        .filter(
+            Notification.user_id == patient.id,
+            Notification.kind == NotificationKindEnum.SYMPTOM_PATTERN_ALERT.value,
+            Notification.created_at >= datetime.now(timezone.utc) - timedelta(days=SYMPTOM_PATTERN_COOLDOWN_DAYS),
+        )
+        .first()
+    )
+    if already_notified:
+        return False
+
+    window_start = today - timedelta(days=SYMPTOM_PATTERN_WINDOW_DAYS - 1)
+    occurrence_count = func.count(DailyReportSymptomTerm.daily_report_id.distinct())
+    pattern = (
+        db.query(SymptomTerm.label, occurrence_count)
+        .join(DailyReportSymptomTerm, DailyReportSymptomTerm.symptom_term_id == SymptomTerm.id)
+        .join(DailyReport, DailyReport.id == DailyReportSymptomTerm.daily_report_id)
+        .filter(
+            DailyReportSymptomTerm.patient_id == patient.id,
+            DailyReport.report_date >= window_start,
+            DailyReport.report_date <= today,
+        )
+        .group_by(SymptomTerm.label)
+        .having(occurrence_count >= SYMPTOM_PATTERN_MIN_OCCURRENCES)
+        .order_by(occurrence_count.desc())
+        .first()
+    )
+    if not pattern:
+        return False
+
+    term_label, occurrences = pattern
+    notify_symptom_pattern(db, patient=patient, term_label=term_label, occurrences=occurrences)
+    return True
+
+
+async def send_monitoring_alerts() -> None:
+    """Runs once daily. Reuses the daily check-in history to flag three
+    engagement/safety patterns worth attention: several missed check-ins in
+    a row, medication adherence dropping to none, and the same symptom
+    recurring across the week. Goes to the patient's assigned professional(s)
+    when there are any, otherwise to the patient themself (self-service
+    plans have no professional to alert) -- see notification_service.py's
+    notify_patient_inactive/notify_medication_adherence_none/
+    notify_symptom_pattern. Each rule fires once per crossing of its
+    threshold, not on every day the pattern continues."""
+    logger.info("MONITORING_ALERTS START")
+
+    db = SessionLocal()
+    set_database_service_context(db, "scheduler")
+    lock_acquired = False
+    alerts_sent = 0
+
+    try:
+        lock_acquired = _try_acquire_scheduler_lock(db, MONITORING_ALERTS_ADVISORY_LOCK_ID)
+        if not lock_acquired:
+            logger.info("MONITORING_ALERTS SKIPPED | reason=advisory_lock_busy")
+            return
+
+        tz = ZoneInfo(settings.SCHEDULER_TIMEZONE)
+        today = datetime.now(tz).date()
+
+        plans = (
+            db.query(MonitoringPlan)
+            .filter(MonitoringPlan.active.is_(True))
+            .filter(or_(MonitoringPlan.start_date.is_(None), MonitoringPlan.start_date <= today))
+            .filter(or_(MonitoringPlan.end_date.is_(None), MonitoringPlan.end_date >= today))
+            .all()
+        )
+
+        for plan in plans:
+            patient = plan.patient
+            if not patient:
+                continue
+
+            recent_reports = (
+                db.query(DailyReport)
+                .filter(DailyReport.monitoring_plan_id == plan.id)
+                .order_by(DailyReport.report_date.desc())
+                .limit(INACTIVITY_LOOKBACK_REPORTS)
+                .all()
+            )
+
+            if _fire_inactivity_alert(db, patient, recent_reports):
+                alerts_sent += 1
+            if _fire_medication_alert(db, patient, recent_reports):
+                alerts_sent += 1
+            if _fire_symptom_pattern_alert(db, patient, today):
+                alerts_sent += 1
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("FATAL ERROR send_monitoring_alerts")
+    finally:
+        if lock_acquired:
+            try:
+                _release_scheduler_lock(db, MONITORING_ALERTS_ADVISORY_LOCK_ID)
+            except Exception:
+                logger.exception("Failed to release monitoring alerts advisory lock")
+        db.close()
+
+    logger.info("MONITORING_ALERTS DONE | sent=%s", alerts_sent)
+
+
 def start_scheduler(bot_manager):
     global _scheduler
 
@@ -368,6 +527,13 @@ def start_scheduler(bot_manager):
         send_supplement_course_ended_notifications,
         CronTrigger(hour=8, minute=30, timezone=tz),
         id="supplement_course_ended_notifications",
+        replace_existing=True,
+    )
+
+    _scheduler.add_job(
+        send_monitoring_alerts,
+        CronTrigger(hour=8, minute=45, timezone=tz),
+        id="monitoring_alerts",
         replace_existing=True,
     )
 

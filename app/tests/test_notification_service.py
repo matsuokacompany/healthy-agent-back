@@ -16,7 +16,10 @@ from app.services.notification_service import (
     assigned_professional_user_ids,
     notify_ai_report_ready,
     notify_checkin_pending,
+    notify_medication_adherence_none,
     notify_patient_assigned,
+    notify_patient_inactive,
+    notify_symptom_pattern,
     notify_symptom_reported,
 )
 
@@ -141,3 +144,85 @@ def test_notify_symptom_reported_is_a_noop_with_no_assigned_professionals():
     db.commit()
 
     assert db.query(Notification).count() == 0
+
+
+def test_notify_patient_inactive_notifies_the_patient_when_self_service():
+    db = build_session()
+    patient = make_user(db, name="Paciente")
+
+    notify_patient_inactive(db, patient=patient, days=3)
+    db.commit()
+
+    notification = db.query(Notification).one()
+    assert notification.user_id == patient.id
+    assert notification.kind == NotificationKindEnum.PATIENT_INACTIVE.value
+    assert "3 dias" in notification.message
+
+
+def test_notify_patient_inactive_notifies_the_professional_when_assigned():
+    db = build_session()
+    patient = make_user(db, name="Paciente")
+    professional = link_professional(db, patient.id)
+
+    notify_patient_inactive(db, patient=patient, days=7)
+    db.commit()
+
+    notification = db.query(Notification).one()
+    assert notification.user_id == professional.id
+    assert notification.kind == NotificationKindEnum.PATIENT_INACTIVE.value
+    assert patient.name in notification.message
+    assert "7 dias" in notification.message
+
+
+def test_notify_medication_adherence_none_notifies_the_patient_when_self_service():
+    db = build_session()
+    patient = make_user(db, name="Paciente")
+
+    notify_medication_adherence_none(db, patient=patient)
+    db.commit()
+
+    notification = db.query(Notification).one()
+    assert notification.user_id == patient.id
+    assert notification.kind == NotificationKindEnum.MEDICATION_ADHERENCE_ALERT.value
+
+
+def test_notify_medication_adherence_none_notifies_the_professional_when_assigned():
+    db = build_session()
+    patient = make_user(db, name="Paciente")
+    professional = link_professional(db, patient.id)
+
+    notify_medication_adherence_none(db, patient=patient)
+    db.commit()
+
+    notification = db.query(Notification).one()
+    assert notification.user_id == professional.id
+    assert notification.kind == NotificationKindEnum.MEDICATION_ADHERENCE_ALERT.value
+    assert patient.name in notification.message
+
+
+def test_notify_symptom_pattern_notifies_the_patient_when_self_service():
+    db = build_session()
+    patient = make_user(db, name="Paciente")
+
+    notify_symptom_pattern(db, patient=patient, term_label="Dor de cabeça", occurrences=3)
+    db.commit()
+
+    notification = db.query(Notification).one()
+    assert notification.user_id == patient.id
+    assert notification.kind == NotificationKindEnum.SYMPTOM_PATTERN_ALERT.value
+    assert "Dor de cabeça" in notification.message
+    assert "3" in notification.message
+
+
+def test_notify_symptom_pattern_notifies_the_professional_when_assigned():
+    db = build_session()
+    patient = make_user(db, name="Paciente")
+    professional = link_professional(db, patient.id)
+
+    notify_symptom_pattern(db, patient=patient, term_label="Dor de cabeça", occurrences=3)
+    db.commit()
+
+    notification = db.query(Notification).one()
+    assert notification.user_id == professional.id
+    assert notification.kind == NotificationKindEnum.SYMPTOM_PATTERN_ALERT.value
+    assert patient.name in notification.message
