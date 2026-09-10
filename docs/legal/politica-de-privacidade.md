@@ -1,6 +1,6 @@
 # Política de Privacidade — Julha
 
-**Última atualização:** 27 de agosto de 2026
+**Última atualização:** 10 de setembro de 2026
 
 > **Este documento é uma minuta técnica preparada com base no funcionamento real da plataforma Julha
 > e na Lei Geral de Proteção de Dados (Lei 13.709/2018 — LGPD). Não constitui aconselhamento
@@ -83,6 +83,12 @@ Quando o Paciente for menor de idade, o tratamento de seus dados depende do cons
 destacado de um dos pais ou de seu responsável legal, nos termos do art. 14 da LGPD, obtido no momento
 do cadastro conforme descrito nos Termos de Uso.
 
+A modalidade de Relatório de IA voltada a apoiar a avaliação clínica do Profissional (que pode incluir
+hipótese diagnóstica, nível de suspeição e urgência sugeridos) está sujeita também à Resolução CFM nº
+2.454/2026, que normatiza o uso de inteligência artificial na prática médica — ver Cláusula 6 dos
+[Termos de Uso](./termos-de-uso.md) para o detalhamento dessa modalidade, o que ela pode conter e sua
+classificação de risco.
+
 ## 6. Com quem compartilhamos seus dados
 
 Não vendemos dados pessoais. Compartilhamos dados apenas com operadores (art. 5º, VII, da LGPD) que
@@ -91,8 +97,10 @@ exigido por lei:
 
 - **Supabase** — hospedagem do banco de dados, autenticação de usuários e, quando habilitado,
   armazenamento de imagens clínicas.
-- **OpenAI** — geração dos Relatórios de IA a partir do histórico clínico enviado. O conteúdo enviado
-  é limitado e truncado para reduzir a exposição de dados desnecessários.
+- **OpenAI** — geração dos Relatórios de IA a partir do histórico clínico enviado (resumo de check-ins,
+  anamnese e, quando aplicável, fatores de risco estruturados). Atualmente utilizamos modelos da
+  família GPT da OpenAI (ex.: GPT-4o-mini ou modelo equivalente configurado pela Julha). O conteúdo
+  enviado é limitado e truncado para reduzir a exposição de dados desnecessários.
 - **Meta Platforms, Inc. (WhatsApp Cloud API)** — envio e recebimento de mensagens do check-in de
   sintomas.
 - **Amazon Web Services (AWS KMS)** — gestão das chaves criptográficas usadas para proteger campos

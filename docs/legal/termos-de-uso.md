@@ -1,6 +1,6 @@
 # Termos de Uso — Julha
 
-**Última atualização:** 27 de agosto de 2026
+**Última atualização:** 10 de setembro de 2026
 
 > **Este documento é uma minuta técnica preparada com base no funcionamento real da plataforma Julha.
 > Não constitui aconselhamento jurídico. Antes de publicar, submeta este texto à revisão de um
@@ -103,8 +103,10 @@ estritamente necessário para essas finalidades.
 
 ## 6. Uso de Inteligência Artificial
 
-6.1. A Plataforma pode utilizar modelos de inteligência artificial de terceiros para gerar resumos e
-interpretações a partir do histórico de sintomas relatado ("Relatório de IA").
+6.1. A Plataforma utiliza modelos de inteligência artificial de terceiros — atualmente da família GPT,
+da OpenAI — para gerar resumos e interpretações a partir do histórico de sintomas relatado ("Relatório
+de IA"). A Julha pode atualizar o modelo utilizado ao longo do tempo, mantendo os limites e finalidades
+descritos nesta Cláusula.
 
 6.2. **O Relatório de IA é um material de apoio, não um diagnóstico.** Quando o Relatório de IA lista
 possíveis condições relacionadas aos sintomas relatados, essas são apresentadas exclusivamente como
@@ -112,9 +114,32 @@ hipóteses a serem avaliadas pelo Profissional, nunca como diagnóstico confirma
 produzir interpretações imprecisas, incompletas ou incorretas, e nenhuma decisão clínica ou pessoal de
 saúde deve se basear unicamente em um Relatório de IA.
 
-6.3. Dados enviados para geração de Relatórios de IA são processados por um provedor terceirizado de
+6.3. **O que o Relatório de IA pode conter**, dependendo da modalidade de análise solicitada pelo
+Profissional:
+
+a) um resumo do histórico de check-ins e cenários possíveis de evolução dos sintomas relatados
+("modalidade preventiva"); ou
+
+b) uma hipótese principal e possíveis condições associadas aos sintomas relatados, um nível de
+suspeição indicativo, uma sugestão de especialidade médica e de exames prioritários, e um nível de
+urgência sugerido ("modalidade de apoio à avaliação clínica").
+
+A modalidade "b" só é disponibilizada a Profissionais e Administradores, nunca diretamente ao Paciente:
+quando o próprio Paciente realiza autoacompanhamento sem Profissional vinculado, a Plataforma só gera
+resumos sem hipótese diagnóstica, nível de suspeição ou indicação de urgência.
+
+6.4. **Classificação de risco e informação ao Paciente.** Em conformidade com a Resolução CFM nº
+2.454/2026, que trata do uso de inteligência artificial na prática médica, a Julha classifica
+internamente o uso de IA como apoio à decisão clínica descrito na alínea "b" da Cláusula 6.3 como
+**[risco médio — classificação preliminar; a confirmar com o médico responsável pelo protocolo clínico
+e com assessoria jurídica especializada antes da publicação deste documento]**. Quando a IA for
+utilizada como apoio relevante ao cuidado de um Paciente específico, cabe ao Profissional responsável
+informá-lo desse uso, de forma clara e acessível, nos termos dessa Resolução.
+
+6.5. Dados enviados para geração de Relatórios de IA são processados por um provedor terceirizado de
 inteligência artificial (ver Cláusula 7 e a Política de Privacidade), sob instruções e limites de uso
-definidos pela Julha.
+definidos pela Julha, incluindo limite de tamanho do conteúdo enviado para reduzir a exposição de dados
+desnecessários.
 
 ## 7. Comunicação via WhatsApp e dependência de terceiros
 
