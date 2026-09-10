@@ -10,7 +10,7 @@ and possible-cancer red flags):
   (a symptom that is, by itself, a sign of a potentially serious condition
   regardless of patient history or how many times it's occurred --
   cardiorrespiratory, neurological, altered consciousness,
-  bleeding/trauma/poisoning) and RED_FLAG_CONTEXTUAL_CATEGORIES once their
+  bleeding/trauma/poisoning, possible sepsis) and RED_FLAG_CONTEXTUAL_CATEGORIES once their
   matching anamnese risk factor actually applies (see ANAMNESE_RISK_FACTORS /
   CONTEXTUAL_RISK_RULES below) -- e.g. mild shortness of breath is routine
   on its own, but warrants the same urgency as an absolute red flag in a
@@ -136,6 +136,26 @@ RED_FLAG_ABSOLUTE_CATEGORIES: tuple[RedFlagCategory, ...] = (
             "bati a cabeça forte e fiquei confuso",
             "queimadura grande",
             "levei um choque elétrico forte",
+        ),
+    ),
+    # Sourced from NICE NG253 (suspected sepsis) -- "possível infecção" alone
+    # is routine (a cold, a UTI), but paired with any one of these danger
+    # signs it's treated as VERMELHO, not a LARANJA combination to watch
+    # over several check-ins: sepsis can progress to septic shock in hours,
+    # and the source document's own section 7 safety rule says an
+    # emergency-compatible combination should never wait.
+    RedFlagCategory(
+        key="sinais_de_sepse",
+        label="Possível infecção com sinais de gravidade",
+        tier="absoluto",
+        example_phrases=(
+            "estou com febre alta e muito confuso",
+            "febre e não consigo respirar direito",
+            "infecção e a pressão caiu muito",
+            "febre e quase não estou urinando",
+            "lábios ou pele arroxeados junto com febre",
+            "pele muito pálida, acinzentada ou manchada, com febre",
+            "manchas na pele que não somem quando aperto, com febre",
         ),
     ),
 )
@@ -291,10 +311,48 @@ _GENERAL_MALAISE = ClinicalSign(
     "alteracao_estado_geral", "alteração do estado geral", ("mal-estar", "fraqueza", "alteração do estado geral", "indisposição")
 )
 _UNEXPLAINED_BLEEDING = ClinicalSign(
-    "sangramento_inexplicado", "sangramento inexplicado", ("sangramento", "sangramento inexplicado", "hematoma sem causa")
+    "sangramento_inexplicado",
+    "sangramento inexplicado",
+    (
+        "sangramento",
+        "sangramento inexplicado",
+        "hematoma sem causa",
+        "tosse com sangue",
+        "escarro com sangue",
+        "sangue no escarro",
+        "hemoptise",
+    ),
 )
 _NEW_OR_GROWING_MASS = ClinicalSign(
     "massa_ou_caroco", "caroço ou massa nova", ("caroço", "nódulo", "massa", "íngua", "caroço que não desaparece")
+)
+_FEVER = ClinicalSign("febre", "febre", ("febre", "febre alta", "febre persistente", "febre e calafrio"))
+_JAUNDICE_SKIN = ClinicalSign(
+    "ictericia", "pele ou olhos amarelados", ("icterícia", "pele amarelada", "olhos amarelados", "pele ou olhos amarelados")
+)
+_BLOOD_IN_URINE = ClinicalSign("sangue_na_urina", "sangue na urina", ("sangue na urina", "urina com sangue", "hematúria"))
+_URINARY_SYMPTOMS = ClinicalSign(
+    "sintomas_urinarios",
+    "sintomas urinários",
+    (
+        "dor ao urinar",
+        "ardência ao urinar",
+        "disúria",
+        "vontade frequente de urinar",
+        "dificuldade para urinar",
+        "sangue na urina",
+    ),
+)
+_FLANK_OR_BACK_PAIN = ClinicalSign(
+    "dor_lombar_ou_lateral",
+    "dor nas costas ou na lateral do corpo",
+    ("dor nas costas", "dor lombar", "dor na lateral do corpo", "dor no flanco"),
+)
+_DIZZINESS_OR_FAINTING = ClinicalSign(
+    "tontura_ou_desmaio", "tontura ou desmaio", ("tontura", "tontura ou desmaio", "quase desmaiei", "desmaio")
+)
+_DYSPHAGIA = ClinicalSign(
+    "dificuldade_para_engolir", "dificuldade para engolir", ("dificuldade para engolir", "disfagia", "dor ao engolir")
 )
 
 # Proxy for "persistente" in the source guidance: the bot's free-text
@@ -366,10 +424,14 @@ ORANGE_COMBINATION_RULES: tuple[OrangeCombinationRule, ...] = (
     ),
     OrangeCombinationRule(
         key="dor_abdominal_mais_ictericia",
-        label="Dor abdominal associada a sinais de icterícia (coceira ou urina escura)",
+        label="Dor abdominal associada a sinais de icterícia (pele/olhos amarelados, coceira ou urina escura)",
         window_days=21,
         required=(OrangeSignRequirement(_ABDOMINAL_PAIN),),
-        any_of=(OrangeSignRequirement(_JAUNDICE_ITCHING), OrangeSignRequirement(_DARK_URINE)),
+        any_of=(
+            OrangeSignRequirement(_JAUNDICE_SKIN),
+            OrangeSignRequirement(_JAUNDICE_ITCHING),
+            OrangeSignRequirement(_DARK_URINE),
+        ),
     ),
     OrangeCombinationRule(
         key="tosse_persistente_mais_sinais_respiratorios_ou_peso",
@@ -405,6 +467,95 @@ ORANGE_COMBINATION_RULES: tuple[OrangeCombinationRule, ...] = (
         label="Massa ou caroço novo que persiste",
         window_days=21,
         required=(OrangeSignRequirement(_NEW_OR_GROWING_MASS, min_occurrences=PERSISTENCE_MIN_OCCURRENCES),),
+    ),
+    # The 11 rules below come from a second clinical reference (NICE NG12,
+    # updated April 2026; NICE NG253 for the sepsis-adjacent flank/urinary
+    # pattern) with more specific pairings than the ones above -- most need
+    # only ONE occurrence of each sign (no persistence), matching how that
+    # source states them as simple pairs rather than "persistent + X".
+    # Shorter 14-day windows are used for the more acute infection-pattern
+    # combinations (fever, urinary, flank pain, dizziness); 21-day windows
+    # stay reserved for the slower-building, cancer-pattern combinations,
+    # consistent with the rules above.
+    OrangeCombinationRule(
+        key="dor_abdominal_mais_febre",
+        label="Dor abdominal associada a febre",
+        window_days=14,
+        required=(OrangeSignRequirement(_ABDOMINAL_PAIN), OrangeSignRequirement(_FEVER)),
+    ),
+    OrangeCombinationRule(
+        key="dor_abdominal_mais_perda_de_peso_simples",
+        label="Dor abdominal associada a perda de peso inexplicada",
+        window_days=21,
+        required=(OrangeSignRequirement(_ABDOMINAL_PAIN), OrangeSignRequirement(_WEIGHT_LOSS)),
+    ),
+    OrangeCombinationRule(
+        key="alteracao_intestinal_persistente_mais_peso",
+        label="Alteração persistente do hábito intestinal associada a perda de peso",
+        window_days=21,
+        required=(
+            OrangeSignRequirement(_BOWEL_HABIT_CHANGE, min_occurrences=PERSISTENCE_MIN_OCCURRENCES),
+            OrangeSignRequirement(_WEIGHT_LOSS),
+        ),
+    ),
+    OrangeCombinationRule(
+        key="tosse_persistente_mais_sangue",
+        label="Tosse persistente associada a sangue (escarro com sangue)",
+        window_days=21,
+        required=(
+            OrangeSignRequirement(_PERSISTENT_COUGH, min_occurrences=PERSISTENCE_MIN_OCCURRENCES),
+            OrangeSignRequirement(_UNEXPLAINED_BLEEDING),
+        ),
+    ),
+    OrangeCombinationRule(
+        key="sangue_na_urina_mais_dor",
+        label="Sangue na urina associado a dor",
+        window_days=14,
+        required=(OrangeSignRequirement(_BLOOD_IN_URINE),),
+        any_of=(OrangeSignRequirement(_ABDOMINAL_PAIN), OrangeSignRequirement(_FLANK_OR_BACK_PAIN)),
+    ),
+    OrangeCombinationRule(
+        key="sangue_na_urina_mais_peso",
+        label="Sangue na urina associado a perda de peso",
+        window_days=21,
+        required=(OrangeSignRequirement(_BLOOD_IN_URINE), OrangeSignRequirement(_WEIGHT_LOSS)),
+    ),
+    OrangeCombinationRule(
+        key="dor_ao_urinar_mais_febre",
+        label="Sintomas urinários associados a febre",
+        window_days=14,
+        required=(OrangeSignRequirement(_URINARY_SYMPTOMS), OrangeSignRequirement(_FEVER)),
+    ),
+    OrangeCombinationRule(
+        key="febre_dor_lombar_sintomas_urinarios",
+        label="Febre associada a dor nas costas/lateral do corpo e sintomas urinários (padrão de infecção urinária alta)",
+        window_days=14,
+        required=(
+            OrangeSignRequirement(_FEVER),
+            OrangeSignRequirement(_FLANK_OR_BACK_PAIN),
+            OrangeSignRequirement(_URINARY_SYMPTOMS),
+        ),
+    ),
+    OrangeCombinationRule(
+        key="sangramento_inexplicado_mais_tontura",
+        label="Sangramento inexplicado associado a tontura ou desmaio",
+        window_days=14,
+        required=(OrangeSignRequirement(_UNEXPLAINED_BLEEDING), OrangeSignRequirement(_DIZZINESS_OR_FAINTING)),
+    ),
+    OrangeCombinationRule(
+        key="sangramento_inexplicado_mais_peso",
+        label="Sangramento inexplicado associado a perda de peso",
+        window_days=21,
+        required=(OrangeSignRequirement(_UNEXPLAINED_BLEEDING), OrangeSignRequirement(_WEIGHT_LOSS)),
+    ),
+    OrangeCombinationRule(
+        key="disfagia_persistente_mais_peso",
+        label="Dificuldade persistente para engolir associada a perda de peso",
+        window_days=21,
+        required=(
+            OrangeSignRequirement(_DYSPHAGIA, min_occurrences=PERSISTENCE_MIN_OCCURRENCES),
+            OrangeSignRequirement(_WEIGHT_LOSS),
+        ),
     ),
 )
 ORANGE_COMBINATION_RULE_BY_KEY: dict[str, OrangeCombinationRule] = {rule.key: rule for rule in ORANGE_COMBINATION_RULES}

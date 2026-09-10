@@ -360,3 +360,78 @@ def test_orange_combination_alert_is_disabled_by_default(patch_session_local):
     asyncio.run(scheduler_module.send_monitoring_alerts())
 
     assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 0
+
+
+# --- LARANJA: rules added from the second clinical reference (NICE NG12
+# April 2026 / NG253) ------------------------------------------------------
+
+def test_fever_plus_flank_pain_plus_urinary_symptoms_notifies(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    patient_id = patient.id
+    for offset, term_label in ((1, "febre"), (2, "dor lombar"), (3, "dor ao urinar")):
+        add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=offset), term_label=term_label)
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    notifications = db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).all()
+    assert len(notifications) == 1
+    assert notifications[0].user_id == patient_id
+
+
+def test_fever_plus_flank_pain_without_urinary_symptoms_does_not_notify(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    for offset, term_label in ((1, "febre"), (2, "dor lombar")):
+        add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=offset), term_label=term_label)
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 0
+
+
+def test_dysphagia_requires_persistence_before_notifying(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    # Only one occurrence of dysphagia -- not "persistent" by our proxy yet.
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=2), term_label="disfagia")
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=6), term_label="perda de peso")
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 0
+
+
+def test_dysphagia_persistent_plus_weight_loss_notifies(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    patient_id = patient.id
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=2), term_label="disfagia")
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=10), term_label="disfagia")
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=6), term_label="perda de peso")
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    notifications = db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).all()
+    assert len(notifications) == 1
+    assert notifications[0].user_id == patient_id
+
+
+def test_hemoptysis_alias_matches_the_bleeding_sign(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    patient_id = patient.id
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=2), term_label="tosse")
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=10), term_label="tosse")
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=6), term_label="hemoptise")
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    notifications = db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).all()
+    assert len(notifications) == 1
+    assert notifications[0].user_id == patient_id
