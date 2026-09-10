@@ -1,137 +1,144 @@
-# Proposta — detecção de combinações de sinais ao longo do tempo ("padrões cumulativos")
+# Padrões cumulativos e o modelo de 4 níveis (vermelho/laranja/amarelo/verde)
 
-> Este documento é uma **proposta de desenho**, ainda não implementada. Define o problema, o desenho
-> clínico (grupos de sinais, regra de disparo) e o desenho técnico (como encaixa na infraestrutura que já
-> existe), e lista o que precisa da validação do médico responsável e, num ponto específico, do advogado.
-> Nada aqui deve ser lido como "já está no ar".
+> **v2 deste documento.** A v1 propunha um único grupo de sinais disparado por contagem genérica ("N de M
+> sinais distintos numa janela"). O critério clínico trazido pelo usuário (CDC, AHA/ACC, OMS, NICE — ver
+> seção 6) **rejeita explicitamente esse formato de regra** ("não deve ser utilizada uma regra genérica
+> baseada apenas na quantidade de sintomas"). Esta versão reestrutura o sistema inteiro em torno do modelo
+> de 4 níveis descrito nesse critério e substitui a regra genérica por combinações específicas com fonte.
+> **Já implementado** em `app/services/red_flag_symptoms.py`/`app/bot/scheduler.py`, mas desligado por
+> padrão (`ORANGE_COMBINATION_ALERTS_ENABLED=False`) até a validação do médico responsável.
 
-## 1. O problema que isso resolve
+## 1. O modelo de 4 níveis
 
-Hoje (`app/services/red_flag_detection_service.py`) o sistema só analisa o texto livre de **um único
-check-in** e devolve **no máximo uma categoria** da lista revisada em `red_flag_symptoms.py`. Isso cobre
-bem o caso "o paciente descreveu algo agudo e alarmante hoje" (ex.: dor no peito, sinais neurológicos).
-
-Não cobre o caso em que um conjunto de sinais, cada um leve/inespecífico isoladamente, vai aparecendo em
-**dias diferentes** e só faz sentido junto — o exemplo concreto que motivou esta proposta: dor abdominal
-alta, perda de apetite, emagrecimento, coceira, urina escura e dor nas costas, relatados ao longo de
-algumas semanas, é um padrão compatível com obstrução biliar/pancreática e hoje não gera nenhum alerta,
-porque nenhum desses sinais sozinho está na lista de red flags e o sistema nunca olha mais de um dia por
-vez.
-
-## 2. Desenho clínico — grupos de sinais cumulativos
-
-**Princípio igual ao resto do produto**: o sistema nunca diz ao paciente "isso pode ser câncer de
-pâncreas" nem qualquer outro nome de doença. Ele sinaliza que **uma combinação de sinais ao longo do
-tempo** merece avaliação médica — a mesma postura de `RED_FLAG_SAFETY_MESSAGE_PT_BR` hoje, só que
-motivada por acúmulo, não por um evento agudo.
-
-### 2.1 Proposta de um primeiro grupo (exemplo a validar com o médico)
-
-| Grupo | Sinais que contam | Tier sugerido |
+| Nível | Significado | No sistema hoje |
 |---|---|---|
-| `sinais_hepatobiliares_digestivos` | dor abdominal (região superior), perda de apetite, emagrecimento não intencional, coceira sem causa aparente, urina escura, pele/olhos amarelados, dor nas costas associada a dor abdominal | proposto: **cumulativo** (novo tier — ver 2.2) |
+| 🔴 **Vermelho** | Possível emergência — nunca condicionado a duração | `RED_FLAG_ABSOLUTE_CATEGORIES` + `RED_FLAG_CONTEXTUAL_CATEGORIES` (já existiam, revisados anteriormente) |
+| 🟠 **Laranja** | Avaliação médica em curto prazo — combinação/persistência específica, não é emergência | **Novo**: `ORANGE_COMBINATION_RULES` (seção 3) |
+| 🟡 **Amarelo** | Avaliação médica programada — sintoma único recorrente, sem combinação preocupante | `_fire_symptom_pattern_alert`/`SYMPTOM_PATTERN_ALERT` (já existia, sem mudança de lógica) |
+| 🟢 **Verde** | Baixo risco imediato | Nenhum match — reclassificável automaticamente a cada novo check-in |
 
-Esta tabela é só um ponto de partida — o médico pode adicionar, remover ou dividir em mais de um grupo
-(ex.: separar "sinais digestivos altos inespecíficos" de "sinais de colestase" como dois grupos com
-regras de disparo diferentes).
+**Por que ABSOLUTO e CONTEXTUAL viram os dois "vermelho"**: ABSOLUTO porque é agudo e nunca espera
+duração (regra de ouro da seção 9 do critério clínico); CONTEXTUAL porque, uma vez que o fator de risco da
+anamnese realmente bate, o sistema já trata com a mesma urgência (`RED_FLAG_CONTEXTUAL_SAFETY_MESSAGE_PT_BR`
+já cita o SAMU/192, igual ao absoluto) — ex.: falta de ar leve numa paciente com insuficiência cardíaca é,
+na prática, um possível sinal de descompensação, não uma queixa rotineira. Essas duas listas **não foram
+alteradas** nesta reestruturação — já passaram por revisão anterior e continuam avaliadas a partir do
+texto de um único check-in (`RedFlagDetectionService`).
 
-### 2.2 Por que um tier novo, e não reaproveitar ABSOLUTO/CONTEXTUAL
+**Amarelo também não mudou de lógica** — `SYMPTOM_PATTERN_ALERT` (mesmo sintoma 3x em 7 dias) já
+corresponde ao "sintoma persiste, sem combinação preocupante" da seção 4 do critério clínico. Só passou a
+ser rotulado explicitamente como o nível amarelo do modelo.
 
-- **ABSOLUTO**: um sinal isolado já é grave por si só (dor no peito, AVC). Não é o caso aqui.
-- **CONTEXTUAL**: um sinal leve só escala com um fator de risco **fixo** da anamnese (ex.: histórico de
-  trombose). Aqui a escalada vem do **tempo/repetição**, não de um fator de risco cadastrado — o padrão é
-  perigoso mesmo num paciente sem nenhum fator de risco na anamnese.
-- Proposta: **CUMULATIVO** — um grupo de sinais que, sozinhos, não disparam nada, mas que juntos (N sinais
-  distintos do mesmo grupo, dentro de uma janela de dias) disparam o mesmo tipo de alerta que um
-  CONTEXTUAL hoje dispara.
+**O que é novo é o laranja** — antes não existia nada entre "sintoma único recorrente" (amarelo) e
+"emergência" (vermelho). A v1 tentou preencher isso com uma regra genérica de contagem; esta versão troca
+por combinações nomeadas e específicas, com fonte.
 
-### 2.3 Regra de disparo — parâmetros a decidir com o médico
+## 2. O problema que isso resolve
 
-- **Janela de tempo**: sugestão inicial 14–21 dias (pode ser por grupo). Curta demais perde o padrão que
-  se constrói devagar; longa demais aumenta falso positivo por sintomas não relacionados.
-- **Quantos sinais distintos do grupo precisam aparecer dentro da janela**: sugestão inicial 3 de 6
-  possíveis no exemplo da tabela acima.
-- **Podem ser o mesmo sinal repetido, ou precisam ser sinais diferentes do grupo?** Proposta: diferentes —
-  "dor abdominal" relatada 5 vezes não é o mesmo alerta que "dor abdominal + urina escura + coceira".
-- **Mensagem ao paciente** (rascunho, sem nomear doença):
-  > "Ao longo das últimas semanas você relatou alguns sinais que, juntos, podem merecer uma avaliação
-  > médica — mesmo que nenhum deles pareça grave isoladamente. Considere agendar uma consulta para
-  > investigar."
-  (Tom deliberadamente mais calmo que o aviso ABSOLUTO/CONTEXTUAL — não é uma emergência, é "vale
-  investigar".)
-- **Notifica o profissional também?** Proposta: sim, sempre que houver profissional vinculado — mesma
-  lógica de `notify_red_flag_symptom`, nomeando os sinais que compuseram o padrão (não o nome de doença).
+`RedFlagDetectionService` só analisa o texto livre de **um único check-in** e devolve **no máximo uma
+categoria** — cobre bem "o paciente descreveu algo agudo hoje", mas não cobre um conjunto de sinais leves
+isolados que só fazem sentido juntos ao longo de semanas (o exemplo que motivou isto: dor abdominal alta +
+perda de apetite + emagrecimento + coceira + urina escura + dor nas costas, relatados em dias diferentes —
+compatível com obstrução biliar/pancreática, mas nenhum desses sinais sozinho está na lista de red flags).
 
-## 3. Desenho técnico — encaixa quase todo em infraestrutura que já existe
+## 3. As regras laranja (`ORANGE_COMBINATION_RULES`)
 
-A boa notícia: **já existe uma camada estruturada por dia** que não depende de nova pergunta no WhatsApp
-nem de mudança no fluxo de check-in (o que é sensível, ver README "Otimização de custo do WhatsApp").
+Cada regra é uma associação **nomeada e específica**, retirada diretamente dos exemplos do critério
+clínico (seção 3, "Nível laranja") — nunca "N sintomas quaisquer". `min_occurrences=2`
+(`PERSISTENCE_MIN_OCCURRENCES`) é a aproximação usada para "persistente": como o check-in por WhatsApp não
+pergunta duração/intensidade explicitamente (ver limitação na seção 5), "persistente" hoje significa
+"relatado em pelo menos 2 check-ins distintos dentro da janela da regra" — uma aproximação, não uma medida
+literal de duração.
 
-- `SymptomNormalizationService` já normaliza **todo** `symptom_description` de cada check-in num
-  vocabulário controlado (`SymptomTerm`), independente de ser ou não um red flag hoje — isso já roda para
-  todo check-in completado (ver `app/models/models.py:467-493`, tabelas `symptom_terms` e
-  `daily_report_symptom_terms`).
-- `app/bot/scheduler.py::_fire_symptom_pattern_alert` **já faz algo estruturalmente parecido**: consulta
-  `DailyReportSymptomTerm` numa janela de 7 dias, agrupa por termo, dispara se o **mesmo** termo aparecer
-  >= 3 vezes, com cooldown de 7 dias via `Notification` já enviada. É o mesmo esqueleto que a regra
-  cumulativa precisa — só muda a condição de "mesmo termo N vezes" para "N termos **distintos** de um
-  grupo definido, dentro da janela".
+| Regra | Exige | Janela |
+|---|---|---|
+| Perda de peso + outro sintoma persistente | emagrecimento (1x) + **qualquer** outro sinal persistente (2x) | 21 dias |
+| Alteração do hábito intestinal + sangue nas fezes | hábito intestinal alterado (2x) + sangue nas fezes (1x) | 21 dias |
+| Dor abdominal persistente + perda de peso | dor abdominal (2x) + emagrecimento (1x) | 21 dias |
+| Dor abdominal + icterícia | dor abdominal (1x) + (coceira OU urina escura) (1x) | 21 dias |
+| Tosse persistente + sinais respiratórios/peso | tosse (2x) + (emagrecimento OU desconforto torácico OU falta de ar) | 21 dias |
+| Vômitos persistentes + sinais | vômitos (2x) + (emagrecimento OU dor abdominal OU alteração do estado geral) | 21 dias |
+| Sangramento inexplicado + outro sintoma persistente | sangramento (1x) + qualquer outro sinal persistente (2x) | 21 dias |
+| Massa/caroço persistente | caroço/nódulo (2x) | 21 dias |
 
-### 3.1 O que seria novo
+A janela de 21 dias é o único valor com apoio textual direto no critério clínico ("tosse persistente por
+mais de 3 semanas" — regra de tosse); as demais janelas usam o mesmo valor por padrão razoável, **não**
+individualmente sourced — a confirmar com o médico (seção 7).
 
-1. **`app/services/red_flag_symptoms.py`**: uma nova estrutura `CUMULATIVE_SYMPTOM_CLUSTERS` — cada
-   entrada com `key`, `label`, janela em dias, mínimo de termos distintos, e a lista de `SymptomTerm.label`
-   aceitos no grupo (mesmo formato de dados que `RED_FLAG_ALL_CATEGORIES`, só que com uma lista de termos
-   em vez de frases de exemplo para um classificador).
-2. **`app/bot/scheduler.py`**: uma função nova `_fire_symptom_cluster_alert`, irmã de
-   `_fire_symptom_pattern_alert` — mesma janela de consulta a `DailyReportSymptomTerm`/`SymptomTerm`, mas
-   contando termos distintos dentro da lista do cluster em vez de contar ocorrências do mesmo termo.
-   Reaproveita o mesmo advisory lock (`MONITORING_ALERTS_ADVISORY_LOCK_ID`) e é chamada dentro do mesmo
-   `send_monitoring_alerts` — não precisa de um job novo.
-3. **`app/services/notification_service.py`**: uma `notify_symptom_cluster` nova (mesma forma dupla de
-   `notify_red_flag_symptom`: sempre notifica o paciente, mais o(s) profissional(is) vinculado(s) quando
-   houver) — e já chama `send_push_notification` (o hook que acabamos de preparar em `PR #127`), então a
-   notificação por push, quando o app mobile existir, já sai "de fábrica" também para este caso novo.
-4. **Frontend**: o card de status de monitoramento no dashboard e o `RedFlagEventsCard` do relatório de
-   automonitoramento (ambos já construídos) só precisam aceitar esse novo tier/categoria — não é uma tela
-   nova, é estender o que já existe para reconhecer "cumulativo" como um terceiro tipo junto de
-   absoluto/contextual.
+**Mensagem ao paciente** (calma, nunca nomeia doença, sem SAMU/192 — não é emergência):
+> "Ao longo dos últimos check-ins você relatou uma combinação de sinais que pode merecer uma avaliação
+> médica em curto prazo — mesmo que nenhum deles pareça grave isoladamente. Considere agendar uma consulta
+> nos próximos dias para investigar."
 
-### 3.2 O risco técnico a não ignorar
+## 4. Desenho técnico
 
-`SymptomNormalizationService` **cresce o vocabulário livremente** — quando a descrição do paciente não
-bate com nenhum termo existente, o classificador cria um termo novo (é assim que hoje cobre a
-variabilidade de como as pessoas escrevem). Isso significa que o rótulo exato de "coceira" pode variar
-("Coceira", "Prurido", "Pele com comichão") entre pacientes diferentes, e um cluster definido por rótulos
-exatos vai vazar casos reais.
+Reaproveita a mesma infraestrutura da v1 (nada de nova pergunta no WhatsApp, ver README "Otimização de
+custo do WhatsApp"):
 
-Mitigação proposta: o cluster não deveria casar pelo rótulo exato, e sim por uma lista curta de **aliases
-aceitos por entrada do cluster**, revisada periodicamente contra os termos novos que o normalizador
-realmente cria (dá pra auditar isso com uma query simples em `symptom_terms`). Alternativa mais robusta
-(mais cara): usar um classificador (como o `RedFlagDetectionService` já faz) para mapear cada termo novo a
-um cluster no momento em que ele é criado, em vez de casar por string.
+- `SymptomNormalizationService`/`SymptomTerm`/`DailyReportSymptomTerm` já tagueiam toda descrição de
+  check-in num vocabulário controlado, independente de ser red flag.
+- `app/bot/scheduler.py::_fire_symptom_combination_alert` (dentro do já existente `send_monitoring_alerts`)
+  avalia cada `OrangeCombinationRule` contra a contagem de ocorrências de cada sinal do paciente na janela
+  da regra (`_term_occurrences_in_window`), casando por lista de aliases por sinal (`ClinicalSign`), nunca
+  por rótulo exato — o vocabulário do normalizador cresce livre, então "coceira"/"prurido"/"comichão"
+  precisam contar como o mesmo sinal.
+- `notify_symptom_combination_alert` (notification_service.py) — mesmo formato duplo de
+  `notify_red_flag_symptom`: paciente sempre, profissional vinculado quando houver, com o hook de push
+  notification (`PR #127`) já plugado.
+- Gated por `settings.ORANGE_COMBINATION_ALERTS_ENABLED` (default `False`).
+- **Frontend**: nenhuma mudança feita ainda — o alerta chega hoje só pelo sino de notificações (já
+  construído), não pelo card de status/relatório de automonitoramento (que só reflete `red_flag_category`
+  de um único check-in). Estender essas telas para o nível laranja é trabalho futuro, não incluído aqui.
 
-## 4. Perguntas para o médico responsável
+## 5. Limitações a não esconder do médico
 
-1. O grupo da seção 2.1 está clinicamente correto e completo? Que outros grupos cumulativos valeria
-   desenhar (ex.: sinais de anemia progressiva, sinais de descompensação renal)?
-2. Janela de tempo e número mínimo de sinais distintos — os valores sugeridos (14–21 dias, 3 de 6) fazem
-   sentido, ou deveriam ser mais/menos sensíveis?
-3. A mensagem ao paciente (seção 2.3) está no tom certo — "vale investigar" em vez de "urgência"? Faz
-   sentido o sistema sempre recomendar agendar consulta, mesmo sem saber a gravidade real do caso?
-4. Esse padrão cumulativo deveria sempre notificar o profissional vinculado, mesmo quando o paciente não
-   está em acompanhamento ativo com foco nesse sistema (ex.: plano focado em outra condição)?
+- **"Persistente" é uma aproximação** (≥2 check-ins na janela), não a duração real do sintoma — o sistema
+  não pergunta "há quantos dias" nem "está piorando/melhorando/estável" (seção 8 do critério clínico). Se
+  isso for essencial, precisaria de uma pergunta nova no fluxo do WhatsApp, o que tem custo (ver README).
+- **Evolução do quadro não é avaliada** — o critério clínico trata a trajetória (melhorando/estável/
+  piorando) como um dos componentes principais da classificação; hoje o sistema não tem esse dado
+  estruturado, só sabe se o sinal apareceu ou não em cada check-in.
+- **As regras são independentes**, não uma única classificação de prioridade por paciente — um paciente
+  pode receber, no mesmo dia, um alerta de inatividade (engajamento) e um alerta laranja (clínico); o
+  sistema não escolhe "o alerta mais alto" entre eles, cada um dispara pela sua própria lógica.
 
-## 5. Ponto que precisa também do advogado
+## 6. Fontes usadas (fornecidas pelo usuário)
 
-Olhar histórico e cruzar sinais de dias diferentes para apontar um padrão de risco é qualitativamente
-diferente de "esta frase de hoje é alarmante" — passa a ser uma análise de tendência temporal, o que pode
-mudar o enquadramento de risco na avaliação do art. 12 da Resolução CFM nº 2.454/2026 (ver
+1. CDC — Signs and Symptoms of Stroke.
+2. Gulati M, Levy PD, Mukherjee D, et al. — 2021 AHA/ACC/ASE/CHEST/SAEM/SCCT/SCMR Guideline for the
+   Evaluation and Diagnosis of Chest Pain. *Circulation*.
+3. WHO — Colorectal cancer (Fact sheet).
+4. WHO — Case management desk guide for doctors — Consider Cancer.
+5. WHO — Early detection of cancer.
+6. WHO — Cancer (Fact sheet).
+7. NICE — Suspected cancer: recognition and referral (NG12).
+8. NICE — Sepsis: recognition, diagnosis and early management (NG51).
+
+## 7. Perguntas para o médico responsável
+
+1. As 8 regras laranja da seção 3 estão clinicamente corretas? Falta alguma combinação relevante das
+   fontes acima (ex.: critérios de sepse do NICE NG51 ainda não têm regra própria aqui)?
+2. A janela de 21 dias serve para todas as 8 regras, ou algumas precisam de janela diferente (mais curta
+   para sangramento inexplicado, por exemplo)?
+3. `PERSISTENCE_MIN_OCCURRENCES = 2` (2 check-ins na janela) é um proxy aceitável para "persistente" sem
+   perguntar duração explicitamente, ou isso é importante o suficiente para justificar uma pergunta nova
+   no WhatsApp (com o custo que isso implica)?
+4. O tom da mensagem ao paciente (seção 3) está certo?
+5. Faz sentido priorizar entre as 8 regras (ex.: sangramento inexplicado antes de perda de peso) quando
+   mais de uma bate no mesmo dia, ou a ordem atual (primeira regra que casar, ver `ORANGE_COMBINATION_RULES`)
+   é aceitável?
+
+## 8. Ponto que também precisa do advogado
+
+Cruzar sinais de dias diferentes para apontar um padrão de risco é qualitativamente diferente de "esta
+frase de hoje é alarmante" — passa a ser uma análise de tendência temporal, o que pode mudar o
+enquadramento de risco na avaliação do art. 12 da Resolução CFM nº 2.454/2026 (ver
 `docs/cfm-2454-avaliacao-risco-ia.md`) e merece uma palavra do advogado sobre se isso aproxima a
 funcionalidade de "apoio diagnóstico preditivo" perante a ANVISA (RDC 657/2022), mesmo sem nomear doença
-nenhuma ao paciente.
+nenhuma ao paciente. Independente da resposta do médico às perguntas da seção 7.
 
-## 6. Status
+## 9. Status
 
-Proposta apenas — nenhum código foi alterado. Próximo passo: validar seções 2 e 4 com o médico responsável
-e a seção 5 com o advogado antes de abrir a implementação (seção 3).
+Implementado (`app/services/red_flag_symptoms.py`, `app/bot/scheduler.py`, `app/services/notification_service.py`),
+com testes, mas **desligado por padrão** (`ORANGE_COMBINATION_ALERTS_ENABLED=False`). Ligar só depois da
+validação das seções 7 e 8.

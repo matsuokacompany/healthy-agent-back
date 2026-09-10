@@ -21,7 +21,7 @@ from app.services.notification_service import (
     notify_patient_inactive,
     notify_red_flag_symptom,
     notify_red_flag_symptom_contextual,
-    notify_symptom_cluster,
+    notify_symptom_combination_alert,
     notify_symptom_pattern,
     notify_symptom_reported,
     send_push_notification,
@@ -297,15 +297,14 @@ def test_notify_red_flag_symptom_contextual_also_notifies_the_professional_namin
     assert "Doença cardíaca" in professional_notification.message
 
 
-def test_notify_symptom_cluster_always_notifies_the_patient():
+def test_notify_symptom_combination_alert_always_notifies_the_patient():
     db = build_session()
     patient = make_user(db, name="Paciente")
 
-    notify_symptom_cluster(
+    notify_symptom_combination_alert(
         db,
         patient=patient,
-        cluster_label="Sinais digestivos/hepatobiliares cumulativos",
-        matched_sign_labels=["dor abdominal", "coceira", "urina escura"],
+        rule_label="Dor abdominal associada a sinais de icterícia (coceira ou urina escura)",
     )
     db.commit()
 
@@ -316,16 +315,15 @@ def test_notify_symptom_cluster_always_notifies_the_patient():
     assert "192" not in notifications[0].message
 
 
-def test_notify_symptom_cluster_also_notifies_the_professional_naming_the_matched_signs():
+def test_notify_symptom_combination_alert_also_notifies_the_professional_naming_the_rule():
     db = build_session()
     patient = make_user(db, name="Paciente")
     professional = link_professional(db, patient.id)
 
-    notify_symptom_cluster(
+    notify_symptom_combination_alert(
         db,
         patient=patient,
-        cluster_label="Sinais digestivos/hepatobiliares cumulativos",
-        matched_sign_labels=["dor abdominal", "coceira", "urina escura"],
+        rule_label="Dor abdominal associada a sinais de icterícia (coceira ou urina escura)",
     )
     db.commit()
 
@@ -335,9 +333,7 @@ def test_notify_symptom_cluster_also_notifies_the_professional_naming_the_matche
     assert recipients == {patient.id, professional.id}
     professional_notification = next(n for n in notifications if n.user_id == professional.id)
     assert patient.name in professional_notification.message
-    assert "dor abdominal" in professional_notification.message
-    assert "coceira" in professional_notification.message
-    assert "urina escura" in professional_notification.message
+    assert "Dor abdominal associada a sinais de icterícia" in professional_notification.message
 
 
 def test_send_push_notification_is_a_no_op_without_a_registered_token():
