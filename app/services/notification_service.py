@@ -16,6 +16,7 @@ from app.models.models import (
     Supplement,
     User,
 )
+from app.services.red_flag_symptoms import RED_FLAG_SAFETY_MESSAGE_PT_BR
 
 
 def create_notification(db: Session, *, user_id: int, kind: NotificationKindEnum, message: str) -> None:
@@ -142,6 +143,29 @@ def notify_symptom_pattern(db: Session, *, patient: User, term_label: str, occur
         kind=NotificationKindEnum.SYMPTOM_PATTERN_ALERT,
         message=f"Você relatou \"{term_label}\" {occurrences} vezes essa semana. Pode ser hora de conversar com um profissional de saúde.",
     )
+
+
+def notify_red_flag_symptom(db: Session, *, patient: User, category_label: str) -> None:
+    """Called by DailyReportService right when a check-in's free-text
+    symptom description matches one of the reviewed RED_FLAG_ABSOLUTE
+    categories (see red_flag_symptoms.py). Unlike the other notify_*
+    helpers in this module, this always notifies the patient directly --
+    only they can act on it in the moment, whether or not a professional
+    is assigned -- and additionally notifies any assigned professional(s),
+    since either side might see it first."""
+    create_notification(
+        db,
+        user_id=patient.id,
+        kind=NotificationKindEnum.RED_FLAG_SYMPTOM,
+        message=RED_FLAG_SAFETY_MESSAGE_PT_BR,
+    )
+    for professional_user_id in assigned_professional_user_ids(db, patient.id):
+        create_notification(
+            db,
+            user_id=professional_user_id,
+            kind=NotificationKindEnum.RED_FLAG_SYMPTOM,
+            message=f"{patient.name} relatou um sinal de alerta ({category_label}) no check-in de hoje. Recomendamos contato o quanto antes.",
+        )
 
 
 def notify_supplement_course_ended(db: Session, *, patient: User, supplement: Supplement) -> None:

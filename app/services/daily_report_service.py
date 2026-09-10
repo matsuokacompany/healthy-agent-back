@@ -13,7 +13,9 @@ from app.models.models import (
 )
 from app.core.config import settings
 from app.services.clinical_data_service import ClinicalDataService
-from app.services.notification_service import notify_symptom_reported
+from app.services.notification_service import notify_red_flag_symptom, notify_symptom_reported
+from app.services.red_flag_detection_service import RedFlagDetectionService
+from app.services.red_flag_symptoms import RedFlagCategory
 from app.services.supplement_service import SupplementService
 from app.services.symptom_normalization_service import SymptomNormalizationService
 
@@ -66,6 +68,7 @@ class DailyReportService:
         report.exercise_adherence = None
         report.medication_adherence = None
         report.medication_adherence_level = None
+        report.red_flag_category = None
         report.lifestyle_notes = None
         report.lifestyle_notes_encryption_envelope = None
         report.completed = False
@@ -113,7 +116,10 @@ class DailyReportService:
         if report.status == DailyReportStatusEnum.AWAITING_SYMPTOM_DESCRIPTION:
             cls._write_clinical(report, symptom_description=message_text, suspected_cause=None)
             notify_symptom_reported(db, patient=user, report=report)
-            result = cls._finish_symptom_flow(db, report)
+            red_flag = RedFlagDetectionService.detect(message_text)
+            if red_flag:
+                notify_red_flag_symptom(db, patient=user, category_label=red_flag.label)
+            result = cls._finish_symptom_flow(db, report, red_flag=red_flag)
             SymptomNormalizationService.normalize(db, report, message_text)
             return result
 
@@ -177,12 +183,15 @@ class DailyReportService:
         report.had_symptoms = True
         cls._write_clinical(report, symptom_description=message_text, suspected_cause=None)
         notify_symptom_reported(db, patient=user, report=report)
-        result = cls._finish_symptom_flow(db, report)
+        red_flag = RedFlagDetectionService.detect(message_text)
+        if red_flag:
+            notify_red_flag_symptom(db, patient=user, category_label=red_flag.label)
+        result = cls._finish_symptom_flow(db, report, red_flag=red_flag)
         SymptomNormalizationService.normalize(db, report, message_text)
         return result
 
     @classmethod
-    def _finish_symptom_flow(cls, db: Session, report: DailyReport) -> str:
+    def _finish_symptom_flow(cls, db: Session, report: DailyReport, *, red_flag: RedFlagCategory | None = None) -> str:
         """Ends the symptom portion of the daily check-in.
 
         Defers completion for every plan (self-service and professional-led
@@ -193,13 +202,21 @@ class DailyReportService:
         question (see README "Otimização de custo do WhatsApp"). All of
         these questions are about the report's day (yesterday, from the
         patient's point of view — see app/bot/scheduler.py's report_date).
+
+        `red_flag` records whether RedFlagDetectionService matched this
+        check-in's description against a reviewed category (see
+        red_flag_symptoms.py) and switches the returned status so
+        BotService._translate prepends the safety message to the very next
+        bot reply in this same WhatsApp conversation, instead of it waiting
+        in a notification the patient might not see in time.
         """
         report.awaiting_response = True
         report.awaiting_cause = False
         report.completed = False
         report.status = DailyReportStatusEnum.AWAITING_DIET_ADHERENCE
+        report.red_flag_category = red_flag.key if red_flag else None
         db.commit()
-        return "ASK_DIET_ADHERENCE"
+        return "ASK_DIET_ADHERENCE_RED_FLAG" if red_flag else "ASK_DIET_ADHERENCE"
 
     @classmethod
     def _ask_exercise_adherence(cls, db: Session, report: DailyReport) -> str:
@@ -274,8 +291,18 @@ class DailyReportService:
         report.awaiting_response = False
         report.awaiting_cause = False
         report.status = DailyReportStatusEnum.COMPLETED
+        # A professional/patient editing a report through the platform gets
+        # the same red-flag safety net as the WhatsApp flow -- there's no
+        # "next bot reply" to prepend a message to here, but the in-app
+        # notification (to the patient and any assigned professional)
+        # still applies. Editing away from "had symptoms" clears a
+        # previously-detected category, same as the term links below.
+        red_flag = RedFlagDetectionService.detect(symptom_description) if had_symptoms is True else None
+        report.red_flag_category = red_flag.key if red_flag else None
         if had_symptoms is True:
             notify_symptom_reported(db, patient=report.user, report=report)
+            if red_flag:
+                notify_red_flag_symptom(db, patient=report.user, category_label=red_flag.label)
         db.commit()
         if had_symptoms is True:
             SymptomNormalizationService.normalize(db, report, symptom_description)
@@ -293,6 +320,7 @@ class DailyReportService:
         report.exercise_adherence = None
         report.medication_adherence = None
         report.medication_adherence_level = None
+        report.red_flag_category = None
         cls._write_clinical(report, symptom_description=None, suspected_cause=None, lifestyle_notes=None)
         report.completed = False
         report.awaiting_response = True
