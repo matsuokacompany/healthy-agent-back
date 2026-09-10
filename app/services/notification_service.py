@@ -4,6 +4,8 @@ payment_service.py). Centralizes the "which professionals are currently
 assigned to this patient" query, since several event kinds need it.
 """
 
+import logging
+
 from sqlalchemy.orm import Session
 
 from app.models.models import (
@@ -21,9 +23,24 @@ from app.services.red_flag_symptoms import (
     RED_FLAG_SAFETY_MESSAGE_PT_BR,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def create_notification(db: Session, *, user_id: int, kind: NotificationKindEnum, message: str) -> None:
     db.add(Notification(user_id=user_id, kind=kind.value, message=message))
+
+
+def send_push_notification(user: User, *, title: str, body: str) -> None:
+    """The single point that will actually deliver a phone push, once a
+    mobile app exists to register `User.push_token` and a provider
+    (FCM/APNs/Expo) is wired up here -- today that's not the case, so this
+    is a deliberate no-op regardless of `push_token`. Call sites (see
+    notify_red_flag_symptom/notify_red_flag_symptom_contextual below)
+    already call it with everything a real push would need, so wiring up a
+    provider later only means filling in this one function's body."""
+    if not user.push_token:
+        return
+    logger.info("Push notification would be sent (no provider configured yet) | user_id=%s title=%s", user.id, title)
 
 
 def assigned_professional_user_ids(
@@ -162,6 +179,7 @@ def notify_red_flag_symptom(db: Session, *, patient: User, category_label: str) 
         kind=NotificationKindEnum.RED_FLAG_SYMPTOM,
         message=RED_FLAG_SAFETY_MESSAGE_PT_BR,
     )
+    send_push_notification(patient, title="Sinal de alerta identificado", body=RED_FLAG_SAFETY_MESSAGE_PT_BR)
     for professional_user_id in assigned_professional_user_ids(db, patient.id):
         create_notification(
             db,
@@ -190,6 +208,7 @@ def notify_red_flag_symptom_contextual(
         kind=NotificationKindEnum.RED_FLAG_SYMPTOM,
         message=RED_FLAG_CONTEXTUAL_SAFETY_MESSAGE_PT_BR,
     )
+    send_push_notification(patient, title="Sinal de alerta identificado", body=RED_FLAG_CONTEXTUAL_SAFETY_MESSAGE_PT_BR)
     for professional_user_id in assigned_professional_user_ids(db, patient.id):
         create_notification(
             db,

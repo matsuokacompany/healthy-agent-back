@@ -3,15 +3,24 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.models.models import DailyReport, DailyReportSymptomTerm, SymptomTerm
+from app.models.models import Anamnese, DailyReport, DailyReportSymptomTerm, MedicationAdherenceLevelEnum, SymptomTerm
 from app.models.schemas import (
     CustomAiReportPeriod,
+    CustomClinicalAdherence,
     CustomClinicalPeriodMetrics,
+    CustomClinicalRedFlagEvent,
     CustomClinicalSummary,
     CustomClinicalSymptomOccurrence,
     CustomClinicalTimelineGroup,
 )
 from app.services.daily_report_service import DailyReportService
+from app.services.red_flag_symptoms import ANAMNESE_RISK_FACTOR_LABELS, RED_FLAG_CATEGORY_BY_KEY
+
+_MEDICATION_ADHERENCE_SCORE = {
+    MedicationAdherenceLevelEnum.ALL.value: 100.0,
+    MedicationAdherenceLevelEnum.PARTIAL.value: 50.0,
+    MedicationAdherenceLevelEnum.NONE.value: 0.0,
+}
 
 
 class CustomReportService:
@@ -50,7 +59,55 @@ class CustomReportService:
             longest_gap_days=self._longest_gap_days(reports, start_date, end_date),
             symptoms=self._build_symptoms(reports),
             timeline=self._build_timeline(reports, start_date, end_date),
+            adherence=self._build_adherence(reports),
+            red_flag_events=self._build_red_flag_events(reports),
+            risk_factors=self._build_risk_factors(patient_id),
         )
+
+    @staticmethod
+    def _build_adherence(reports: list[DailyReport]) -> CustomClinicalAdherence:
+        completed = [report for report in reports if report.completed]
+        diet_values = [report.diet_adherence for report in completed if report.diet_adherence is not None]
+        exercise_values = [report.exercise_adherence for report in completed if report.exercise_adherence is not None]
+        medication_scores = [
+            _MEDICATION_ADHERENCE_SCORE[report.medication_adherence_level]
+            for report in completed
+            if report.medication_adherence_level in _MEDICATION_ADHERENCE_SCORE
+        ]
+        return CustomClinicalAdherence(
+            diet_percentage=CustomReportService._percentage(sum(diet_values), len(diet_values)) if diet_values else None,
+            exercise_percentage=(
+                CustomReportService._percentage(sum(exercise_values), len(exercise_values)) if exercise_values else None
+            ),
+            medication_percentage=(
+                round(sum(medication_scores) / len(medication_scores), 1) if medication_scores else None
+            ),
+        )
+
+    @staticmethod
+    def _build_red_flag_events(reports: list[DailyReport]) -> list[CustomClinicalRedFlagEvent]:
+        events = []
+        for report in reports:
+            if not report.red_flag_category:
+                continue
+            category = RED_FLAG_CATEGORY_BY_KEY.get(report.red_flag_category)
+            if not category:
+                continue
+            events.append(
+                CustomClinicalRedFlagEvent(
+                    report_date=report.report_date,
+                    category_key=category.key,
+                    category_label=category.label,
+                    tier=category.tier,
+                )
+            )
+        return events
+
+    def _build_risk_factors(self, patient_id: int) -> list[str]:
+        anamnese = self.db.query(Anamnese).filter(Anamnese.user_id == patient_id).first()
+        if not anamnese:
+            return []
+        return [label for field, label in ANAMNESE_RISK_FACTOR_LABELS.items() if getattr(anamnese, field, False)]
 
     @staticmethod
     def _build_metrics(reports: list[DailyReport], period_days: int) -> CustomClinicalPeriodMetrics:

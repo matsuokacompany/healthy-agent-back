@@ -23,6 +23,7 @@ from app.services.notification_service import (
     notify_red_flag_symptom_contextual,
     notify_symptom_pattern,
     notify_symptom_reported,
+    send_push_notification,
 )
 
 
@@ -293,3 +294,23 @@ def test_notify_red_flag_symptom_contextual_also_notifies_the_professional_namin
     assert patient.name in professional_notification.message
     assert "Falta de ar leve" in professional_notification.message
     assert "Doença cardíaca" in professional_notification.message
+
+
+def test_send_push_notification_is_a_no_op_without_a_registered_token():
+    db = build_session()
+    patient = make_user(db, name="Paciente")
+
+    # No app exists yet to register push_token, so this must never raise --
+    # every notify_red_flag_symptom* call site depends on that.
+    send_push_notification(patient, title="Alerta", body="Algo aconteceu")
+
+
+def test_send_push_notification_is_still_a_no_op_with_a_registered_token():
+    db = build_session()
+    patient = make_user(db, name="Paciente")
+    patient.push_token = "some-opaque-token"
+    db.commit()
+
+    # No provider is wired up yet -- this must stay a safe no-op (never
+    # raise, never block the caller) until one is.
+    send_push_notification(patient, title="Alerta", body="Algo aconteceu")

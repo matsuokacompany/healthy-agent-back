@@ -161,6 +161,11 @@ class User(Base):
     # patient's behalf, so this stays NULL for them by design.
     terms_accepted_at = Column(DateTime(timezone=True), nullable=True)
     terms_version = Column(String, nullable=True)
+    # Unused until a mobile app exists to register one -- see
+    # notification_service.send_push_notification, the single point that
+    # would actually deliver a push once a provider is wired up. One opaque
+    # string works for any token format (FCM, APNs, Expo).
+    push_token = Column(String, nullable=True)
     is_admin = Column(Boolean, default=False, nullable=False)  # Deprecated: use roles/user_roles for authorization.
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
