@@ -361,7 +361,27 @@ class ChangePasswordRequest(BaseModel):
     password: str = Field(min_length=8, max_length=1024)
 
 
-class AnamneseBase(StrictRequestModel):
+# Field names here must stay in sync with
+# app.services.red_flag_symptoms.ANAMNESE_RISK_FACTOR_FIELDS (the single
+# source of truth for this checklist) and the matching columns on the
+# Anamnese model -- all three need the same 13 names.
+class AnamneseRiskFactors(BaseModel):
+    risk_heart_disease: Optional[bool] = None
+    risk_prior_heart_attack: Optional[bool] = None
+    risk_prior_stroke_or_tia: Optional[bool] = None
+    risk_asthma_or_copd: Optional[bool] = None
+    risk_heart_failure: Optional[bool] = None
+    risk_diabetes: Optional[bool] = None
+    risk_anticoagulant_use: Optional[bool] = None
+    risk_immunosuppression: Optional[bool] = None
+    risk_pregnancy_or_postpartum: Optional[bool] = None
+    risk_active_cancer: Optional[bool] = None
+    risk_prior_thrombosis_or_embolism: Optional[bool] = None
+    risk_recent_surgery_or_immobilization: Optional[bool] = None
+    risk_epilepsy: Optional[bool] = None
+
+
+class AnamneseBase(StrictRequestModel, AnamneseRiskFactors):
     info: ClinicalPlainText
 
 
@@ -369,7 +389,7 @@ class AnamneseCreate(AnamneseBase):
     user_id: int
 
 
-class AnamneseUpdate(StrictRequestModel):
+class AnamneseUpdate(StrictRequestModel, AnamneseRiskFactors):
     info: Optional[ClinicalPlainText] = None
 
 

@@ -323,6 +323,30 @@ class Anamnese(Base):
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     info = Column(Text, nullable=True)
     info_encryption_envelope = Column(JSON, nullable=True)
+    # Structured risk-factor checklist reviewed with a healthcare
+    # professional -- see app/services/red_flag_symptoms.py's
+    # ANAMNESE_RISK_FACTORS (single source of truth for this field list)
+    # and CONTEXTUAL_RISK_RULES (what each one does: cross-referenced
+    # against a check-in's symptom description to decide whether an
+    # otherwise-routine symptom warrants a red-flag alert). NULL means
+    # "not asked/unknown", not "absent" -- only an explicit True gates a
+    # contextual rule; plain (unencrypted) booleans, like the other
+    # clinical flags on DailyReport (had_symptoms, diet_adherence, ...),
+    # not free text, so they don't need the envelope-encryption treatment
+    # `info` gets.
+    risk_heart_disease = Column(Boolean, nullable=True)
+    risk_prior_heart_attack = Column(Boolean, nullable=True)
+    risk_prior_stroke_or_tia = Column(Boolean, nullable=True)
+    risk_asthma_or_copd = Column(Boolean, nullable=True)
+    risk_heart_failure = Column(Boolean, nullable=True)
+    risk_diabetes = Column(Boolean, nullable=True)
+    risk_anticoagulant_use = Column(Boolean, nullable=True)
+    risk_immunosuppression = Column(Boolean, nullable=True)
+    risk_pregnancy_or_postpartum = Column(Boolean, nullable=True)
+    risk_active_cancer = Column(Boolean, nullable=True)
+    risk_prior_thrombosis_or_embolism = Column(Boolean, nullable=True)
+    risk_recent_surgery_or_immobilization = Column(Boolean, nullable=True)
+    risk_epilepsy = Column(Boolean, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),

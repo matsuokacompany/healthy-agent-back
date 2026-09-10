@@ -16,7 +16,10 @@ from app.models.models import (
     Supplement,
     User,
 )
-from app.services.red_flag_symptoms import RED_FLAG_SAFETY_MESSAGE_PT_BR
+from app.services.red_flag_symptoms import (
+    RED_FLAG_CONTEXTUAL_SAFETY_MESSAGE_PT_BR,
+    RED_FLAG_SAFETY_MESSAGE_PT_BR,
+)
 
 
 def create_notification(db: Session, *, user_id: int, kind: NotificationKindEnum, message: str) -> None:
@@ -165,6 +168,38 @@ def notify_red_flag_symptom(db: Session, *, patient: User, category_label: str) 
             user_id=professional_user_id,
             kind=NotificationKindEnum.RED_FLAG_SYMPTOM,
             message=f"{patient.name} relatou um sinal de alerta ({category_label}) no check-in de hoje. Recomendamos contato o quanto antes.",
+        )
+
+
+def notify_red_flag_symptom_contextual(
+    db: Session, *, patient: User, category_label: str, risk_factor_label: str
+) -> None:
+    """Called by DailyReportService when a check-in's free-text symptom
+    description matches a RED_FLAG_CONTEXTUAL category (see
+    red_flag_symptoms.py) AND the patient's anamnese has the specific risk
+    factor that elevates it (RedFlagDetectionService.detect_for_patient
+    already did that cross-reference) -- an otherwise-routine symptom
+    escalated only because of that history. Same dual-notify shape as
+    notify_red_flag_symptom: always notifies the patient directly (the
+    generic contextual safety message, already also delivered inline in
+    the WhatsApp reply -- see BotService._translate), plus any assigned
+    professional(s), named with both the symptom and the risk factor."""
+    create_notification(
+        db,
+        user_id=patient.id,
+        kind=NotificationKindEnum.RED_FLAG_SYMPTOM,
+        message=RED_FLAG_CONTEXTUAL_SAFETY_MESSAGE_PT_BR,
+    )
+    for professional_user_id in assigned_professional_user_ids(db, patient.id):
+        create_notification(
+            db,
+            user_id=professional_user_id,
+            kind=NotificationKindEnum.RED_FLAG_SYMPTOM,
+            message=(
+                f"{patient.name} relatou um sintoma ({category_label}) que, considerando o "
+                f"histórico de \"{risk_factor_label}\", pode indicar risco aumentado. "
+                "Recomendamos contato o quanto antes."
+            ),
         )
 
 

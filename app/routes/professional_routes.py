@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.rate_limit import limiter
 from app.models.models import User
+from app.services.red_flag_symptoms import ANAMNESE_RISK_FACTOR_FIELDS
 from app.models.schemas import (
     AnamneseBase,
     AnamneseRead,
@@ -140,7 +141,8 @@ def create_professional_patient_anamnese(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return ProfessionalService(db).create_anamnese(current_user, patient_id, payload.info)
+    risk_factors = payload.dict(exclude_unset=True, include=set(ANAMNESE_RISK_FACTOR_FIELDS))
+    return ProfessionalService(db).create_anamnese(current_user, patient_id, payload.info, risk_factors)
 
 
 @router.put("/patients/{patient_id}/anamnese", response_model=AnamneseRead)
@@ -150,7 +152,8 @@ def update_professional_patient_anamnese(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return ProfessionalService(db).update_anamnese(current_user, patient_id, payload.info)
+    risk_factors = payload.dict(exclude_unset=True, include=set(ANAMNESE_RISK_FACTOR_FIELDS))
+    return ProfessionalService(db).update_anamnese(current_user, patient_id, payload.info, risk_factors)
 
 
 @router.get("/patients/{patient_id}/supplements", response_model=list[SupplementRead])

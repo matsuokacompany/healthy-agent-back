@@ -7,6 +7,7 @@ from app.core.dependencies import get_db
 from app.core.auth import get_current_user
 from app.core.permissions import is_admin
 from app.services.anamnese_clinical_service import AnamneseClinicalService
+from app.services.red_flag_symptoms import ANAMNESE_RISK_FACTOR_FIELDS
 
 router = APIRouter(tags=["Anamneses"])
 
@@ -47,7 +48,7 @@ def _require_clinical_write_access(current_user: User, target_user_id: int, db: 
     )
 
 
-def _create_anamnese(db: Session, user_id: int, info: str) -> Anamnese:
+def _create_anamnese(db: Session, user_id: int, info: str, risk_factors: dict | None = None) -> Anamnese:
     # 🔥 impedir duplicado (1 anamnese por usuário)
     existing = db.query(Anamnese).filter(Anamnese.user_id == user_id).first()
     if existing:
@@ -64,6 +65,8 @@ def _create_anamnese(db: Session, user_id: int, info: str) -> Anamnese:
     try:
         db.flush()
         AnamneseClinicalService.write(db_item, info)
+        if risk_factors:
+            AnamneseClinicalService.write_risk_factors(db_item, risk_factors)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -89,7 +92,8 @@ def create_anamnese(
     current_user: User = Depends(get_current_user),
 ):
     _require_clinical_write_access(current_user, anamnese.user_id, db)
-    return _create_anamnese(db, anamnese.user_id, anamnese.info)
+    risk_factors = anamnese.dict(exclude_unset=True, include=set(ANAMNESE_RISK_FACTOR_FIELDS))
+    return _create_anamnese(db, anamnese.user_id, anamnese.info, risk_factors)
 
 
 @router.post("/me", response_model=AnamneseRead, status_code=status.HTTP_201_CREATED)
@@ -102,7 +106,8 @@ def create_my_anamnese(
     anamnese for the first time -- doesn't require the client to know its
     own internal user id, unlike the generic POST /."""
     _require_clinical_write_access(current_user, current_user.id, db)
-    return _create_anamnese(db, current_user.id, payload.info)
+    risk_factors = payload.dict(exclude_unset=True, include=set(ANAMNESE_RISK_FACTOR_FIELDS))
+    return _create_anamnese(db, current_user.id, payload.info, risk_factors)
 
 
 @router.get("/user/{user_id}", response_model=list[AnamneseRead])
@@ -151,6 +156,7 @@ def update_my_anamnese(
     data = payload.dict(exclude_unset=True)
     if "info" in data:
         AnamneseClinicalService.write(item, data["info"])
+    AnamneseClinicalService.write_risk_factors(item, data)
 
     db.commit()
     db.refresh(item)

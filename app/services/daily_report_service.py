@@ -13,9 +13,12 @@ from app.models.models import (
 )
 from app.core.config import settings
 from app.services.clinical_data_service import ClinicalDataService
-from app.services.notification_service import notify_red_flag_symptom, notify_symptom_reported
-from app.services.red_flag_detection_service import RedFlagDetectionService
-from app.services.red_flag_symptoms import RedFlagCategory
+from app.services.notification_service import (
+    notify_red_flag_symptom,
+    notify_red_flag_symptom_contextual,
+    notify_symptom_reported,
+)
+from app.services.red_flag_detection_service import RedFlagDetectionService, RedFlagMatch
 from app.services.supplement_service import SupplementService
 from app.services.symptom_normalization_service import SymptomNormalizationService
 
@@ -116,10 +119,9 @@ class DailyReportService:
         if report.status == DailyReportStatusEnum.AWAITING_SYMPTOM_DESCRIPTION:
             cls._write_clinical(report, symptom_description=message_text, suspected_cause=None)
             notify_symptom_reported(db, patient=user, report=report)
-            red_flag = RedFlagDetectionService.detect(message_text)
-            if red_flag:
-                notify_red_flag_symptom(db, patient=user, category_label=red_flag.label)
-            result = cls._finish_symptom_flow(db, report, red_flag=red_flag)
+            red_flag_match = RedFlagDetectionService.detect_for_patient(db, user, message_text)
+            cls._notify_red_flag_match(db, patient=user, red_flag_match=red_flag_match)
+            result = cls._finish_symptom_flow(db, report, red_flag_match=red_flag_match)
             SymptomNormalizationService.normalize(db, report, message_text)
             return result
 
@@ -183,15 +185,14 @@ class DailyReportService:
         report.had_symptoms = True
         cls._write_clinical(report, symptom_description=message_text, suspected_cause=None)
         notify_symptom_reported(db, patient=user, report=report)
-        red_flag = RedFlagDetectionService.detect(message_text)
-        if red_flag:
-            notify_red_flag_symptom(db, patient=user, category_label=red_flag.label)
-        result = cls._finish_symptom_flow(db, report, red_flag=red_flag)
+        red_flag_match = RedFlagDetectionService.detect_for_patient(db, user, message_text)
+        cls._notify_red_flag_match(db, patient=user, red_flag_match=red_flag_match)
+        result = cls._finish_symptom_flow(db, report, red_flag_match=red_flag_match)
         SymptomNormalizationService.normalize(db, report, message_text)
         return result
 
     @classmethod
-    def _finish_symptom_flow(cls, db: Session, report: DailyReport, *, red_flag: RedFlagCategory | None = None) -> str:
+    def _finish_symptom_flow(cls, db: Session, report: DailyReport, *, red_flag_match: RedFlagMatch | None = None) -> str:
         """Ends the symptom portion of the daily check-in.
 
         Defers completion for every plan (self-service and professional-led
@@ -203,20 +204,40 @@ class DailyReportService:
         these questions are about the report's day (yesterday, from the
         patient's point of view — see app/bot/scheduler.py's report_date).
 
-        `red_flag` records whether RedFlagDetectionService matched this
-        check-in's description against a reviewed category (see
-        red_flag_symptoms.py) and switches the returned status so
-        BotService._translate prepends the safety message to the very next
-        bot reply in this same WhatsApp conversation, instead of it waiting
-        in a notification the patient might not see in time.
+        `red_flag_match` records whether RedFlagDetectionService matched
+        this check-in's description against a reviewed category (see
+        red_flag_symptoms.py) -- ABSOLUTE unconditionally, or CONTEXTUAL
+        only once cross-referenced against the patient's anamnese risk
+        factors -- and switches the returned status so BotService._translate
+        prepends the matching safety message to the very next bot reply in
+        this same WhatsApp conversation, instead of it waiting in a
+        notification the patient might not see in time.
         """
         report.awaiting_response = True
         report.awaiting_cause = False
         report.completed = False
         report.status = DailyReportStatusEnum.AWAITING_DIET_ADHERENCE
-        report.red_flag_category = red_flag.key if red_flag else None
+        report.red_flag_category = red_flag_match.category.key if red_flag_match else None
         db.commit()
-        return "ASK_DIET_ADHERENCE_RED_FLAG" if red_flag else "ASK_DIET_ADHERENCE"
+        if red_flag_match and red_flag_match.risk_factor_label:
+            return "ASK_DIET_ADHERENCE_RED_FLAG_CONTEXTUAL"
+        if red_flag_match:
+            return "ASK_DIET_ADHERENCE_RED_FLAG"
+        return "ASK_DIET_ADHERENCE"
+
+    @classmethod
+    def _notify_red_flag_match(cls, db: Session, *, patient: User, red_flag_match: RedFlagMatch | None) -> None:
+        if not red_flag_match:
+            return
+        if red_flag_match.risk_factor_label:
+            notify_red_flag_symptom_contextual(
+                db,
+                patient=patient,
+                category_label=red_flag_match.category.label,
+                risk_factor_label=red_flag_match.risk_factor_label,
+            )
+        else:
+            notify_red_flag_symptom(db, patient=patient, category_label=red_flag_match.category.label)
 
     @classmethod
     def _ask_exercise_adherence(cls, db: Session, report: DailyReport) -> str:
@@ -297,12 +318,15 @@ class DailyReportService:
         # notification (to the patient and any assigned professional)
         # still applies. Editing away from "had symptoms" clears a
         # previously-detected category, same as the term links below.
-        red_flag = RedFlagDetectionService.detect(symptom_description) if had_symptoms is True else None
-        report.red_flag_category = red_flag.key if red_flag else None
+        red_flag_match = (
+            RedFlagDetectionService.detect_for_patient(db, report.user, symptom_description)
+            if had_symptoms is True
+            else None
+        )
+        report.red_flag_category = red_flag_match.category.key if red_flag_match else None
         if had_symptoms is True:
             notify_symptom_reported(db, patient=report.user, report=report)
-            if red_flag:
-                notify_red_flag_symptom(db, patient=report.user, category_label=red_flag.label)
+            cls._notify_red_flag_match(db, patient=report.user, red_flag_match=red_flag_match)
         db.commit()
         if had_symptoms is True:
             SymptomNormalizationService.normalize(db, report, symptom_description)

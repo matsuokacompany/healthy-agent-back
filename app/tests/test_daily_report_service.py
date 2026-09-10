@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base_class import Base
 from app.models.models import (
+    Anamnese,
     CheckTypeEnum,
     DailyReport,
     DailyReportStatusEnum,
@@ -737,3 +738,103 @@ def test_delete_patient_response_clears_the_red_flag_category():
     DailyReportService.delete_patient_response(db, report)
 
     assert report.red_flag_category is None
+
+
+def test_contextual_red_flag_match_switches_status_and_notifies_when_risk_factor_present(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.red_flag_detection_service.InsightService",
+        FakeRedFlagInsightService,
+    )
+    FakeRedFlagInsightService.next_result = {"categoria": "falta_de_ar_leve"}
+
+    db = build_session()
+    user, plan = create_user_and_self_service_plan(db)
+    db.add(Anamnese(user_id=user.id, risk_heart_disease=True))
+    db.commit()
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    db.commit()
+
+    result = DailyReportService.process_response(db, user, "Um pouco de falta de ar ao subir escadas")
+
+    assert result == "ASK_DIET_ADHERENCE_RED_FLAG_CONTEXTUAL"
+    db.refresh(report)
+    assert report.red_flag_category == "falta_de_ar_leve"
+
+    red_flag_notifications = (
+        db.query(Notification)
+        .filter(Notification.kind == NotificationKindEnum.RED_FLAG_SYMPTOM.value)
+        .all()
+    )
+    assert len(red_flag_notifications) == 1
+    assert red_flag_notifications[0].user_id == user.id
+
+
+def test_contextual_red_flag_match_without_risk_factor_keeps_the_normal_status(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.red_flag_detection_service.InsightService",
+        FakeRedFlagInsightService,
+    )
+    FakeRedFlagInsightService.next_result = {"categoria": "falta_de_ar_leve"}
+
+    db = build_session()
+    user, plan = create_user_and_self_service_plan(db)
+    db.add(Anamnese(user_id=user.id, risk_heart_disease=False))
+    db.commit()
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    db.commit()
+
+    result = DailyReportService.process_response(db, user, "Um pouco de falta de ar ao subir escadas")
+
+    assert result == "ASK_DIET_ADHERENCE"
+    db.refresh(report)
+    assert report.red_flag_category is None
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.RED_FLAG_SYMPTOM.value).count() == 0
+
+
+def test_contextual_red_flag_match_with_no_anamnese_keeps_the_normal_status(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.red_flag_detection_service.InsightService",
+        FakeRedFlagInsightService,
+    )
+    FakeRedFlagInsightService.next_result = {"categoria": "falta_de_ar_leve"}
+
+    db = build_session()
+    user, plan = create_user_and_self_service_plan(db)
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    db.commit()
+
+    result = DailyReportService.process_response(db, user, "Um pouco de falta de ar ao subir escadas")
+
+    assert result == "ASK_DIET_ADHERENCE"
+    db.refresh(report)
+    assert report.red_flag_category is None
+
+
+def test_editing_a_report_with_contextual_match_notifies_when_risk_factor_present(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.red_flag_detection_service.InsightService",
+        FakeRedFlagInsightService,
+    )
+    FakeRedFlagInsightService.next_result = {"categoria": "dor_abdominal"}
+
+    db = build_session()
+    user, plan = create_user_and_self_service_plan(db)
+    db.add(Anamnese(user_id=user.id, risk_pregnancy_or_postpartum=True))
+    db.commit()
+    report = DailyReportService.create_pending_report(db, user=user, monitoring_plan=plan, check_type=CheckTypeEnum.MORNING)
+    db.commit()
+    db.refresh(report)
+
+    DailyReportService.update_patient_response(
+        db, report,
+        had_symptoms=True,
+        symptom_description="Dor abdominal forte",
+    )
+
+    db.refresh(report)
+    assert report.red_flag_category == "dor_abdominal"
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.RED_FLAG_SYMPTOM.value).count() == 1
