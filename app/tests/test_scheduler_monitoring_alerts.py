@@ -245,14 +245,14 @@ def test_symptom_pattern_alert_has_a_cooldown(patch_session_local):
     assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_PATTERN_ALERT.value).count() == 1
 
 
-# --- cumulative symptom clusters ------------------------------------------
+# --- LARANJA: orange combination rules ------------------------------------
 
-def test_three_distinct_signs_in_window_notifies_when_enabled(patch_session_local, monkeypatch):
-    monkeypatch.setattr(settings, "CUMULATIVE_SYMPTOM_ALERTS_ENABLED", True)
+def test_abdominal_pain_plus_jaundice_sign_notifies_when_enabled(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
     db = patch_session_local
     patient, plan = make_patient(db)
     patient_id = patient.id
-    for offset, term_label in ((2, "dor abdominal"), (8, "coceira"), (15, "urina escura")):
+    for offset, term_label in ((2, "dor abdominal"), (8, "coceira")):
         add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=offset), term_label=term_label)
 
     asyncio.run(scheduler_module.send_monitoring_alerts())
@@ -262,8 +262,96 @@ def test_three_distinct_signs_in_window_notifies_when_enabled(patch_session_loca
     assert notifications[0].user_id == patient_id
 
 
-def test_two_distinct_signs_in_window_does_not_notify(patch_session_local, monkeypatch):
-    monkeypatch.setattr(settings, "CUMULATIVE_SYMPTOM_ALERTS_ENABLED", True)
+def test_abdominal_pain_alone_does_not_notify(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=2), term_label="dor abdominal")
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 0
+
+
+def test_sign_outside_the_rule_window_does_not_count(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    # The abdominal-pain/jaundice rule's window is 21 days -- the
+    # companion sign lands on day 25, outside it.
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=2), term_label="dor abdominal")
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=25), term_label="coceira")
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 0
+
+
+def test_alias_labels_count_as_the_same_sign(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    patient_id = patient.id
+    # "Dor no estômago" and "Prurido" are aliases of abdominal pain / itching,
+    # not new signs -- should still satisfy the same rule as the canonical
+    # labels used in the other tests.
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=2), term_label="dor no estômago")
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=8), term_label="prurido")
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    notifications = db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).all()
+    assert len(notifications) == 1
+    assert notifications[0].user_id == patient_id
+
+
+def test_weight_loss_plus_any_other_persistent_sign_notifies(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    patient_id = patient.id
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=2), term_label="perda de peso")
+    # "Tosse" isn't named in the weight-loss rule -- it's the generic
+    # "+ outro sintoma persistente" requirement, so it only counts once it
+    # has shown up on 2 separate check-ins (PERSISTENCE_MIN_OCCURRENCES).
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=6), term_label="tosse")
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=12), term_label="tosse")
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    notifications = db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).all()
+    assert len(notifications) == 1
+    assert notifications[0].user_id == patient_id
+
+
+def test_weight_loss_plus_a_single_other_symptom_does_not_notify(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=2), term_label="perda de peso")
+    # Only reported once -- not "persistent" by our proxy definition.
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=6), term_label="tosse")
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 0
+
+
+def test_orange_combination_alert_has_a_cooldown(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    for offset, term_label in ((2, "dor abdominal"), (8, "coceira")):
+        add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=offset), term_label=term_label)
+    db.add(Notification(user_id=patient.id, kind=NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value, message="já avisado"))
+    db.commit()
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 1
+
+
+def test_orange_combination_alert_is_disabled_by_default(patch_session_local):
     db = patch_session_local
     patient, plan = make_patient(db)
     for offset, term_label in ((2, "dor abdominal"), (8, "coceira")):
@@ -274,29 +362,15 @@ def test_two_distinct_signs_in_window_does_not_notify(patch_session_local, monke
     assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 0
 
 
-def test_sign_outside_the_window_does_not_count(patch_session_local, monkeypatch):
-    monkeypatch.setattr(settings, "CUMULATIVE_SYMPTOM_ALERTS_ENABLED", True)
-    db = patch_session_local
-    patient, plan = make_patient(db)
-    # Cluster window is 18 days -- the third sign lands on day 25, outside it.
-    for offset, term_label in ((2, "dor abdominal"), (8, "coceira"), (25, "urina escura")):
-        add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=offset), term_label=term_label)
+# --- LARANJA: rules added from the second clinical reference (NICE NG12
+# April 2026 / NG253) ------------------------------------------------------
 
-    asyncio.run(scheduler_module.send_monitoring_alerts())
-
-    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 0
-
-
-def test_alias_labels_count_as_the_same_sign(patch_session_local, monkeypatch):
-    monkeypatch.setattr(settings, "CUMULATIVE_SYMPTOM_ALERTS_ENABLED", True)
+def test_fever_plus_flank_pain_plus_urinary_symptoms_notifies(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
     db = patch_session_local
     patient, plan = make_patient(db)
     patient_id = patient.id
-    # Different labels the normalizer could have produced for the same
-    # underlying signs -- "prurido"/"perda de peso"/"dor no estômago" are
-    # aliases, not new signs, but should still count toward the 3 distinct
-    # signs needed.
-    for offset, term_label in ((2, "dor no estômago"), (8, "prurido"), (15, "perda de peso")):
+    for offset, term_label in ((1, "febre"), (2, "dor lombar"), (3, "dor ao urinar")):
         add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=offset), term_label=term_label)
 
     asyncio.run(scheduler_module.send_monitoring_alerts())
@@ -306,26 +380,58 @@ def test_alias_labels_count_as_the_same_sign(patch_session_local, monkeypatch):
     assert notifications[0].user_id == patient_id
 
 
-def test_cumulative_cluster_alert_has_a_cooldown(patch_session_local, monkeypatch):
-    monkeypatch.setattr(settings, "CUMULATIVE_SYMPTOM_ALERTS_ENABLED", True)
+def test_fever_plus_flank_pain_without_urinary_symptoms_does_not_notify(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
     db = patch_session_local
     patient, plan = make_patient(db)
-    for offset, term_label in ((2, "dor abdominal"), (8, "coceira"), (15, "urina escura")):
-        add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=offset), term_label=term_label)
-    db.add(Notification(user_id=patient.id, kind=NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value, message="já avisado"))
-    db.commit()
-
-    asyncio.run(scheduler_module.send_monitoring_alerts())
-
-    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 1
-
-
-def test_cumulative_cluster_alert_is_disabled_by_default(patch_session_local):
-    db = patch_session_local
-    patient, plan = make_patient(db)
-    for offset, term_label in ((2, "dor abdominal"), (8, "coceira"), (15, "urina escura")):
+    for offset, term_label in ((1, "febre"), (2, "dor lombar")):
         add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=offset), term_label=term_label)
 
     asyncio.run(scheduler_module.send_monitoring_alerts())
 
     assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 0
+
+
+def test_dysphagia_requires_persistence_before_notifying(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    # Only one occurrence of dysphagia -- not "persistent" by our proxy yet.
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=2), term_label="disfagia")
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=6), term_label="perda de peso")
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 0
+
+
+def test_dysphagia_persistent_plus_weight_loss_notifies(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    patient_id = patient.id
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=2), term_label="disfagia")
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=10), term_label="disfagia")
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=6), term_label="perda de peso")
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    notifications = db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).all()
+    assert len(notifications) == 1
+    assert notifications[0].user_id == patient_id
+
+
+def test_hemoptysis_alias_matches_the_bleeding_sign(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", True)
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    patient_id = patient.id
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=2), term_label="tosse")
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=10), term_label="tosse")
+    add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=6), term_label="hemoptise")
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    notifications = db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).all()
+    assert len(notifications) == 1
+    assert notifications[0].user_id == patient_id

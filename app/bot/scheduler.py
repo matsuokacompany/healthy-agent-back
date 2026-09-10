@@ -30,11 +30,16 @@ from app.services.notification_service import (
     notify_medication_adherence_none,
     notify_patient_inactive,
     notify_supplement_course_ended,
-    notify_symptom_cluster,
+    notify_symptom_combination_alert,
     notify_symptom_pattern,
 )
 from app.services.payment_service import subscription_grants_access
-from app.services.red_flag_symptoms import CUMULATIVE_SYMPTOM_CLUSTERS
+from app.services.red_flag_symptoms import (
+    ORANGE_COMBINATION_RULES,
+    PERSISTENCE_MIN_OCCURRENCES,
+    ClinicalSign,
+    OrangeCombinationRule,
+)
 from app.services.supplement_service import SupplementService
 
 logger = logging.getLogger(__name__)
@@ -57,10 +62,11 @@ SYMPTOM_PATTERN_MIN_OCCURRENCES = 3
 SYMPTOM_PATTERN_WINDOW_DAYS = 7
 SYMPTOM_PATTERN_COOLDOWN_DAYS = 7
 # Cooldown is kind-level (like SYMPTOM_PATTERN_COOLDOWN_DAYS above), not
-# per-cluster -- fine today with a single cluster in CUMULATIVE_SYMPTOM_CLUSTERS;
-# revisit if a second cluster is added and both need to be able to fire
-# independently within the same window.
-CUMULATIVE_SYMPTOM_COOLDOWN_DAYS = 14
+# per-rule -- if two different ORANGE_COMBINATION_RULES both apply, only
+# the first one checked (in list order) fires; a second, different
+# combination won't re-notify until this cooldown lapses either. Revisit
+# if that turns out to hide something clinically distinct.
+ORANGE_COMBINATION_COOLDOWN_DAYS = 14
 
 
 def _mask_identifier(value: str | None) -> str | None:
@@ -414,15 +420,69 @@ def _fire_symptom_pattern_alert(db, patient: User, today) -> bool:
     return True
 
 
-def _fire_symptom_cluster_alert(db, patient: User, today) -> bool:
-    """Gated behind settings.CUMULATIVE_SYMPTOM_ALERTS_ENABLED (default off
-    -- see CumulativeSymptomCluster's docstring in red_flag_symptoms.py for
+def _term_occurrences_in_window(db, patient_id: int, window_start, today) -> dict[str, int]:
+    """SymptomTerm.label (lowercased) -> number of distinct check-ins in
+    [window_start, today] that reported it. Shared by every
+    OrangeCombinationRule check in _fire_symptom_combination_alert below,
+    so each patient/window pair is only queried once per rule evaluated."""
+    rows = (
+        db.query(SymptomTerm.label, func.count(DailyReportSymptomTerm.daily_report_id.distinct()))
+        .join(DailyReportSymptomTerm, DailyReportSymptomTerm.symptom_term_id == SymptomTerm.id)
+        .join(DailyReport, DailyReport.id == DailyReportSymptomTerm.daily_report_id)
+        .filter(
+            DailyReportSymptomTerm.patient_id == patient_id,
+            DailyReport.report_date >= window_start,
+            DailyReport.report_date <= today,
+        )
+        .group_by(SymptomTerm.label)
+        .all()
+    )
+    return {label.lower(): count for label, count in rows}
+
+
+def _sign_occurrences(term_counts: dict[str, int], sign: ClinicalSign) -> int:
+    aliases = {alias.lower() for alias in sign.aliases}
+    return sum(count for label, count in term_counts.items() if label in aliases)
+
+
+def _orange_rule_matches(term_counts: dict[str, int], rule: OrangeCombinationRule) -> bool:
+    excluded_aliases: set[str] = set()
+    for requirement in rule.required:
+        if _sign_occurrences(term_counts, requirement.sign) < requirement.min_occurrences:
+            return False
+        excluded_aliases |= {alias.lower() for alias in requirement.sign.aliases}
+
+    if rule.any_of:
+        satisfied = False
+        for requirement in rule.any_of:
+            if _sign_occurrences(term_counts, requirement.sign) >= requirement.min_occurrences:
+                satisfied = True
+                excluded_aliases |= {alias.lower() for alias in requirement.sign.aliases}
+                break
+        if not satisfied:
+            return False
+
+    if rule.requires_any_other_persistent_sign:
+        has_other_persistent_sign = any(
+            count >= PERSISTENCE_MIN_OCCURRENCES and label not in excluded_aliases for label, count in term_counts.items()
+        )
+        if not has_other_persistent_sign:
+            return False
+
+    return True
+
+
+def _fire_symptom_combination_alert(db, patient: User, today) -> bool:
+    """Gated behind settings.ORANGE_COMBINATION_ALERTS_ENABLED (default off
+    -- see OrangeCombinationRule's docstring in red_flag_symptoms.py for
     why). Unlike _fire_symptom_pattern_alert (same term repeated), this
-    looks for DIFFERENT signs of the same clinical cluster spread across
-    separate check-ins within the cluster's window -- a pattern that no
-    single day's report, and no single RedFlagDetectionService call, would
-    ever catch."""
-    if not settings.CUMULATIVE_SYMPTOM_ALERTS_ENABLED:
+    checks each LARANJA-tier ORANGE_COMBINATION_RULES entry -- a named,
+    specific clinical association (e.g. persistent abdominal pain + weight
+    loss), never a generic symptom count -- against signs spread across
+    separate check-ins within that rule's window. A pattern no single
+    day's report, and no single RedFlagDetectionService call, would ever
+    catch."""
+    if not settings.ORANGE_COMBINATION_ALERTS_ENABLED:
         return False
 
     already_notified = (
@@ -430,43 +490,23 @@ def _fire_symptom_cluster_alert(db, patient: User, today) -> bool:
         .filter(
             Notification.user_id == patient.id,
             Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value,
-            Notification.created_at >= datetime.now(timezone.utc) - timedelta(days=CUMULATIVE_SYMPTOM_COOLDOWN_DAYS),
+            Notification.created_at >= datetime.now(timezone.utc) - timedelta(days=ORANGE_COMBINATION_COOLDOWN_DAYS),
         )
         .first()
     )
     if already_notified:
         return False
 
-    for cluster in CUMULATIVE_SYMPTOM_CLUSTERS:
-        window_start = today - timedelta(days=cluster.window_days - 1)
-        term_labels = {
-            label.lower()
-            for (label,) in db.query(SymptomTerm.label)
-            .join(DailyReportSymptomTerm, DailyReportSymptomTerm.symptom_term_id == SymptomTerm.id)
-            .join(DailyReport, DailyReport.id == DailyReportSymptomTerm.daily_report_id)
-            .filter(
-                DailyReportSymptomTerm.patient_id == patient.id,
-                DailyReport.report_date >= window_start,
-                DailyReport.report_date <= today,
-            )
-            .distinct()
-            .all()
-        }
-        if not term_labels:
+    for rule in ORANGE_COMBINATION_RULES:
+        window_start = today - timedelta(days=rule.window_days - 1)
+        term_counts = _term_occurrences_in_window(db, patient.id, window_start, today)
+        if not term_counts:
             continue
 
-        matched_signs = [
-            sign for sign in cluster.signs if term_labels & {alias.lower() for alias in sign.aliases}
-        ]
-        if len(matched_signs) < cluster.min_distinct_signs:
+        if not _orange_rule_matches(term_counts, rule):
             continue
 
-        notify_symptom_cluster(
-            db,
-            patient=patient,
-            cluster_label=cluster.label,
-            matched_sign_labels=[sign.label for sign in matched_signs],
-        )
+        notify_symptom_combination_alert(db, patient=patient, rule_label=rule.label)
         return True
 
     return False
@@ -474,18 +514,20 @@ def _fire_symptom_cluster_alert(db, patient: User, today) -> bool:
 
 async def send_monitoring_alerts() -> None:
     """Runs once daily. Reuses the daily check-in history to flag
-    engagement/safety patterns worth attention: several missed check-ins in
-    a row, medication adherence dropping to none, the same symptom
-    recurring across the week, and -- gated behind
-    settings.CUMULATIVE_SYMPTOM_ALERTS_ENABLED, see
-    _fire_symptom_cluster_alert -- a defined group of different signs
-    accumulating across a longer window. Goes to the patient's assigned
-    professional(s) when there are any, otherwise to the patient themself
-    (self-service plans have no professional to alert) -- see
-    notification_service.py's notify_patient_inactive/
+    AMARELO/LARANJA-tier patterns worth attention (see the priority scale
+    in red_flag_symptoms.py's module docstring; VERMELHO is handled
+    separately, from a single check-in, by RedFlagDetectionService):
+    several missed check-ins in a row, medication adherence dropping to
+    none, the same symptom recurring across the week (AMARELO), and --
+    gated behind settings.ORANGE_COMBINATION_ALERTS_ENABLED, see
+    _fire_symptom_combination_alert -- a named clinical combination of
+    different signs accumulating across a longer window (LARANJA). Goes to
+    the patient's assigned professional(s) when there are any, otherwise
+    to the patient themself (self-service plans have no professional to
+    alert) -- see notification_service.py's notify_patient_inactive/
     notify_medication_adherence_none/notify_symptom_pattern/
-    notify_symptom_cluster. Each rule fires once per crossing of its
-    threshold, not on every day the pattern continues."""
+    notify_symptom_combination_alert. Each rule fires once per crossing of
+    its threshold, not on every day the pattern continues."""
     logger.info("MONITORING_ALERTS START")
 
     db = SessionLocal()
@@ -529,7 +571,7 @@ async def send_monitoring_alerts() -> None:
                 alerts_sent += 1
             if _fire_symptom_pattern_alert(db, patient, today):
                 alerts_sent += 1
-            if _fire_symptom_cluster_alert(db, patient, today):
+            if _fire_symptom_combination_alert(db, patient, today):
                 alerts_sent += 1
 
         db.commit()

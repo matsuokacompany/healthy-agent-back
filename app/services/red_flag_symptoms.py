@@ -1,30 +1,65 @@
 """Curated "red flag" symptom categories, reviewed with a healthcare
 professional as part of the product's clinical-triage design work.
 
-Two tiers, both reviewed together but meaning different things:
+The overall model follows a 4-level clinical priority scale (see
+docs/red-flag-padroes-cumulativos-proposta.md for the sourcing --
+CDC stroke signs, AHA/ACC chest-pain guidance, WHO/NICE persistent-symptom
+and possible-cancer red flags):
 
-- ABSOLUTE: symptoms that are, by themselves, signs of a potentially
-  serious condition regardless of patient history or how many times
-  they've occurred (cardiorrespiratory, neurological, altered
-  consciousness, bleeding/trauma/poisoning).
-- CONTEXTUAL: symptoms that are NOT inherently alarming on their own, but
-  become red-flag-worthy given a specific item in the patient's risk
-  factor history (see ANAMNESE_RISK_FACTORS / CONTEXTUAL_RISK_RULES below)
-  -- e.g. mild shortness of breath is routine on its own, but warrants the
-  same urgency as an absolute red flag in a patient with a recent surgery
-  or a history of thrombosis.
+- VERMELHO (possible emergency, never duration-gated): RED_FLAG_ABSOLUTE_CATEGORIES
+  (a symptom that is, by itself, a sign of a potentially serious condition
+  regardless of patient history or how many times it's occurred --
+  cardiorrespiratory, neurological, altered consciousness,
+  bleeding/trauma/poisoning, possible sepsis) and RED_FLAG_CONTEXTUAL_CATEGORIES once their
+  matching anamnese risk factor actually applies (see ANAMNESE_RISK_FACTORS /
+  CONTEXTUAL_RISK_RULES below) -- e.g. mild shortness of breath is routine
+  on its own, but warrants the same urgency as an absolute red flag in a
+  patient with heart failure or a recent surgery. Both evaluated from a
+  SINGLE check-in's free text by RedFlagDetectionService.
+- LARANJA (short-term evaluation, not an emergency): ORANGE_COMBINATION_RULES
+  below -- specific, evidence-sourced combinations of otherwise-unremarkable
+  signs building up across SEPARATE check-ins (e.g. persistent abdominal
+  pain + weight loss). Deliberately NOT a generic "N symptoms in a window"
+  count -- the clinical reference this was built from explicitly warns
+  against that shape of rule (two mild signs aren't automatically riskier
+  than one severe one) -- each rule instead encodes a named, specific
+  association. Evaluated by app/bot/scheduler.py's
+  _fire_symptom_combination_alert from the patient's already-normalized
+  SymptomTerm history, not from a single message.
+- AMARELO (scheduled evaluation): the same single symptom recurring across
+  a week without a LARANJA-worthy combination -- see
+  _fire_symptom_pattern_alert/NotificationKindEnum.SYMPTOM_PATTERN_ALERT in
+  app/bot/scheduler.py. No dedicated data structure here since it's a
+  single-term repeat count, not a category list.
+- VERDE (low immediate risk): the default -- no match against any of the
+  above. Reclassification happens automatically on the next check-in that
+  changes the picture; no separate mechanism is needed for it.
 
-RedFlagDetectionService only ever classifies a description into one of
-these categories -- it never invents a category outside this list. This
-list (and the risk-factor rules) is a clinical decision, not an
-engineering one: changing it needs the same kind of review it got the
-first time, not just a code change.
+This module only ever defines what a detector may match against -- it
+never invents a category outside these lists. All of it is a clinical
+decision, not an engineering one: changing any of it needs the same kind
+of review it got the first time, not just a code change.
 """
 
 from dataclasses import dataclass
 from typing import Literal
 
 RedFlagTier = Literal["absoluto", "contextual"]
+# The 4-level clinical priority scale described above -- distinct from
+# RedFlagTier (which is about *how* a match is evaluated: from one
+# message vs. from history) since both "absoluto" and "contextual" map to
+# the same "vermelho" priority once triggered.
+RedFlagPriority = Literal["vermelho", "laranja", "amarelo", "verde"]
+PRIORITY_LABELS_PT_BR: dict[RedFlagPriority, str] = {
+    "vermelho": "Possível emergência médica",
+    "laranja": "Avaliação médica em curto prazo",
+    "amarelo": "Avaliação médica programada",
+    "verde": "Baixo risco imediato",
+}
+PRIORITY_BY_RED_FLAG_TIER: dict[RedFlagTier, RedFlagPriority] = {
+    "absoluto": "vermelho",
+    "contextual": "vermelho",
+}
 
 
 @dataclass(frozen=True)
@@ -101,6 +136,26 @@ RED_FLAG_ABSOLUTE_CATEGORIES: tuple[RedFlagCategory, ...] = (
             "bati a cabeça forte e fiquei confuso",
             "queimadura grande",
             "levei um choque elétrico forte",
+        ),
+    ),
+    # Sourced from NICE NG253 (suspected sepsis) -- "possível infecção" alone
+    # is routine (a cold, a UTI), but paired with any one of these danger
+    # signs it's treated as VERMELHO, not a LARANJA combination to watch
+    # over several check-ins: sepsis can progress to septic shock in hours,
+    # and the source document's own section 7 safety rule says an
+    # emergency-compatible combination should never wait.
+    RedFlagCategory(
+        key="sinais_de_sepse",
+        label="Possível infecção com sinais de gravidade",
+        tier="absoluto",
+        example_phrases=(
+            "estou com febre alta e muito confuso",
+            "febre e não consigo respirar direito",
+            "infecção e a pressão caiu muito",
+            "febre e quase não estou urinando",
+            "lábios ou pele arroxeados junto com febre",
+            "pele muito pálida, acinzentada ou manchada, com febre",
+            "manchas na pele que não somem quando aperto, com febre",
         ),
     ),
 )
@@ -207,87 +262,303 @@ RED_FLAG_CATEGORY_BY_KEY: dict[str, RedFlagCategory] = {category.key: category f
 
 
 @dataclass(frozen=True)
-class CumulativeSymptomSign:
-    """One sign inside a CumulativeSymptomCluster. `aliases` are the
-    SymptomTerm.label values (see SymptomNormalizationService, models.py's
-    SymptomTerm) that count as this sign having been reported -- matched
-    case-insensitively, never as an exact-string requirement, since the
-    normalizer grows its vocabulary freely and the same sign can land under
-    slightly different labels for different patients ("Coceira" vs
-    "Prurido"). `label` is the PT-BR text used in the professional-facing
-    notification when this sign is part of a matched pattern."""
+class ClinicalSign:
+    """A normalized clinical sign referenced by one or more
+    OrangeCombinationRules below. `aliases` are the SymptomTerm.label
+    values (see SymptomNormalizationService, models.py's SymptomTerm) that
+    count as this sign having been reported -- matched case-insensitively,
+    never as an exact-string requirement, since the normalizer grows its
+    vocabulary freely and the same sign can land under slightly different
+    labels for different patients ("Coceira" vs "Prurido")."""
 
     key: str
     label: str
     aliases: tuple[str, ...]
 
 
-@dataclass(frozen=True)
-class CumulativeSymptomCluster:
-    """A group of otherwise-unremarkable signs that, together, across
-    separate check-ins within `window_days`, are worth flagging even though
-    none of them individually reaches RED_FLAG_ABSOLUTE/CONTEXTUAL. Unlike
-    those two tiers, this one is never evaluated from a single check-in's
-    text -- see _fire_symptom_cluster_alert in app/bot/scheduler.py, which
-    reads the patient's already-normalized SymptomTerm history instead of
-    calling the classifier again.
+# Shared registry -- several rules below reference the same sign (e.g.
+# weight loss appears in three different combinations), so each alias list
+# is defined once.
+_WEIGHT_LOSS = ClinicalSign(
+    "emagrecimento", "emagrecimento não intencional", ("emagrecimento", "perda de peso", "emagrecimento não intencional")
+)
+_ABDOMINAL_PAIN = ClinicalSign(
+    "dor_abdominal", "dor abdominal", ("dor abdominal", "dor na barriga", "dor no estômago", "dor abdominal alta")
+)
+_BOWEL_HABIT_CHANGE = ClinicalSign(
+    "alteracao_habito_intestinal",
+    "alteração do hábito intestinal",
+    ("alteração do hábito intestinal", "diarreia", "constipação", "prisão de ventre", "alteração intestinal"),
+)
+_BLOOD_IN_STOOL = ClinicalSign(
+    "sangue_nas_fezes", "sangue nas fezes", ("sangue nas fezes", "fezes com sangue", "sangramento retal")
+)
+_JAUNDICE_ITCHING = ClinicalSign("coceira", "coceira", ("coceira", "prurido", "pele com coceira", "comichão"))
+_DARK_URINE = ClinicalSign("urina_escura", "urina escura", ("urina escura",))
+_PERSISTENT_COUGH = ClinicalSign(
+    "tosse_persistente", "tosse persistente", ("tosse", "tosse persistente", "tosse seca", "tosse com catarro")
+)
+_CHEST_DISCOMFORT = ClinicalSign(
+    "desconforto_toracico", "desconforto no peito", ("desconforto no peito", "aperto leve no peito")
+)
+_DYSPNEA = ClinicalSign(
+    "falta_de_ar", "falta de ar", ("falta de ar", "cansaço ao respirar", "dificuldade para respirar")
+)
+_PERSISTENT_VOMITING = ClinicalSign(
+    "vomitos_persistentes", "vômitos persistentes", ("vômito", "vômitos", "náusea e vômito", "vômitos persistentes")
+)
+_GENERAL_MALAISE = ClinicalSign(
+    "alteracao_estado_geral", "alteração do estado geral", ("mal-estar", "fraqueza", "alteração do estado geral", "indisposição")
+)
+_UNEXPLAINED_BLEEDING = ClinicalSign(
+    "sangramento_inexplicado",
+    "sangramento inexplicado",
+    (
+        "sangramento",
+        "sangramento inexplicado",
+        "hematoma sem causa",
+        "tosse com sangue",
+        "escarro com sangue",
+        "sangue no escarro",
+        "hemoptise",
+    ),
+)
+_NEW_OR_GROWING_MASS = ClinicalSign(
+    "massa_ou_caroco", "caroço ou massa nova", ("caroço", "nódulo", "massa", "íngua", "caroço que não desaparece")
+)
+_FEVER = ClinicalSign("febre", "febre", ("febre", "febre alta", "febre persistente", "febre e calafrio"))
+_JAUNDICE_SKIN = ClinicalSign(
+    "ictericia", "pele ou olhos amarelados", ("icterícia", "pele amarelada", "olhos amarelados", "pele ou olhos amarelados")
+)
+_BLOOD_IN_URINE = ClinicalSign("sangue_na_urina", "sangue na urina", ("sangue na urina", "urina com sangue", "hematúria"))
+_URINARY_SYMPTOMS = ClinicalSign(
+    "sintomas_urinarios",
+    "sintomas urinários",
+    (
+        "dor ao urinar",
+        "ardência ao urinar",
+        "disúria",
+        "vontade frequente de urinar",
+        "dificuldade para urinar",
+        "sangue na urina",
+    ),
+)
+_FLANK_OR_BACK_PAIN = ClinicalSign(
+    "dor_lombar_ou_lateral",
+    "dor nas costas ou na lateral do corpo",
+    ("dor nas costas", "dor lombar", "dor na lateral do corpo", "dor no flanco"),
+)
+_DIZZINESS_OR_FAINTING = ClinicalSign(
+    "tontura_ou_desmaio", "tontura ou desmaio", ("tontura", "tontura ou desmaio", "quase desmaiei", "desmaio")
+)
+_DYSPHAGIA = ClinicalSign(
+    "dificuldade_para_engolir", "dificuldade para engolir", ("dificuldade para engolir", "disfagia", "dor ao engolir")
+)
 
-    PROVISIONAL: the cluster below, its window, and its threshold are a
-    first draft pending review by the responsible physician (see
-    docs/red-flag-padroes-cumulativos-proposta.md) -- that's also why
-    firing this rule is gated behind settings.CUMULATIVE_SYMPTOM_ALERTS_ENABLED
-    (default off) rather than live the moment this ships."""
+# Proxy for "persistente" in the source guidance: the bot's free-text
+# check-in doesn't capture explicit symptom duration or intensity, so
+# "reported on >=N separate check-ins within the rule's window" stands in
+# for it. This is an approximation, not a literal duration measurement --
+# flagged here so it isn't mistaken for one when the physician reviews the
+# rules below.
+PERSISTENCE_MIN_OCCURRENCES = 2
+
+
+@dataclass(frozen=True)
+class OrangeSignRequirement:
+    sign: ClinicalSign
+    min_occurrences: int = 1  # 1 = "reported at all"; PERSISTENCE_MIN_OCCURRENCES = "persistent" (see above)
+
+
+@dataclass(frozen=True)
+class OrangeCombinationRule:
+    """One evidence-sourced LARANJA combination (see the module docstring
+    and docs/red-flag-padroes-cumulativos-proposta.md for the WHO/NICE
+    references) -- deliberately a NAMED, specific association rather than
+    a generic "N distinct signs" count. `required` must ALL be satisfied;
+    `any_of`, when non-empty, needs at least one satisfied;
+    `requires_any_other_persistent_sign` encodes the source guidance's
+    generic "+ outro sintoma persistente" (any OTHER sign, not already in
+    `required`, reported >= PERSISTENCE_MIN_OCCURRENCES times).
+
+    PROVISIONAL: pending review by the responsible physician (the windows
+    below default to 21 days -- only the cough rule has direct textual
+    support for that specific duration, "tosse persistente por mais de 3
+    semanas"; the rest are a reasonable default, not sourced individually)
+    -- that's also why firing these is gated behind
+    settings.ORANGE_COMBINATION_ALERTS_ENABLED (default off)."""
 
     key: str
     label: str
     window_days: int
-    min_distinct_signs: int
-    signs: tuple[CumulativeSymptomSign, ...]
+    required: tuple[OrangeSignRequirement, ...]
+    any_of: tuple[OrangeSignRequirement, ...] = ()
+    requires_any_other_persistent_sign: bool = False
 
 
-CUMULATIVE_SYMPTOM_CLUSTERS: tuple[CumulativeSymptomCluster, ...] = (
-    CumulativeSymptomCluster(
-        key="sinais_hepatobiliares_digestivos",
-        label="Sinais digestivos/hepatobiliares cumulativos",
-        window_days=18,
-        min_distinct_signs=3,
-        signs=(
-            CumulativeSymptomSign(
-                key="dor_abdominal_alta",
-                label="dor abdominal",
-                aliases=("dor abdominal", "dor na barriga", "dor no estômago", "dor abdominal alta"),
-            ),
-            CumulativeSymptomSign(
-                key="perda_de_apetite",
-                label="perda de apetite",
-                aliases=("perda de apetite", "falta de apetite", "inapetência"),
-            ),
-            CumulativeSymptomSign(
-                key="emagrecimento",
-                label="emagrecimento não intencional",
-                aliases=("emagrecimento", "perda de peso", "emagrecimento não intencional"),
-            ),
-            CumulativeSymptomSign(
-                key="coceira",
-                label="coceira",
-                aliases=("coceira", "prurido", "pele com coceira", "comichão"),
-            ),
-            CumulativeSymptomSign(
-                key="urina_escura",
-                label="urina escura",
-                aliases=("urina escura",),
-            ),
-            CumulativeSymptomSign(
-                key="dor_nas_costas",
-                label="dor nas costas",
-                aliases=("dor nas costas", "dor lombar"),
-            ),
+ORANGE_COMBINATION_RULES: tuple[OrangeCombinationRule, ...] = (
+    OrangeCombinationRule(
+        key="perda_de_peso_mais_sintoma_persistente",
+        label="Perda de peso inexplicada associada a outro sintoma persistente",
+        window_days=21,
+        required=(OrangeSignRequirement(_WEIGHT_LOSS),),
+        requires_any_other_persistent_sign=True,
+    ),
+    OrangeCombinationRule(
+        key="habito_intestinal_mais_sangue",
+        label="Alteração persistente do hábito intestinal associada a sangue nas fezes",
+        window_days=21,
+        required=(
+            OrangeSignRequirement(_BOWEL_HABIT_CHANGE, min_occurrences=PERSISTENCE_MIN_OCCURRENCES),
+            OrangeSignRequirement(_BLOOD_IN_STOOL),
+        ),
+    ),
+    OrangeCombinationRule(
+        key="dor_abdominal_persistente_mais_peso",
+        label="Dor abdominal persistente associada a perda de peso",
+        window_days=21,
+        required=(
+            OrangeSignRequirement(_ABDOMINAL_PAIN, min_occurrences=PERSISTENCE_MIN_OCCURRENCES),
+            OrangeSignRequirement(_WEIGHT_LOSS),
+        ),
+    ),
+    OrangeCombinationRule(
+        key="dor_abdominal_mais_ictericia",
+        label="Dor abdominal associada a sinais de icterícia (pele/olhos amarelados, coceira ou urina escura)",
+        window_days=21,
+        required=(OrangeSignRequirement(_ABDOMINAL_PAIN),),
+        any_of=(
+            OrangeSignRequirement(_JAUNDICE_SKIN),
+            OrangeSignRequirement(_JAUNDICE_ITCHING),
+            OrangeSignRequirement(_DARK_URINE),
+        ),
+    ),
+    OrangeCombinationRule(
+        key="tosse_persistente_mais_sinais_respiratorios_ou_peso",
+        label="Tosse persistente associada a perda de peso, desconforto torácico ou falta de ar",
+        window_days=21,
+        required=(OrangeSignRequirement(_PERSISTENT_COUGH, min_occurrences=PERSISTENCE_MIN_OCCURRENCES),),
+        any_of=(
+            OrangeSignRequirement(_WEIGHT_LOSS),
+            OrangeSignRequirement(_CHEST_DISCOMFORT),
+            OrangeSignRequirement(_DYSPNEA),
+        ),
+    ),
+    OrangeCombinationRule(
+        key="vomitos_persistentes_mais_sinais",
+        label="Vômitos persistentes associados a perda de peso, dor abdominal ou alteração do estado geral",
+        window_days=21,
+        required=(OrangeSignRequirement(_PERSISTENT_VOMITING, min_occurrences=PERSISTENCE_MIN_OCCURRENCES),),
+        any_of=(
+            OrangeSignRequirement(_WEIGHT_LOSS),
+            OrangeSignRequirement(_ABDOMINAL_PAIN),
+            OrangeSignRequirement(_GENERAL_MALAISE),
+        ),
+    ),
+    OrangeCombinationRule(
+        key="sangramento_inexplicado_mais_sintoma_persistente",
+        label="Sangramento inexplicado associado a outros sintomas persistentes",
+        window_days=21,
+        required=(OrangeSignRequirement(_UNEXPLAINED_BLEEDING),),
+        requires_any_other_persistent_sign=True,
+    ),
+    OrangeCombinationRule(
+        key="massa_ou_caroco_persistente",
+        label="Massa ou caroço novo que persiste",
+        window_days=21,
+        required=(OrangeSignRequirement(_NEW_OR_GROWING_MASS, min_occurrences=PERSISTENCE_MIN_OCCURRENCES),),
+    ),
+    # The 11 rules below come from a second clinical reference (NICE NG12,
+    # updated April 2026; NICE NG253 for the sepsis-adjacent flank/urinary
+    # pattern) with more specific pairings than the ones above -- most need
+    # only ONE occurrence of each sign (no persistence), matching how that
+    # source states them as simple pairs rather than "persistent + X".
+    # Shorter 14-day windows are used for the more acute infection-pattern
+    # combinations (fever, urinary, flank pain, dizziness); 21-day windows
+    # stay reserved for the slower-building, cancer-pattern combinations,
+    # consistent with the rules above.
+    OrangeCombinationRule(
+        key="dor_abdominal_mais_febre",
+        label="Dor abdominal associada a febre",
+        window_days=14,
+        required=(OrangeSignRequirement(_ABDOMINAL_PAIN), OrangeSignRequirement(_FEVER)),
+    ),
+    OrangeCombinationRule(
+        key="dor_abdominal_mais_perda_de_peso_simples",
+        label="Dor abdominal associada a perda de peso inexplicada",
+        window_days=21,
+        required=(OrangeSignRequirement(_ABDOMINAL_PAIN), OrangeSignRequirement(_WEIGHT_LOSS)),
+    ),
+    OrangeCombinationRule(
+        key="alteracao_intestinal_persistente_mais_peso",
+        label="Alteração persistente do hábito intestinal associada a perda de peso",
+        window_days=21,
+        required=(
+            OrangeSignRequirement(_BOWEL_HABIT_CHANGE, min_occurrences=PERSISTENCE_MIN_OCCURRENCES),
+            OrangeSignRequirement(_WEIGHT_LOSS),
+        ),
+    ),
+    OrangeCombinationRule(
+        key="tosse_persistente_mais_sangue",
+        label="Tosse persistente associada a sangue (escarro com sangue)",
+        window_days=21,
+        required=(
+            OrangeSignRequirement(_PERSISTENT_COUGH, min_occurrences=PERSISTENCE_MIN_OCCURRENCES),
+            OrangeSignRequirement(_UNEXPLAINED_BLEEDING),
+        ),
+    ),
+    OrangeCombinationRule(
+        key="sangue_na_urina_mais_dor",
+        label="Sangue na urina associado a dor",
+        window_days=14,
+        required=(OrangeSignRequirement(_BLOOD_IN_URINE),),
+        any_of=(OrangeSignRequirement(_ABDOMINAL_PAIN), OrangeSignRequirement(_FLANK_OR_BACK_PAIN)),
+    ),
+    OrangeCombinationRule(
+        key="sangue_na_urina_mais_peso",
+        label="Sangue na urina associado a perda de peso",
+        window_days=21,
+        required=(OrangeSignRequirement(_BLOOD_IN_URINE), OrangeSignRequirement(_WEIGHT_LOSS)),
+    ),
+    OrangeCombinationRule(
+        key="dor_ao_urinar_mais_febre",
+        label="Sintomas urinários associados a febre",
+        window_days=14,
+        required=(OrangeSignRequirement(_URINARY_SYMPTOMS), OrangeSignRequirement(_FEVER)),
+    ),
+    OrangeCombinationRule(
+        key="febre_dor_lombar_sintomas_urinarios",
+        label="Febre associada a dor nas costas/lateral do corpo e sintomas urinários (padrão de infecção urinária alta)",
+        window_days=14,
+        required=(
+            OrangeSignRequirement(_FEVER),
+            OrangeSignRequirement(_FLANK_OR_BACK_PAIN),
+            OrangeSignRequirement(_URINARY_SYMPTOMS),
+        ),
+    ),
+    OrangeCombinationRule(
+        key="sangramento_inexplicado_mais_tontura",
+        label="Sangramento inexplicado associado a tontura ou desmaio",
+        window_days=14,
+        required=(OrangeSignRequirement(_UNEXPLAINED_BLEEDING), OrangeSignRequirement(_DIZZINESS_OR_FAINTING)),
+    ),
+    OrangeCombinationRule(
+        key="sangramento_inexplicado_mais_peso",
+        label="Sangramento inexplicado associado a perda de peso",
+        window_days=21,
+        required=(OrangeSignRequirement(_UNEXPLAINED_BLEEDING), OrangeSignRequirement(_WEIGHT_LOSS)),
+    ),
+    OrangeCombinationRule(
+        key="disfagia_persistente_mais_peso",
+        label="Dificuldade persistente para engolir associada a perda de peso",
+        window_days=21,
+        required=(
+            OrangeSignRequirement(_DYSPHAGIA, min_occurrences=PERSISTENCE_MIN_OCCURRENCES),
+            OrangeSignRequirement(_WEIGHT_LOSS),
         ),
     ),
 )
-CUMULATIVE_SYMPTOM_CLUSTER_BY_KEY: dict[str, CumulativeSymptomCluster] = {
-    cluster.key: cluster for cluster in CUMULATIVE_SYMPTOM_CLUSTERS
-}
+ORANGE_COMBINATION_RULE_BY_KEY: dict[str, OrangeCombinationRule] = {rule.key: rule for rule in ORANGE_COMBINATION_RULES}
 
 # The reviewed risk-factor checklist -- field name on Anamnese -> PT-BR
 # label shown in the anamnese form. Single source of truth for the model
@@ -363,12 +634,13 @@ RED_FLAG_CONTEXTUAL_SAFETY_MESSAGE_PT_BR = (
     "(192). Mesmo que já tenha passado, vale uma avaliação rápida dado o seu histórico."
 )
 
-# Deliberately calmer than the two messages above -- a CUMULATIVE match is
-# "worth investigating", not an emergency, so it never mentions SAMU/192 or
-# urges immediate care. Same non-diagnostic posture: never names a
-# condition, only that the combination of signs is worth a doctor's look.
-RED_FLAG_CUMULATIVE_SAFETY_MESSAGE_PT_BR = (
-    "Ao longo das últimas semanas você relatou alguns sinais que, juntos, podem merecer uma "
-    "avaliação médica -- mesmo que nenhum deles pareça grave isoladamente. Considere agendar "
-    "uma consulta para investigar."
+# Deliberately calmer than the two messages above -- a LARANJA match is
+# "worth a short-term evaluation", not an emergency, so it never mentions
+# SAMU/192 or urges immediate care. Same non-diagnostic posture: never
+# names a condition, only that the combination of signs is worth a
+# doctor's look.
+RED_FLAG_ORANGE_SAFETY_MESSAGE_PT_BR = (
+    "Ao longo dos últimos check-ins você relatou uma combinação de sinais que pode merecer uma "
+    "avaliação médica em curto prazo -- mesmo que nenhum deles pareça grave isoladamente. "
+    "Considere agendar uma consulta nos próximos dias para investigar."
 )

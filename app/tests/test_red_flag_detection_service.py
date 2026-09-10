@@ -84,6 +84,21 @@ def test_detect_returns_the_matching_category(monkeypatch):
     assert "peito" in FakeInsightService.last_prompt_input or "respira" in FakeInsightService.last_prompt_input.lower()
 
 
+def test_detect_returns_the_sepsis_category_as_absolute(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.red_flag_detection_service.InsightService",
+        FakeInsightService,
+    )
+    FakeInsightService.next_result = {"categoria": "sinais_de_sepse"}
+
+    result = RedFlagDetectionService.detect("estou com febre alta e muito confuso, mal consigo ficar de pé")
+
+    assert result is not None
+    assert result.key == "sinais_de_sepse"
+    assert result.tier == "absoluto"
+
+
 def test_detect_returns_none_when_the_model_reports_no_match(monkeypatch):
     monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(
