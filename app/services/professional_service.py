@@ -532,7 +532,6 @@ class ProfessionalService:
             statistics=statistics,
             last_response=self.dashboard_service._get_last_response(patient.id, active_plan_id) if active_plan_id else None,
             professionals=self.dashboard_service._build_professionals(active_plan),
-            alerts=self.dashboard_service._build_alerts(monitoring, today_summary, anamnese),
         )
 
     # Capped (well under InsightService.MAX_REPORT_CHARS) so the check-in

@@ -723,12 +723,6 @@ class PatientDashboardResponse(BaseModel):
     anamnesis_summary: PatientAnamnesisSummary
 
 
-class PatientDashboardAlert(BaseModel):
-    type: str
-    severity: Literal["info", "warning", "critical"]
-    message: str
-
-
 class PatientDashboardResponseV2(BaseModel):
     user: PatientDashboardUser
     monitoring: PatientMonitoringSummary
@@ -738,7 +732,6 @@ class PatientDashboardResponseV2(BaseModel):
     statistics: PatientDashboardStatistics
     last_response: Optional[PatientLastResponse] = None
     professionals: List[PatientResponsibleProfessional] = Field(default_factory=list)
-    alerts: List[PatientDashboardAlert] = Field(default_factory=list)
 
 
 class PatientDashboardPagination(BaseModel):

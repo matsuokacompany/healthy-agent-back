@@ -23,7 +23,6 @@ from app.models.models import (
 )
 from app.models.schemas import (
     PatientAnamnesisSummary,
-    PatientDashboardAlert,
     PatientDashboardCalendarCheckin,
     PatientDashboardCalendarDay,
     PatientDashboardCalendarResponse,
@@ -108,7 +107,6 @@ class PatientDashboardService:
             statistics=statistics,
             last_response=last_response,
             professionals=self._build_professionals(active_plan),
-            alerts=self._build_alerts(monitoring, today_summary, anamnese),
         )
 
     def get_history(
@@ -483,36 +481,3 @@ class PatientDashboardService:
             if 2 <= len(item) <= 80:
                 cleaned.append(item)
         return cleaned
-
-    @staticmethod
-    def _build_alerts(
-        monitoring: PatientMonitoringSummary,
-        today: PatientDashboardToday,
-        anamnese: Anamnese | None,
-    ) -> list[PatientDashboardAlert]:
-        alerts = []
-        if not monitoring.active:
-            alerts.append(
-                PatientDashboardAlert(
-                    type="monitoring",
-                    severity="warning",
-                    message="Nenhum plano de monitoramento ativo.",
-                )
-            )
-        if today.has_checkin and not today.completed:
-            alerts.append(
-                PatientDashboardAlert(
-                    type="checkin",
-                    severity="warning",
-                    message="Você possui um check-in pendente hoje.",
-                )
-            )
-        if not anamnese:
-            alerts.append(
-                PatientDashboardAlert(
-                    type="anamnesis",
-                    severity="info",
-                    message="Complete sua anamnese para melhorar o acompanhamento.",
-                )
-            )
-        return alerts
