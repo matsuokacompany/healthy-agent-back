@@ -20,6 +20,7 @@ from app.models.models import (
 )
 from app.services.red_flag_symptoms import (
     RED_FLAG_CONTEXTUAL_SAFETY_MESSAGE_PT_BR,
+    RED_FLAG_CUMULATIVE_SAFETY_MESSAGE_PT_BR,
     RED_FLAG_SAFETY_MESSAGE_PT_BR,
 )
 
@@ -218,6 +219,37 @@ def notify_red_flag_symptom_contextual(
                 f"{patient.name} relatou um sintoma ({category_label}) que, considerando o "
                 f"histórico de \"{risk_factor_label}\", pode indicar risco aumentado. "
                 "Recomendamos contato o quanto antes."
+            ),
+        )
+
+
+def notify_symptom_cluster(db: Session, *, patient: User, cluster_label: str, matched_sign_labels: list[str]) -> None:
+    """Called by the scheduler's _fire_symptom_cluster_alert (bot/scheduler.py)
+    when a defined group of otherwise-unremarkable signs (see
+    CUMULATIVE_SYMPTOM_CLUSTERS in red_flag_symptoms.py) has, between them,
+    shown up across enough distinct check-ins within the cluster's time
+    window -- a pattern no single day's report would catch on its own.
+    Same dual-notify shape as notify_red_flag_symptom: always notifies the
+    patient directly (a calmer, non-urgent tone -- see
+    RED_FLAG_CUMULATIVE_SAFETY_MESSAGE_PT_BR -- since this is "worth
+    investigating", not an emergency), plus any assigned professional(s),
+    named with the specific signs that made up the pattern."""
+    create_notification(
+        db,
+        user_id=patient.id,
+        kind=NotificationKindEnum.SYMPTOM_CLUSTER_ALERT,
+        message=RED_FLAG_CUMULATIVE_SAFETY_MESSAGE_PT_BR,
+    )
+    send_push_notification(patient, title="Padrão de sinais identificado", body=RED_FLAG_CUMULATIVE_SAFETY_MESSAGE_PT_BR)
+    for professional_user_id in assigned_professional_user_ids(db, patient.id):
+        create_notification(
+            db,
+            user_id=professional_user_id,
+            kind=NotificationKindEnum.SYMPTOM_CLUSTER_ALERT,
+            message=(
+                f"{patient.name} apresentou, ao longo dos últimos check-ins, uma combinação de sinais "
+                f"({cluster_label}: {', '.join(matched_sign_labels)}) que pode merecer avaliação. "
+                "Recomendamos considerar uma consulta."
             ),
         )
 

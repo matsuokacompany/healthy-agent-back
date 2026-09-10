@@ -30,9 +30,11 @@ from app.services.notification_service import (
     notify_medication_adherence_none,
     notify_patient_inactive,
     notify_supplement_course_ended,
+    notify_symptom_cluster,
     notify_symptom_pattern,
 )
 from app.services.payment_service import subscription_grants_access
+from app.services.red_flag_symptoms import CUMULATIVE_SYMPTOM_CLUSTERS
 from app.services.supplement_service import SupplementService
 
 logger = logging.getLogger(__name__)
@@ -54,6 +56,11 @@ INACTIVITY_LOOKBACK_REPORTS = max(INACTIVITY_ALERT_DAYS) + 1
 SYMPTOM_PATTERN_MIN_OCCURRENCES = 3
 SYMPTOM_PATTERN_WINDOW_DAYS = 7
 SYMPTOM_PATTERN_COOLDOWN_DAYS = 7
+# Cooldown is kind-level (like SYMPTOM_PATTERN_COOLDOWN_DAYS above), not
+# per-cluster -- fine today with a single cluster in CUMULATIVE_SYMPTOM_CLUSTERS;
+# revisit if a second cluster is added and both need to be able to fire
+# independently within the same window.
+CUMULATIVE_SYMPTOM_COOLDOWN_DAYS = 14
 
 
 def _mask_identifier(value: str | None) -> str | None:
@@ -407,15 +414,77 @@ def _fire_symptom_pattern_alert(db, patient: User, today) -> bool:
     return True
 
 
+def _fire_symptom_cluster_alert(db, patient: User, today) -> bool:
+    """Gated behind settings.CUMULATIVE_SYMPTOM_ALERTS_ENABLED (default off
+    -- see CumulativeSymptomCluster's docstring in red_flag_symptoms.py for
+    why). Unlike _fire_symptom_pattern_alert (same term repeated), this
+    looks for DIFFERENT signs of the same clinical cluster spread across
+    separate check-ins within the cluster's window -- a pattern that no
+    single day's report, and no single RedFlagDetectionService call, would
+    ever catch."""
+    if not settings.CUMULATIVE_SYMPTOM_ALERTS_ENABLED:
+        return False
+
+    already_notified = (
+        db.query(Notification)
+        .filter(
+            Notification.user_id == patient.id,
+            Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value,
+            Notification.created_at >= datetime.now(timezone.utc) - timedelta(days=CUMULATIVE_SYMPTOM_COOLDOWN_DAYS),
+        )
+        .first()
+    )
+    if already_notified:
+        return False
+
+    for cluster in CUMULATIVE_SYMPTOM_CLUSTERS:
+        window_start = today - timedelta(days=cluster.window_days - 1)
+        term_labels = {
+            label.lower()
+            for (label,) in db.query(SymptomTerm.label)
+            .join(DailyReportSymptomTerm, DailyReportSymptomTerm.symptom_term_id == SymptomTerm.id)
+            .join(DailyReport, DailyReport.id == DailyReportSymptomTerm.daily_report_id)
+            .filter(
+                DailyReportSymptomTerm.patient_id == patient.id,
+                DailyReport.report_date >= window_start,
+                DailyReport.report_date <= today,
+            )
+            .distinct()
+            .all()
+        }
+        if not term_labels:
+            continue
+
+        matched_signs = [
+            sign for sign in cluster.signs if term_labels & {alias.lower() for alias in sign.aliases}
+        ]
+        if len(matched_signs) < cluster.min_distinct_signs:
+            continue
+
+        notify_symptom_cluster(
+            db,
+            patient=patient,
+            cluster_label=cluster.label,
+            matched_sign_labels=[sign.label for sign in matched_signs],
+        )
+        return True
+
+    return False
+
+
 async def send_monitoring_alerts() -> None:
-    """Runs once daily. Reuses the daily check-in history to flag three
+    """Runs once daily. Reuses the daily check-in history to flag
     engagement/safety patterns worth attention: several missed check-ins in
-    a row, medication adherence dropping to none, and the same symptom
-    recurring across the week. Goes to the patient's assigned professional(s)
-    when there are any, otherwise to the patient themself (self-service
-    plans have no professional to alert) -- see notification_service.py's
-    notify_patient_inactive/notify_medication_adherence_none/
-    notify_symptom_pattern. Each rule fires once per crossing of its
+    a row, medication adherence dropping to none, the same symptom
+    recurring across the week, and -- gated behind
+    settings.CUMULATIVE_SYMPTOM_ALERTS_ENABLED, see
+    _fire_symptom_cluster_alert -- a defined group of different signs
+    accumulating across a longer window. Goes to the patient's assigned
+    professional(s) when there are any, otherwise to the patient themself
+    (self-service plans have no professional to alert) -- see
+    notification_service.py's notify_patient_inactive/
+    notify_medication_adherence_none/notify_symptom_pattern/
+    notify_symptom_cluster. Each rule fires once per crossing of its
     threshold, not on every day the pattern continues."""
     logger.info("MONITORING_ALERTS START")
 
@@ -459,6 +528,8 @@ async def send_monitoring_alerts() -> None:
             if _fire_medication_alert(db, patient, recent_reports):
                 alerts_sent += 1
             if _fire_symptom_pattern_alert(db, patient, today):
+                alerts_sent += 1
+            if _fire_symptom_cluster_alert(db, patient, today):
                 alerts_sent += 1
 
         db.commit()

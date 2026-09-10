@@ -205,6 +205,90 @@ RED_FLAG_CONTEXTUAL_CATEGORIES: tuple[RedFlagCategory, ...] = (
 RED_FLAG_ALL_CATEGORIES: tuple[RedFlagCategory, ...] = RED_FLAG_ABSOLUTE_CATEGORIES + RED_FLAG_CONTEXTUAL_CATEGORIES
 RED_FLAG_CATEGORY_BY_KEY: dict[str, RedFlagCategory] = {category.key: category for category in RED_FLAG_ALL_CATEGORIES}
 
+
+@dataclass(frozen=True)
+class CumulativeSymptomSign:
+    """One sign inside a CumulativeSymptomCluster. `aliases` are the
+    SymptomTerm.label values (see SymptomNormalizationService, models.py's
+    SymptomTerm) that count as this sign having been reported -- matched
+    case-insensitively, never as an exact-string requirement, since the
+    normalizer grows its vocabulary freely and the same sign can land under
+    slightly different labels for different patients ("Coceira" vs
+    "Prurido"). `label` is the PT-BR text used in the professional-facing
+    notification when this sign is part of a matched pattern."""
+
+    key: str
+    label: str
+    aliases: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CumulativeSymptomCluster:
+    """A group of otherwise-unremarkable signs that, together, across
+    separate check-ins within `window_days`, are worth flagging even though
+    none of them individually reaches RED_FLAG_ABSOLUTE/CONTEXTUAL. Unlike
+    those two tiers, this one is never evaluated from a single check-in's
+    text -- see _fire_symptom_cluster_alert in app/bot/scheduler.py, which
+    reads the patient's already-normalized SymptomTerm history instead of
+    calling the classifier again.
+
+    PROVISIONAL: the cluster below, its window, and its threshold are a
+    first draft pending review by the responsible physician (see
+    docs/red-flag-padroes-cumulativos-proposta.md) -- that's also why
+    firing this rule is gated behind settings.CUMULATIVE_SYMPTOM_ALERTS_ENABLED
+    (default off) rather than live the moment this ships."""
+
+    key: str
+    label: str
+    window_days: int
+    min_distinct_signs: int
+    signs: tuple[CumulativeSymptomSign, ...]
+
+
+CUMULATIVE_SYMPTOM_CLUSTERS: tuple[CumulativeSymptomCluster, ...] = (
+    CumulativeSymptomCluster(
+        key="sinais_hepatobiliares_digestivos",
+        label="Sinais digestivos/hepatobiliares cumulativos",
+        window_days=18,
+        min_distinct_signs=3,
+        signs=(
+            CumulativeSymptomSign(
+                key="dor_abdominal_alta",
+                label="dor abdominal",
+                aliases=("dor abdominal", "dor na barriga", "dor no estômago", "dor abdominal alta"),
+            ),
+            CumulativeSymptomSign(
+                key="perda_de_apetite",
+                label="perda de apetite",
+                aliases=("perda de apetite", "falta de apetite", "inapetência"),
+            ),
+            CumulativeSymptomSign(
+                key="emagrecimento",
+                label="emagrecimento não intencional",
+                aliases=("emagrecimento", "perda de peso", "emagrecimento não intencional"),
+            ),
+            CumulativeSymptomSign(
+                key="coceira",
+                label="coceira",
+                aliases=("coceira", "prurido", "pele com coceira", "comichão"),
+            ),
+            CumulativeSymptomSign(
+                key="urina_escura",
+                label="urina escura",
+                aliases=("urina escura",),
+            ),
+            CumulativeSymptomSign(
+                key="dor_nas_costas",
+                label="dor nas costas",
+                aliases=("dor nas costas", "dor lombar"),
+            ),
+        ),
+    ),
+)
+CUMULATIVE_SYMPTOM_CLUSTER_BY_KEY: dict[str, CumulativeSymptomCluster] = {
+    cluster.key: cluster for cluster in CUMULATIVE_SYMPTOM_CLUSTERS
+}
+
 # The reviewed risk-factor checklist -- field name on Anamnese -> PT-BR
 # label shown in the anamnese form. Single source of truth for the model
 # columns (app/models/models.py), the API schema (app/models/schemas.py)
@@ -277,4 +361,14 @@ RED_FLAG_CONTEXTUAL_SAFETY_MESSAGE_PT_BR = (
     "que precisa de avaliação médica urgente. Se isso está acontecendo agora ou está "
     "piorando, procure atendimento de emergência imediatamente ou ligue para o SAMU "
     "(192). Mesmo que já tenha passado, vale uma avaliação rápida dado o seu histórico."
+)
+
+# Deliberately calmer than the two messages above -- a CUMULATIVE match is
+# "worth investigating", not an emergency, so it never mentions SAMU/192 or
+# urges immediate care. Same non-diagnostic posture: never names a
+# condition, only that the combination of signs is worth a doctor's look.
+RED_FLAG_CUMULATIVE_SAFETY_MESSAGE_PT_BR = (
+    "Ao longo das últimas semanas você relatou alguns sinais que, juntos, podem merecer uma "
+    "avaliação médica -- mesmo que nenhum deles pareça grave isoladamente. Considere agendar "
+    "uma consulta para investigar."
 )
