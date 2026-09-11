@@ -339,6 +339,39 @@ def test_signup_phone_and_terms_survive_deferred_confirmation_then_login(monkeyp
     assert user.birth_date.isoformat() == "1990-05-20"
 
 
+def test_login_returns_session_tokens_in_body_for_native_clients(monkeypatch):
+    # Native apps have no shared browser cookie jar, so /login must also hand
+    # back the raw tokens in the JSON body — they authenticate subsequent
+    # requests with `Authorization: Bearer <access_token>` instead of the
+    # httponly cookies the web app relies on.
+    client, db = build_client()
+    supabase_user_id = uuid.uuid4()
+    db.add(User(name="Paciente", email="paciente@example.com", supabase_user_id=supabase_user_id))
+    db.commit()
+
+    monkeypatch.setattr(
+        auth_routes_module,
+        "supabase_password_login",
+        lambda email, password: {"access_token": "fake-access-token", "refresh_token": "fake-refresh-token", "expires_in": 3600},
+    )
+    monkeypatch.setattr(
+        auth_routes_module,
+        "_decode_supabase_token",
+        lambda token: {"sub": str(supabase_user_id), "email": "paciente@example.com", "user_metadata": {}},
+    )
+
+    response = client.post("/api/auth/login", json={"email": "paciente@example.com", "password": "senha-forte-123"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["access_token"] == "fake-access-token"
+    assert body["refresh_token"] == "fake-refresh-token"
+    assert body["expires_in"] == 3600
+    assert body["token_type"] == "bearer"
+    assert body["email"] == "paciente@example.com"
+    assert "set-cookie" in response.headers or response.cookies
+
+
 def professional_signup_payload(**overrides):
     data = {
         "name": "Dr. Autonomo",

@@ -30,6 +30,7 @@ from app.core.document_validation import CnpjLookupError, cnpj_exists
 from app.core.rate_limit import limiter
 from app.models.models import ProfessionalProfile, User
 from app.models.schemas import (
+    AuthSessionRead,
     ChangePasswordRequest,
     ForgotPasswordRequest,
     LoginRequest,
@@ -60,19 +61,28 @@ def _session_from_supabase_payload(payload: dict, db: Session) -> User:
     return _resolve_or_create_user(db, _decode_supabase_token(token))
 
 
-@router.post("/login", response_model=UserRead)
+@router.post("/login", response_model=AuthSessionRead)
 @limiter.limit("5/minute")
 def login(request: Request, payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
     set_no_store(response)
     session = supabase_password_login(payload.email, payload.password)
     user = _session_from_supabase_payload(session, db)
+    expires_in = int(session.get("expires_in") or 3600)
     set_auth_cookies(
         response,
         access_token=session["access_token"],
         refresh_token=session["refresh_token"],
-        expires_in=int(session.get("expires_in") or 3600),
+        expires_in=expires_in,
     )
-    return user
+    # Tokens are also returned in the body (not just as httponly cookies) for
+    # native clients, which have no shared browser cookie jar and authenticate
+    # with an `Authorization: Bearer` header instead.
+    return AuthSessionRead(
+        **UserRead.model_validate(user).model_dump(),
+        access_token=session["access_token"],
+        refresh_token=session["refresh_token"],
+        expires_in=expires_in,
+    )
 
 
 @router.post("/signup", response_model=UserRead)
