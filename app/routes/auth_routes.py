@@ -6,6 +6,8 @@ from fastapi.responses import JSONResponse, RedirectResponse
 import httpx
 from sqlalchemy.orm import Session
 
+from fastapi.security import HTTPAuthorizationCredentials
+
 from app.core.auth import (
     ACCESS_COOKIE,
     CSRF_COOKIE,
@@ -14,6 +16,7 @@ from app.core.auth import (
     _auth_url,
     _decode_supabase_token,
     _resolve_or_create_user,
+    bearer_scheme_optional,
     callback_redirect_to,
     clear_auth_cookies,
     get_current_user,
@@ -299,9 +302,17 @@ def callback(code: str, response: Response, db: Session = Depends(get_db), redir
 
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
-def change_password(payload: ChangePasswordRequest, request: Request, response: Response, current_user: User = Depends(get_current_user)):
+def change_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme_optional),
+):
     set_no_store(response)
-    access_token = request.cookies.get(ACCESS_COOKIE)
+    # Native clients have no session cookie and authenticate with a bearer
+    # token instead (see get_current_user) — fall back to it here too.
+    access_token = request.cookies.get(ACCESS_COOKIE) or (credentials.credentials if credentials else None)
     if not access_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     supabase_response = httpx.patch(_auth_url("/user"), headers={**_auth_headers(), "Authorization": f"Bearer {access_token}"}, json={"password": payload.password}, timeout=10.0)
