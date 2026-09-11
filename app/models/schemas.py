@@ -223,6 +223,20 @@ class UserRead(UserBase, ORMModel):
     roles: List[RoleNameEnum] = Field(default_factory=list)
 
 
+class AuthSessionRead(UserRead):
+    """UserRead plus the raw Supabase session tokens.
+
+    Native clients (no shared browser cookie jar) authenticate with these via
+    an `Authorization: Bearer` header instead of the httponly session cookies
+    the web app uses.
+    """
+
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
 class ClinicalAttachmentRead(ORMModel):
     id: int
     patient_id: int
