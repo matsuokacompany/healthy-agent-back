@@ -230,25 +230,36 @@ def csrf_token(request: Request, response: Response):
     return {"csrf_token": token}
 
 
-@router.post("/refresh", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/refresh")
 def refresh(request: Request, response: Response, db: Session = Depends(get_db)):
     set_no_store(response)
-    refresh_token = request.cookies.get(REFRESH_COOKIE)
+    # Native clients have no session cookie, so they send the refresh token
+    # via this header instead (alongside their — possibly expired —
+    # Authorization: Bearer access token, which the CSRF middleware only
+    # checks for presence of, not validity, to know this isn't a
+    # cookie-authenticated request).
+    mobile_refresh_token = request.headers.get("X-Refresh-Token")
+    refresh_token = request.cookies.get(REFRESH_COOKIE) or mobile_refresh_token
     if not refresh_token:
         clear_auth_cookies(response)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     try:
         session = supabase_refresh(refresh_token)
-        _session_from_supabase_payload(session, db)
-        set_auth_cookies(
-            response,
-            access_token=session["access_token"],
-            refresh_token=session.get("refresh_token") or refresh_token,
-            expires_in=int(session.get("expires_in") or 3600),
-        )
+        user = _session_from_supabase_payload(session, db)
+        next_refresh_token = session.get("refresh_token") or refresh_token
+        expires_in = int(session.get("expires_in") or 3600)
+        set_auth_cookies(response, access_token=session["access_token"], refresh_token=next_refresh_token, expires_in=expires_in)
     except HTTPException:
         clear_auth_cookies(response)
         raise
+    if mobile_refresh_token:
+        return AuthSessionRead(
+            **UserRead.model_validate(user).model_dump(),
+            access_token=session["access_token"],
+            refresh_token=next_refresh_token,
+            expires_in=expires_in,
+        )
+    response.status_code = status.HTTP_204_NO_CONTENT
     return None
 
 

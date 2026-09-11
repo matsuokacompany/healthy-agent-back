@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 import app.core.auth as auth_module
 import app.routes.auth_routes as auth_routes_module
+from app.core.auth import REFRESH_COOKIE
 from app.core.dependencies import get_db
 from app.core.document_validation import CnpjLookupError
 from app.core.rate_limit import limiter
@@ -374,6 +375,64 @@ def test_login_returns_session_tokens_in_body_for_native_clients(monkeypatch):
 
 class FakeSupabaseUserPatchResponse:
     status_code = 200
+
+
+def test_refresh_returns_session_tokens_in_body_for_native_clients(monkeypatch):
+    # Mirrors the /login and /change-password bearer tests: a native client
+    # sends its refresh token via X-Refresh-Token (no session cookie exists
+    # to read it from) and expects the new tokens back in the JSON body.
+    client, db = build_client()
+    supabase_user_id = uuid.uuid4()
+    db.add(User(name="Paciente", email="paciente@example.com", supabase_user_id=supabase_user_id))
+    db.commit()
+
+    monkeypatch.setattr(
+        auth_routes_module,
+        "supabase_refresh",
+        lambda refresh_token: {"access_token": "new-access-token", "refresh_token": "new-refresh-token", "expires_in": 3600},
+    )
+    monkeypatch.setattr(
+        auth_routes_module,
+        "_decode_supabase_token",
+        lambda token: {"sub": str(supabase_user_id), "email": "paciente@example.com", "user_metadata": {}},
+    )
+
+    response = client.post(
+        "/api/auth/refresh",
+        headers={"Authorization": "Bearer expired-access-token", "X-Refresh-Token": "old-refresh-token"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["access_token"] == "new-access-token"
+    assert body["refresh_token"] == "new-refresh-token"
+    assert body["email"] == "paciente@example.com"
+
+
+def test_refresh_still_returns_204_for_cookie_based_clients(monkeypatch):
+    # The web app's refresh flow must keep working unchanged: cookie in,
+    # empty 204 out, no X-Refresh-Token header involved.
+    client, db = build_client()
+    supabase_user_id = uuid.uuid4()
+    db.add(User(name="Paciente", email="paciente@example.com", supabase_user_id=supabase_user_id))
+    db.commit()
+
+    monkeypatch.setattr(
+        auth_routes_module,
+        "supabase_refresh",
+        lambda refresh_token: {"access_token": "new-access-token", "refresh_token": "new-refresh-token", "expires_in": 3600},
+    )
+    monkeypatch.setattr(
+        auth_routes_module,
+        "_decode_supabase_token",
+        lambda token: {"sub": str(supabase_user_id), "email": "paciente@example.com", "user_metadata": {}},
+    )
+
+    client.cookies.set(REFRESH_COOKIE, "old-refresh-token")
+    response = client.post("/api/auth/refresh")
+
+    assert response.status_code == 204
+    assert response.content == b""
 
 
 def test_change_password_accepts_bearer_token_for_native_clients(monkeypatch):
