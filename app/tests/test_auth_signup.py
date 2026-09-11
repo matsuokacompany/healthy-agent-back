@@ -372,6 +372,36 @@ def test_login_returns_session_tokens_in_body_for_native_clients(monkeypatch):
     assert "set-cookie" in response.headers or response.cookies
 
 
+class FakeSupabaseUserPatchResponse:
+    status_code = 200
+
+
+def test_change_password_accepts_bearer_token_for_native_clients(monkeypatch):
+    # Mirrors the /login bearer test: a native client has no session cookie,
+    # so change-password must also accept Authorization: Bearer.
+    client, db = build_client()
+    supabase_user_id = uuid.uuid4()
+    db.add(User(name="Paciente", email="paciente@example.com", supabase_user_id=supabase_user_id))
+    db.commit()
+
+    monkeypatch.setattr(
+        auth_module,
+        "_decode_supabase_token",
+        lambda token: {"sub": str(supabase_user_id), "email": "paciente@example.com", "user_metadata": {}},
+    )
+    monkeypatch.setattr(auth_routes_module, "_auth_url", lambda path: "https://example.supabase.co/auth/v1" + path)
+    monkeypatch.setattr(auth_routes_module, "_auth_headers", lambda: {})
+    monkeypatch.setattr(auth_routes_module.httpx, "patch", lambda *a, **k: FakeSupabaseUserPatchResponse())
+
+    response = client.post(
+        "/api/auth/change-password",
+        json={"password": "nova-senha-forte-123"},
+        headers={"Authorization": "Bearer fake-access-token"},
+    )
+
+    assert response.status_code == 204
+
+
 def professional_signup_payload(**overrides):
     data = {
         "name": "Dr. Autonomo",
