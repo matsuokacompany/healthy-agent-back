@@ -14,11 +14,13 @@ from app.models.models import (
     Anamnese,
     DailyReport,
     DailyReportStatusEnum as ModelDailyReportStatusEnum,
+    DailyReportSymptomTerm,
     MedicationAdherenceLevelEnum,
     MonitoringPlan,
     MonitoringProfessional,
     ProfessionalProfile,
     RoleNameEnum,
+    SymptomTerm,
     User,
 )
 from app.models.schemas import (
@@ -39,6 +41,8 @@ from app.models.schemas import (
     PatientMonitoringSummary,
     PatientNextCheckin,
     PatientResponsibleProfessional,
+    PatientTopSymptomTerm,
+    PatientTopSymptomTermsResponse,
 )
 from app.services.daily_report_service import DailyReportService
 from app.services.anamnese_clinical_service import AnamneseClinicalService
@@ -192,6 +196,27 @@ class PatientDashboardService:
             end_date=filters.end_date,
             statistics=self._get_statistics(current_user.id, filters),
         )
+
+    def get_top_symptom_terms(self, current_user: User, *, limit: int = 6) -> PatientTopSymptomTermsResponse:
+        self._ensure_patient_access(current_user)
+        return PatientTopSymptomTermsResponse(items=self._get_top_symptom_terms(current_user.id, limit=limit))
+
+    def _get_top_symptom_terms(self, patient_id: int, *, limit: int = 6) -> list[PatientTopSymptomTerm]:
+        # Reuses the normalized SymptomTerm vocabulary (see
+        # SymptomNormalizationService) so "diarréia" and "Um pouco de
+        # diarréia" count as the same technical term instead of two
+        # unrelated one-off strings. A report the classifier hasn't reached
+        # yet (or failed on) simply contributes no rows here.
+        rows = (
+            self.db.query(SymptomTerm.label, func.count(DailyReportSymptomTerm.daily_report_id).label("term_count"))
+            .join(DailyReportSymptomTerm, DailyReportSymptomTerm.symptom_term_id == SymptomTerm.id)
+            .filter(DailyReportSymptomTerm.patient_id == patient_id)
+            .group_by(SymptomTerm.label)
+            .order_by(func.count(DailyReportSymptomTerm.daily_report_id).desc())
+            .limit(limit)
+            .all()
+        )
+        return [PatientTopSymptomTerm(label=label, count=int(term_count)) for label, term_count in rows]
 
     @staticmethod
     def _ensure_patient_access(current_user: User) -> None:

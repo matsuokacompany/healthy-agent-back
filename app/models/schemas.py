@@ -690,6 +690,15 @@ class PatientDashboardStatistics(BaseModel):
         )
 
 
+class PatientTopSymptomTerm(BaseModel):
+    label: str
+    count: int
+
+
+class PatientTopSymptomTermsResponse(BaseModel):
+    items: List[PatientTopSymptomTerm] = Field(default_factory=list)
+
+
 class PatientLastResponse(BaseModel):
     date: date
     status: DailyReportStatusEnum

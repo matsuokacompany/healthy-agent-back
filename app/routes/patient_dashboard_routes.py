@@ -14,6 +14,7 @@ from app.models.schemas import (
     PatientDashboardHistoryResponse,
     PatientDashboardResponseV2,
     PatientDashboardStatisticsResponse,
+    PatientTopSymptomTermsResponse,
 )
 from app.services.patient_dashboard_service import PaginationParams, PatientDashboardService, ReportFilters
 
@@ -77,6 +78,15 @@ def get_patient_dashboard_statistics(
         start_date=start_date,
         end_date=end_date,
     )
+
+
+@router.get("/dashboard/symptom-terms", response_model=PatientTopSymptomTermsResponse)
+def get_patient_dashboard_symptom_terms(
+    limit: int = Query(6, ge=1, le=20),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return PatientDashboardService(db).get_top_symptom_terms(current_user, limit=limit)
 
 
 @router.get("/dashboard/checkins", response_model=PatientDashboardCheckinsResponse)
