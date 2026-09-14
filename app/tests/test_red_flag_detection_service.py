@@ -131,6 +131,55 @@ def test_detect_swallows_a_provider_failure(monkeypatch):
     assert RedFlagDetectionService.detect("dor no peito") is None
 
 
+def test_detect_falls_back_to_keyword_match_when_the_provider_fails(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.red_flag_detection_service.InsightService",
+        RaisingInsightService,
+    )
+
+    result = RedFlagDetectionService.detect("estou com aperto forte no peito")
+
+    assert result is not None
+    assert result.key == "cardiorrespiratorio"
+
+
+def test_detect_falls_back_to_keyword_match_without_an_api_key(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "")
+    monkeypatch.setattr(
+        "app.services.red_flag_detection_service.InsightService",
+        FakeInsightService,
+    )
+
+    result = RedFlagDetectionService.detect("minha boca entortou de repente")
+
+    assert result is not None
+    assert result.key == "neurologico"
+
+
+def test_detect_keyword_fallback_never_matches_a_contextual_category(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "")
+    monkeypatch.setattr(
+        "app.services.red_flag_detection_service.InsightService",
+        FakeInsightService,
+    )
+
+    # "uma falta de ar leve" is a CONTEXTUAL example phrase -- the keyword
+    # fallback must never match it, since a contextual category needs the
+    # anamnese cross-reference that only the AI path performs.
+    assert RedFlagDetectionService.detect("uma falta de ar leve") is None
+
+
+def test_detect_keyword_fallback_returns_none_when_nothing_matches(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "")
+    monkeypatch.setattr(
+        "app.services.red_flag_detection_service.InsightService",
+        FakeInsightService,
+    )
+
+    assert RedFlagDetectionService.detect("hoje me sinto bem, sem queixas") is None
+
+
 def test_detect_for_patient_passes_through_an_absolute_match_without_an_anamnese(monkeypatch):
     monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(

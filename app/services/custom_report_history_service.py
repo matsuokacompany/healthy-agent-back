@@ -76,4 +76,5 @@ class CustomReportHistoryService:
             actual_cost=float(report.actual_cost) if report.actual_cost is not None else None,
             model_name=report.model_name,
             failure_code=report.failure_code,
+            professional_feedback=report.professional_feedback,
         )

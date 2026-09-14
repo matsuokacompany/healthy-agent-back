@@ -576,6 +576,11 @@ class AiReportCache(Base):
     failure_code = Column(String, nullable=True)
     failure_message = Column(Text, nullable=True)
     idempotency_key = Column(String, nullable=True)
+    # "up" / "down" / None -- set by the requesting professional from the
+    # report view, a much lower-friction accuracy signal than a manual
+    # physician review of a separate golden case set (see
+    # app/scripts/red_flag_eval.py for that other, heavier-weight process).
+    professional_feedback = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     patient = relationship("User", foreign_keys=[patient_id])
