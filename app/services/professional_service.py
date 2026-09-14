@@ -21,6 +21,7 @@ from app.models.models import (
     User,
 )
 from app.models.schemas import (
+    AiReportFeedbackResponse,
     AnamneseRead,
     PatientDashboardCheckinsResponse,
     PatientDashboardResponseV2,
@@ -328,11 +329,13 @@ class ProfessionalService:
         if cached_report:
             AiReportClinicalService.hydrate(cached_report)
             return ProfessionalAiReportResponse(
+                report_id=cached_report.id,
                 patient_id=patient_id,
                 periodo=cached_report.periodo,
                 modo=cached_report.modo,
                 clinical_summary=cached_report.clinical_summary,
                 ai=cached_report.ai_response,
+                professional_feedback=cached_report.professional_feedback,
             )
 
         ai = InsightService(api_key=api_key or "", modo=modo).gerar_interpretacao(clinical_summary)
@@ -356,11 +359,13 @@ class ProfessionalService:
         notify_ai_report_ready(self.db, patient=patient, generated_by_user_id=current_user.id)
         self.db.commit()
         return ProfessionalAiReportResponse(
+            report_id=report.id,
             patient_id=patient_id,
             periodo=periodo,
             modo=modo,
             clinical_summary=clinical_summary,
             ai=ai,
+            professional_feedback=None,
         )
 
     def preview_custom_ai_report(
@@ -463,6 +468,33 @@ class ProfessionalService:
         self._require_report_role(current_user)
         self._require_patient_access(current_user, patient_id)
         return CustomReportHistoryService(self.db).get_report(patient_id, report_id)
+
+    def set_ai_report_feedback(
+        self,
+        current_user: User,
+        patient_id: int,
+        report_id: int,
+        *,
+        feedback: str | None,
+    ) -> AiReportFeedbackResponse:
+        """Lets the requesting professional mark whether an AI report's
+        hypothesis was useful, directly from the report view -- read access
+        to the patient is enough (same level list/get_custom_ai_report use):
+        this is an annotation on something already visible, not a new
+        clinical write. Works for both the weekly quick view and a
+        "personalizado" custom report, since both are AiReportCache rows."""
+        self._require_report_role(current_user)
+        self._require_patient_access(current_user, patient_id)
+        report = (
+            self.db.query(AiReportCache)
+            .filter(AiReportCache.id == report_id, AiReportCache.patient_id == patient_id)
+            .first()
+        )
+        if not report:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI report not found")
+        report.professional_feedback = feedback
+        self.db.commit()
+        return AiReportFeedbackResponse(report_id=report.id, professional_feedback=report.professional_feedback)
 
     @staticmethod
     def _current_week_start(now: datetime | None = None) -> datetime:

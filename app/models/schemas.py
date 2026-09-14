@@ -851,11 +851,13 @@ class ProfessionalAiReportRequest(BaseModel):
 
 
 class ProfessionalAiReportResponse(BaseModel):
+    report_id: int
     patient_id: int
     periodo: Literal["diario", "semanal", "mensal"]
     modo: Literal["preventivo", "avaliacao_clinica"]
     clinical_summary: str
     ai: dict
+    professional_feedback: Optional[Literal["up", "down"]] = None
 
 
 class CustomAiReportPeriod(BaseModel):
@@ -1102,6 +1104,16 @@ class CustomAiReportResponse(BaseModel):
     actual_cost: Optional[float] = Field(default=None, ge=0)
     model_name: Optional[str] = None
     failure_code: Optional[str] = None
+    professional_feedback: Optional[Literal["up", "down"]] = None
+
+
+class AiReportFeedbackRequest(BaseModel):
+    feedback: Optional[Literal["up", "down"]] = None
+
+
+class AiReportFeedbackResponse(BaseModel):
+    report_id: int
+    professional_feedback: Optional[Literal["up", "down"]] = None
 
 
 class SelfMonitoringInsightRead(BaseModel):
@@ -1130,6 +1142,7 @@ class CustomAiReportListItem(BaseModel):
     actual_cost: Optional[float] = Field(default=None, ge=0)
     model_name: Optional[str] = None
     failure_code: Optional[str] = None
+    professional_feedback: Optional[Literal["up", "down"]] = None
 
 
 class CustomAiReportListResponse(BaseModel):

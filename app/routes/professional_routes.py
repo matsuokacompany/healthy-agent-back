@@ -12,6 +12,8 @@ from app.core.rate_limit import limiter
 from app.models.models import User
 from app.services.red_flag_symptoms import ANAMNESE_RISK_FACTOR_FIELDS
 from app.models.schemas import (
+    AiReportFeedbackRequest,
+    AiReportFeedbackResponse,
     AnamneseBase,
     AnamneseRead,
     CustomAiReportPreviewRequest,
@@ -303,4 +305,23 @@ def get_custom_professional_patient_ai_report(
         current_user,
         patient_id,
         report_id,
+    )
+
+
+@router.put(
+    "/patients/{patient_id}/ai-reports/{report_id}/feedback",
+    response_model=AiReportFeedbackResponse,
+)
+def set_professional_patient_ai_report_feedback(
+    patient_id: int,
+    report_id: int,
+    payload: AiReportFeedbackRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return ProfessionalService(db).set_ai_report_feedback(
+        current_user,
+        patient_id,
+        report_id,
+        feedback=payload.feedback,
     )

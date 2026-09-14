@@ -78,6 +78,13 @@ reembolso.
 | Processar imagens clínicas enviadas voluntariamente | Consentimento específico e destacado do titular (art. 11, I) |
 | Prevenir fraude e proteger a segurança da Plataforma | Legítimo interesse (art. 7º, IX) e cumprimento de obrigação legal |
 | Cobrar pela assinatura (autoacompanhamento B2C ou assinatura profissional) | Execução de contrato (art. 7º, V) |
+| Aprimorar a precisão do sistema de triagem automática de sintomas, a partir de descrições de check-in tratadas de forma agregada e anonimizada (sem nome, telefone, e-mail ou qualquer identificador do Usuário) | Legítimo interesse (art. 7º, IX) |
+
+A finalidade acima é distinta de gerar o Relatório de IA de um Paciente específico (linha anterior da
+tabela): trata-se de revisar e melhorar as categorias e regras do classificador de sinais de alerta em
+si, nunca de reidentificar um Usuário a partir do texto exportado. Essa análise pode envolver revisão por
+um profissional de saúde e, quando aplicável, uso do texto anonimizado como exemplo de referência para o
+próprio modelo de IA.
 
 Quando o Paciente for menor de idade, o tratamento de seus dados depende do consentimento específico e
 destacado de um dos pais ou de seu responsável legal, nos termos do art. 14 da LGPD, obtido no momento
