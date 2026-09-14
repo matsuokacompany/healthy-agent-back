@@ -773,6 +773,7 @@ class PatientDashboardReportItem(BaseModel):
     completed: bool
     had_symptoms: Optional[bool] = None
     symptom_description: Optional[str] = None
+    red_flag_category: Optional[str] = None
     prompt_sent_at: datetime
     answered_at: Optional[datetime] = None
     expires_at: datetime

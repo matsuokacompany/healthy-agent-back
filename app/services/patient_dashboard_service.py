@@ -398,6 +398,7 @@ class PatientDashboardService:
             completed=report.completed,
             had_symptoms=report.had_symptoms,
             symptom_description=report.symptom_description,
+            red_flag_category=report.red_flag_category,
             prompt_sent_at=report.prompt_sent_at,
             answered_at=report.updated_at if report.completed else None,
             expires_at=report.expires_at,
