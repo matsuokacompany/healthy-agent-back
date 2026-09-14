@@ -2,6 +2,8 @@ import pytest
 
 from app.services.insight_service import InsightService, _bucketize, _SCALE_BAIXA_ALTA, _SCALE_BAIXO_ALTO
 
+_CATEGORIA_KEYS = ("cardiorrespiratorio", "febre")
+
 
 def build_service(modo: str) -> InsightService:
     return InsightService(api_key="test-key", modo=modo)
@@ -15,6 +17,30 @@ def test_rejects_unknown_mode():
 def test_requires_api_key():
     with pytest.raises(ValueError):
         InsightService(api_key="", modo="preventivo")
+
+
+def test_deteccao_sinais_alerta_requires_categoria_keys():
+    with pytest.raises(ValueError):
+        InsightService(api_key="test-key", modo="deteccao_sinais_alerta")
+
+
+def test_deteccao_sinais_alerta_builds_with_categoria_keys():
+    service = InsightService(
+        api_key="test-key", modo="deteccao_sinais_alerta", categoria_keys=_CATEGORIA_KEYS
+    )
+    assert service.modo == "deteccao_sinais_alerta"
+
+
+def test_deteccao_schema_accepts_a_known_category_and_none():
+    schema = InsightService._build_deteccao_schema(_CATEGORIA_KEYS)
+    assert schema(categoria="febre").categoria == "febre"
+    assert schema().categoria is None
+
+
+def test_deteccao_schema_rejects_a_category_outside_the_reviewed_list():
+    schema = InsightService._build_deteccao_schema(_CATEGORIA_KEYS)
+    with pytest.raises(Exception):
+        schema(categoria="categoria_inventada")
 
 
 def test_bucketize_passes_through_exact_word():

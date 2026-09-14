@@ -9,6 +9,7 @@ from app.services.insight_service import InsightService
 from app.services.red_flag_symptoms import (
     ANAMNESE_RISK_FACTOR_LABELS,
     CONTEXTUAL_RISK_RULES,
+    RED_FLAG_ABSOLUTE_CATEGORIES,
     RED_FLAG_ALL_CATEGORIES,
     RED_FLAG_CATEGORY_BY_KEY,
     RedFlagCategory,
@@ -65,13 +66,18 @@ class RedFlagDetectionService:
 
     @classmethod
     def detect(cls, symptom_description: str | None) -> RedFlagCategory | None:
-        if not symptom_description or not settings.OPENAI_API_KEY:
+        if not symptom_description:
             return None
+        if not settings.OPENAI_API_KEY:
+            return cls._keyword_fallback(symptom_description)
         try:
             return cls._detect(symptom_description)
         except Exception:
-            logger.exception("Red flag detection failed for description=%r", symptom_description)
-            return None
+            logger.exception(
+                "Red flag detection failed for description=%r; falling back to keyword match",
+                symptom_description,
+            )
+            return cls._keyword_fallback(symptom_description)
 
     @classmethod
     def _detect(cls, symptom_description: str) -> RedFlagCategory | None:
@@ -89,9 +95,30 @@ class RedFlagDetectionService:
             modo="deteccao_sinais_alerta",
             model=settings.AI_REPORT_MODEL,
             max_tokens=cls.MAX_TOKENS,
+            categoria_keys=tuple(RED_FLAG_CATEGORY_BY_KEY.keys()),
         )
         result = service.gerar_interpretacao(prompt_input)
         category_key = result.get("categoria")
         if not isinstance(category_key, str):
             return None
         return RED_FLAG_CATEGORY_BY_KEY.get(category_key.strip())
+
+    @classmethod
+    def _keyword_fallback(cls, symptom_description: str) -> RedFlagCategory | None:
+        """Deterministic safety net used ONLY when the AI classifier can't run
+        at all (no API key configured, or the provider call raised) -- never
+        overrides a working AI call, including one that correctly found no
+        match. Matches the same physician-reviewed example phrases already
+        curated in RED_FLAG_ABSOLUTE_CATEGORIES (red_flag_symptoms.py) as a
+        plain substring check: no new clinical content, no CONTEXTUAL
+        categories (those need the anamnese cross-reference the AI step does),
+        and a description that matches nothing still safely returns None
+        rather than guessing."""
+        normalized = symptom_description.strip().lower()
+        if not normalized:
+            return None
+        for category in RED_FLAG_ABSOLUTE_CATEGORIES:
+            for phrase in category.example_phrases:
+                if phrase in normalized:
+                    return category
+        return None

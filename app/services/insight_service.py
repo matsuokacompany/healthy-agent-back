@@ -1,10 +1,11 @@
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, Optional
 
 from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
+from pydantic import BaseModel, Field
 
 
 @dataclass(frozen=True)
@@ -58,12 +59,23 @@ class InsightService:
     MAX_REPORT_CHARS = 6000
     MODES = ("preventivo", "avaliacao_clinica", "resumo_paciente", "normalizacao_sintomas", "deteccao_sinais_alerta")
 
-    def __init__(self, api_key: str, modo: str, *, model: str = "gpt-4o-mini", max_tokens: int = 500):
+    def __init__(
+        self,
+        api_key: str,
+        modo: str,
+        *,
+        model: str = "gpt-4o-mini",
+        max_tokens: int = 500,
+        categoria_keys: tuple[str, ...] | None = None,
+    ):
         if not api_key:
             raise ValueError("OPENAI_API_KEY não configurada")
 
         if modo not in self.MODES:
             raise ValueError("Modo inválido")
+
+        if modo == "deteccao_sinais_alerta" and not categoria_keys:
+            raise ValueError("categoria_keys é obrigatório para modo=deteccao_sinais_alerta")
 
         self.modo = modo
 
@@ -76,7 +88,32 @@ class InsightService:
 
         self.parser = JsonOutputParser()
         self.prompt = self._build_prompt()
-        self.chain = self.prompt | self.llm | self.parser
+
+        if modo == "deteccao_sinais_alerta":
+            # Structured output (OpenAI function-calling under the hood) instead
+            # of free-text JSON: the model's response is constrained to the
+            # reviewed category keys at generation time, not validated after the
+            # fact. It literally cannot emit a key outside `categoria_keys` --
+            # stronger than the previous "parse JSON, then dict.get() it" path,
+            # which silently treated a hallucinated key the same as "no match".
+            self._structured_llm = self.llm.with_structured_output(
+                self._build_deteccao_schema(categoria_keys), include_raw=True
+            )
+            self.chain = self.prompt | self._structured_llm
+        else:
+            self.chain = self.prompt | self.llm | self.parser
+
+    @staticmethod
+    def _build_deteccao_schema(categoria_keys: tuple[str, ...]) -> type[BaseModel]:
+        CategoriaKey = Literal[categoria_keys]  # noqa: N806 -- dynamic type alias, not a constant
+
+        class DeteccaoSinaisAlerta(BaseModel):
+            categoria: Optional[CategoriaKey] = Field(
+                default=None,
+                description="Chave exata de uma categoria da lista, ou null se nenhuma corresponder.",
+            )
+
+        return DeteccaoSinaisAlerta
 
     def _build_prompt(self) -> ChatPromptTemplate:
         if self.modo == "avaliacao_clinica":
@@ -251,8 +288,15 @@ class InsightService:
     def gerar_interpretacao_com_uso(self, relatorio_texto: str) -> InsightGenerationResult:
         relatorio_texto = (relatorio_texto or "").strip()[: self.MAX_REPORT_CHARS]
         prompt_value = self.prompt.invoke({"relatorio": relatorio_texto})
-        message = self.llm.invoke(prompt_value)
-        resultado = self.parser.invoke(message)
+
+        if self.modo == "deteccao_sinais_alerta":
+            structured = self._structured_llm.invoke(prompt_value)
+            message = structured["raw"]
+            parsed = structured["parsed"]
+            resultado = {"categoria": parsed.categoria if parsed is not None else None}
+        else:
+            message = self.llm.invoke(prompt_value)
+            resultado = self.parser.invoke(message)
 
         if self.modo == "avaliacao_clinica" and "avaliacao_clinica" not in resultado:
             raise RuntimeError("Resposta inválida para avaliação clínica")
