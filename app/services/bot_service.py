@@ -490,7 +490,12 @@ class BotService:
                 buttons = (
                     ("medication_all", "Sim, tomei todos"),
                     ("medication_partial", "Não tomei todos"),
-                    ("medication_none", "Não tomei nenhum deles"),
+                    # WhatsApp caps interactive reply button titles at 20
+                    # characters -- "Não tomei nenhum deles" (22) silently
+                    # failed to send (Meta rejects the whole message with a
+                    # 400), so every patient with more than one active
+                    # supplement/medication never got this question at all.
+                    ("medication_none", "Não tomei nenhum"),
                 )
             else:
                 buttons = (("medication_all", "Sim, tomei"), ("medication_none", "Não tomei"))
