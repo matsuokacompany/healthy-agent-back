@@ -163,8 +163,14 @@ def test_medication_prompt_lists_registered_supplements(monkeypatch):
     assert response.buttons == (
         ("medication_all", "Sim, tomei todos"),
         ("medication_partial", "Não tomei todos"),
-        ("medication_none", "Não tomei nenhum deles"),
+        ("medication_none", "Não tomei nenhum"),
     )
+    # WhatsApp's Cloud API rejects the entire interactive message if any
+    # reply button title exceeds 20 characters -- this is what silently
+    # broke the medication question for every patient with 2+ active
+    # supplements/medications before ("Não tomei nenhum deles" was 22).
+    for _button_id, title in response.buttons:
+        assert len(title) <= 20
 
 
 def test_medication_prompt_offers_only_two_buttons_for_a_single_supplement(monkeypatch):
