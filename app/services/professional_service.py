@@ -1,5 +1,6 @@
 import hashlib
-from datetime import datetime, timedelta, timezone
+from calendar import monthrange
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
 
@@ -23,6 +24,7 @@ from app.models.models import (
 from app.models.schemas import (
     AiReportFeedbackResponse,
     AnamneseRead,
+    PatientDashboardCalendarResponse,
     PatientDashboardCheckinsResponse,
     PatientDashboardResponseV2,
     ProfessionalAiReportResponse,
@@ -223,6 +225,34 @@ class ProfessionalService:
             items=[self.dashboard_service._build_report_item(report) for report in items],
             pagination=self.dashboard_service._build_pagination(pagination, total),
         )
+
+    def get_calendar(
+        self,
+        current_user: User,
+        patient_id: int,
+        *,
+        year: int,
+        month: int,
+    ) -> PatientDashboardCalendarResponse:
+        self._require_patient_access(current_user, patient_id)
+        _, last_day = monthrange(year, month)
+        start_date = date(year, month, 1)
+        end_date = date(year, month, last_day)
+        reports = (
+            self.dashboard_service._reports_query(patient_id, ReportFilters(start_date=start_date, end_date=end_date))
+            .order_by(DailyReport.report_date.asc(), DailyReport.prompt_sent_at.asc(), DailyReport.id.asc())
+            .all()
+        )
+
+        reports_by_day: dict[date, list[DailyReport]] = {}
+        for report in reports:
+            reports_by_day.setdefault(report.report_date, []).append(report)
+
+        days = [
+            self.dashboard_service._build_calendar_day(date(year, month, day), reports_by_day.get(date(year, month, day), []))
+            for day in range(1, last_day + 1)
+        ]
+        return PatientDashboardCalendarResponse(year=year, month=month, days=days)
 
     def get_anamnese(self, current_user: User, patient_id: int) -> AnamneseRead:
         self._require_patient_access(current_user, patient_id)

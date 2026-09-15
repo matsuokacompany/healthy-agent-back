@@ -23,6 +23,7 @@ from app.models.schemas import (
     CustomAiReportListResponse,
     AiReportStatusEnum,
     DailyReportStatusEnum,
+    PatientDashboardCalendarResponse,
     PatientDashboardCheckinsResponse,
     PatientDashboardResponseV2,
     PatientLinkRequestCreate,
@@ -121,6 +122,17 @@ def get_professional_patient_checkins(
         ),
         order=order,
     )
+
+
+@router.get("/patients/{patient_id}/calendar", response_model=PatientDashboardCalendarResponse)
+def get_professional_patient_calendar(
+    patient_id: int,
+    year: int = Query(..., ge=2000, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return ProfessionalService(db).get_calendar(current_user, patient_id, year=year, month=month)
 
 
 @router.get("/patients/{patient_id}/anamnese", response_model=AnamneseRead)
