@@ -117,6 +117,7 @@ def signup(request: Request, payload: SignupRequest, response: Response, db: Ses
         payload.password,
         metadata={
             "name": payload.name,
+            "full_name": payload.name,
             "phone": normalized_phone,
             "city": payload.city,
             "state": payload.state,
@@ -187,6 +188,7 @@ def signup_professional(
         metadata={
             "account_type": "professional",
             "name": payload.name,
+            "full_name": payload.name,
             "phone": normalized_phone,
             "cpf": payload.cpf,
             "specialty": payload.specialty,
