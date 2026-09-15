@@ -431,17 +431,27 @@ class PatientDashboardService:
             )
             for report in reports
         ]
+        # The WhatsApp check-in asks about symptoms, then diet, then exercise,
+        # then medication in sequence (see DailyReportService.process_response),
+        # writing each answer as it comes in. A report that expires or is
+        # otherwise abandoned mid-flow keeps whatever partial answers it
+        # already collected even though `completed` stays False -- so these
+        # per-day flags must only reflect *completed* reports, or a day
+        # correctly shown as "not answered" would still display adherence
+        # icons from an answer the patient never finished giving.
+        completed_reports = [report for report in reports if report.completed]
         return PatientDashboardCalendarDay(
             date=current_date,
             has_checkin=bool(reports),
             completed=bool(reports) and all(report.completed for report in reports),
             pending=any(not report.completed for report in reports),
-            has_symptoms=any(report.had_symptoms is True for report in reports),
-            diet_followed=any(report.diet_adherence is True for report in reports),
-            exercise_followed=any(report.exercise_adherence is True for report in reports),
-            medication_taken=any(report.medication_adherence is True for report in reports),
+            has_symptoms=any(report.had_symptoms is True for report in completed_reports),
+            diet_followed=any(report.diet_adherence is True for report in completed_reports),
+            exercise_followed=any(report.exercise_adherence is True for report in completed_reports),
+            medication_taken=any(report.medication_adherence is True for report in completed_reports),
             medication_partial=any(
-                report.medication_adherence_level == MedicationAdherenceLevelEnum.PARTIAL.value for report in reports
+                report.medication_adherence_level == MedicationAdherenceLevelEnum.PARTIAL.value
+                for report in completed_reports
             ),
             statuses=[report.status for report in reports],
             checkins=checkins,
