@@ -6,9 +6,11 @@
 > níveis. Esta v3 incorpora um segundo critério clínico, mais detalhado (NICE NG12 atualizado em abril de
 > 2026, NICE NG253 de sepse, AHA/ACC), que trouxe 11 combinações laranja novas e uma nova categoria
 > vermelha (sinais de possível sepse). **Já implementado** em
-> `app/services/red_flag_symptoms.py`/`app/bot/scheduler.py`, mas as regras laranja seguem desligadas por
-> padrão (`ORANGE_COMBINATION_ALERTS_ENABLED=False`) até a validação do médico responsável — a categoria
-> vermelha de sepse já está ativa (mesmo mecanismo das outras categorias absolutas, sem flag).
+> `app/services/red_flag_symptoms.py`/`app/bot/scheduler.py`. As regras laranja foram **ligadas por padrão**
+> (`ORANGE_COMBINATION_ALERTS_ENABLED=True`) por decisão explícita do produto em 2026-09-15, **antes** da
+> validação do médico responsável e do parecer jurídico das seções 8/9 abaixo — essas pendências continuam
+> abertas e não foram resolvidas, só deixaram de bloquear o flag. A categoria vermelha de sepse já está ativa
+> desde antes (mesmo mecanismo das outras categorias absolutas, sem flag).
 
 ## 1. O modelo de 4 níveis
 
@@ -182,6 +184,9 @@ nenhuma ao paciente. Independente da resposta do médico às perguntas da seçã
 ## 10. Status
 
 Implementado (`app/services/red_flag_symptoms.py`, `app/bot/scheduler.py`,
-`app/services/notification_service.py`), com testes. As 19 regras laranja seguem **desligadas por padrão**
-(`ORANGE_COMBINATION_ALERTS_ENABLED=False`); a categoria vermelha de sepse já está ativa como qualquer outra
-categoria absoluta. Ligar as regras laranja só depois da validação das seções 8 e 9.
+`app/services/notification_service.py`), com testes. As 19 regras laranja estão **ligadas por padrão**
+(`ORANGE_COMBINATION_ALERTS_ENABLED=True`) desde 2026-09-15, por decisão explícita do produto — **não**
+porque as seções 8 e 9 foram respondidas. Essas duas pendências (validação clínica das regras/janelas pelo
+médico responsável, e o parecer jurídico sobre a classificação regulatória) continuam em aberto e devem ser
+buscadas mesmo com o flag já ligado. A categoria vermelha de sepse já está ativa como qualquer outra
+categoria absoluta.

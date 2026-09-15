@@ -322,7 +322,9 @@ def invite_supabase_user(email: str, *, name: str | None = None) -> uuid.UUID | 
     redirect_to = callback_redirect_to()
     body: dict[str, Any] = {"email": email}
     if name:
-        body["data"] = {"name": name}
+        # Both keys: _metadata_name (below) already reads either, and it's
+        # unconfirmed which one Supabase Studio's Display Name column reads.
+        body["data"] = {"name": name, "full_name": name}
 
     try:
         with httpx.Client(timeout=10.0) as client:
