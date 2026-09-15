@@ -351,7 +351,19 @@ def test_orange_combination_alert_has_a_cooldown(patch_session_local, monkeypatc
     assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 1
 
 
-def test_orange_combination_alert_is_disabled_by_default(patch_session_local):
+def test_orange_combination_alert_is_enabled_by_default(patch_session_local):
+    db = patch_session_local
+    patient, plan = make_patient(db)
+    for offset, term_label in ((2, "dor abdominal"), (8, "coceira")):
+        add_symptom_report(db, plan, patient, report_date=date.today() - timedelta(days=offset), term_label=term_label)
+
+    asyncio.run(scheduler_module.send_monitoring_alerts())
+
+    assert db.query(Notification).filter(Notification.kind == NotificationKindEnum.SYMPTOM_CLUSTER_ALERT.value).count() == 1
+
+
+def test_orange_combination_alert_can_still_be_disabled_via_flag(patch_session_local, monkeypatch):
+    monkeypatch.setattr(settings, "ORANGE_COMBINATION_ALERTS_ENABLED", False)
     db = patch_session_local
     patient, plan = make_patient(db)
     for offset, term_label in ((2, "dor abdominal"), (8, "coceira")):

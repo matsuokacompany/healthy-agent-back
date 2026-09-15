@@ -26,10 +26,13 @@ class Settings(BaseSettings):
 
     # LARANJA-tier cross-check-in symptom combination detection (see
     # docs/red-flag-padroes-cumulativos-proposta.md and
-    # app/services/red_flag_symptoms.py's ORANGE_COMBINATION_RULES). Off by
-    # default: the rules/windows are a first draft pending review by the
-    # responsible physician, not yet clinically validated.
-    ORANGE_COMBINATION_ALERTS_ENABLED: bool = False
+    # app/services/red_flag_symptoms.py's ORANGE_COMBINATION_RULES). Enabled
+    # by default per explicit product decision, even though the rules'
+    # windows/thresholds are still a first draft pending review by the
+    # responsible physician and a lawyer's opinion on the regulatory
+    # classification (see the doc's sections 8/9) -- that review is still
+    # outstanding, this flag no longer waits on it.
+    ORANGE_COMBINATION_ALERTS_ENABLED: bool = True
 
     USER_ID: int = 1
     ENV: str = "dev"
