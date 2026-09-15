@@ -444,7 +444,14 @@ class PatientDashboardService:
             date=current_date,
             has_checkin=bool(reports),
             completed=bool(reports) and all(report.completed for report in reports),
-            pending=any(not report.completed for report in reports),
+            # `pending` means "truly no answer yet" -- a report that collected
+            # some partial answer before expiring (see the comment above) is
+            # neither completed nor pending; the frontend's day-status
+            # fallback already treats that combination as "incomplete"
+            # (i18n key monitoring.statuses.incomplete, CSS class .is-issue),
+            # it just never used to be reachable while `pending` covered
+            # every non-completed report regardless of partial answers.
+            pending=any(not report.completed and self._is_untouched(report) for report in reports),
             has_symptoms=any(report.had_symptoms is True for report in completed_reports),
             diet_followed=any(report.diet_adherence is True for report in completed_reports),
             exercise_followed=any(report.exercise_adherence is True for report in completed_reports),
@@ -455,6 +462,17 @@ class PatientDashboardService:
             ),
             statuses=[report.status for report in reports],
             checkins=checkins,
+        )
+
+    @staticmethod
+    def _is_untouched(report: DailyReport) -> bool:
+        """True if the patient never answered a single question on this report."""
+        return (
+            report.had_symptoms is None
+            and report.diet_adherence is None
+            and report.exercise_adherence is None
+            and report.medication_adherence is None
+            and report.medication_adherence_level is None
         )
 
     def _build_next_checkin(self, plan: MonitoringPlan | None) -> PatientNextCheckin | None:
