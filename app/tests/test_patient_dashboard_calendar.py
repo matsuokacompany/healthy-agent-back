@@ -77,20 +77,34 @@ def test_calendar_day_does_not_flag_partial_answers_from_an_incomplete_report():
     # The WhatsApp flow asks diet, then exercise, then medication in sequence,
     # writing each answer as it lands -- a report that expires (or is
     # otherwise abandoned) after diet/exercise but before medication keeps
-    # those partial answers with completed=False. The day must still read as
-    # "not answered" without showing adherence icons for an answer the
-    # patient never finished giving.
+    # those partial answers with completed=False. The day must not show
+    # adherence icons for an answer the patient never finished giving, and
+    # it must not read as "não respondido"/pending either -- the patient DID
+    # answer something, so it should fall into the "incomplete" bucket
+    # (frontend: not completed, not pending -> monitoring.statuses.incomplete).
     report = build_report(diet_adherence=True, exercise_adherence=True, had_symptoms=True, completed=False)
 
     day = PatientDashboardService(db=None)._build_calendar_day(date.today(), [report])
 
-    assert day.pending is True
+    assert day.pending is False
+    assert day.completed is False
     assert day.diet_followed is False
     assert day.exercise_followed is False
     assert day.has_symptoms is False
     # The raw per-checkin answer is still exposed for anyone reading the
     # check-in's own details, only the day-level aggregate flag is gated.
     assert day.checkins[0].diet_adherence is True
+
+
+def test_calendar_day_is_pending_when_truly_untouched():
+    # No answer at all (report still PENDING, or expired before the patient
+    # ever replied) is the only case that should read as "não respondido".
+    report = build_report(completed=False)
+
+    day = PatientDashboardService(db=None)._build_calendar_day(date.today(), [report])
+
+    assert day.pending is True
+    assert day.completed is False
 
 
 def test_calendar_day_flags_partial_medication_adherence():
