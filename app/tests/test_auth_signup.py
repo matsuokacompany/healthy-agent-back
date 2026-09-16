@@ -51,6 +51,26 @@ def test_callback_redirect_to_is_none_when_not_configured(monkeypatch):
     assert auth_module.callback_redirect_to() is None
 
 
+def test_supabase_signup_sends_redirect_to_as_query_param_not_body(monkeypatch):
+    # Regression test: Supabase silently ignores redirect_to placed in the
+    # JSON body for /signup (confirmed against a real click landing on the
+    # Site URL instead) -- it must be a query parameter, matching
+    # invite_supabase_user's already-working /invite call.
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "API_PUBLIC_URL", "https://api.example.com")
+    monkeypatch.setattr(auth_module, "_auth_headers", lambda: {})
+    monkeypatch.setattr(auth_module, "_auth_url", lambda path: "https://example.supabase.co/auth/v1" + path)
+    calls: list[dict] = []
+    response = FakeSupabaseSignupResponse(200, {"access_token": "abc", "refresh_token": "def", "expires_in": 3600})
+    monkeypatch.setattr(auth_module.httpx, "Client", lambda timeout=10.0: FakeSupabaseClient(response, calls))
+
+    auth_module.supabase_signup("a@example.com", "senha-forte-123")
+
+    assert calls[0]["params"] == {"redirect_to": "https://api.example.com/api/auth/callback"}
+    assert "redirect_to" not in calls[0]["json"]
+
+
 class FakeSupabaseSignupResponse:
     def __init__(self, status_code, payload):
         self.status_code = status_code
@@ -63,8 +83,9 @@ class FakeSupabaseSignupResponse:
 
 
 class FakeSupabaseClient:
-    def __init__(self, response):
+    def __init__(self, response, calls=None):
         self._response = response
+        self._calls = calls
 
     def __enter__(self):
         return self
@@ -72,7 +93,9 @@ class FakeSupabaseClient:
     def __exit__(self, *args):
         return False
 
-    def post(self, url, headers=None, json=None):
+    def post(self, url, headers=None, params=None, json=None):
+        if self._calls is not None:
+            self._calls.append({"url": url, "params": params, "json": json})
         return self._response
 
 

@@ -248,12 +248,15 @@ def supabase_signup(email: str, password: str, *, metadata: dict[str, Any] | Non
         body["data"] = metadata
     # Without this, the confirmation email (when the project requires one)
     # links back to Supabase's default Site URL instead of our callback.
+    # QUERY parameter, not a body field -- confirmed against forgot_password's
+    # /recover call (app/routes/auth_routes.py): Supabase silently ignores
+    # redirect_to in the JSON body and falls back to the Site URL, matching
+    # invite_supabase_user's /invite call below, which already used params=.
     redirect_to = callback_redirect_to()
-    if redirect_to:
-        body["redirect_to"] = redirect_to
+    params = {"redirect_to": redirect_to} if redirect_to else None
     try:
         with httpx.Client(timeout=10.0) as client:
-            response = client.post(_auth_url("/signup"), headers=_auth_headers(), json=body)
+            response = client.post(_auth_url("/signup"), headers=_auth_headers(), params=params, json=body)
     except (httpx.HTTPError, RuntimeError):
         logger.info("Supabase signup request failed for email=%s", email)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Signup failed")

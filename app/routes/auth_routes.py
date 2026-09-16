@@ -303,20 +303,26 @@ def logout(request: Request, response: Response):
 def forgot_password(request: Request, payload: ForgotPasswordRequest, response: Response):
     set_no_store(response)
     try:
-        body: dict = {"email": payload.email}
+        # redirect_to is a QUERY parameter here, not a JSON body field --
+        # matching invite_supabase_user's already-working /invite call.
+        # Confirmed the hard way: sending it in the body (as this and
+        # supabase_signup previously did) is silently ignored by Supabase,
+        # which falls back to the Site URL -- exactly the symptom that made
+        # this fix look like it did nothing on first deploy.
+        params: dict = {}
         # Deliberately NOT callback_redirect_to() (GET /callback): that's the
         # right landing spot for signup/invite confirmation -- it logs the
         # user straight into the app -- but for recovery it silently defeats
         # the point, since it drops the browser on the frontend's bare origin,
         # which middleware.ts redirects straight to /login with no chance to
         # set a new password. Recovery must land on the frontend's own
-        # /reset-password page, which exchanges the code itself via
+        # /reset-password page, which exchanges the token itself via
         # POST /recovery/exchange below.
         frontend_origin = _default_frontend_origin()
         if frontend_origin:
-            body["redirect_to"] = f"{frontend_origin}/reset-password"
+            params["redirect_to"] = f"{frontend_origin}/reset-password"
         with httpx.Client(timeout=10.0) as client:
-            client.post(_auth_url("/recover"), headers=_auth_headers(), json=body)
+            client.post(_auth_url("/recover"), headers=_auth_headers(), params=params, json={"email": payload.email})
     except Exception:
         pass
     return {"message": "If the email exists, password recovery instructions will be sent."}
@@ -324,7 +330,7 @@ def forgot_password(request: Request, payload: ForgotPasswordRequest, response: 
 
 @router.post("/recovery/exchange", status_code=status.HTTP_204_NO_CONTENT)
 def recovery_exchange(payload: RecoveryExchangeRequest, response: Response, db: Session = Depends(get_db)):
-    """Exchanges a Supabase password-recovery PKCE code for a session.
+    """Establishes a session from a Supabase password-recovery link.
 
     Called by the frontend's /reset-password page right after it lands there
     (see ResetPasswordPage's prepareRecoverySession) -- distinct from
@@ -332,8 +338,24 @@ def recovery_exchange(payload: RecoveryExchangeRequest, response: Response, db: 
     confirmation. Recovery instead needs the browser to stay on
     /reset-password so the user can set a new password with
     POST /change-password right after this establishes their session cookies.
+
+    Handles two shapes, since this project's recovery links turned out to use
+    the implicit flow (#access_token=...&refresh_token=...) rather than the
+    PKCE flow (?code=...) GET /callback expects -- unconfirmed which flow a
+    given Supabase project is on without an actual link to test against, so
+    this accepts either rather than guessing wrong again.
     """
     set_no_store(response)
+    if payload.access_token and payload.refresh_token:
+        # Already a Supabase-issued, signed session -- verifying it here is
+        # exactly what get_current_user does for any other request; no
+        # further call to Supabase is needed to trust it.
+        claims = _decode_supabase_token(payload.access_token)
+        _resolve_or_create_user(db, claims)
+        set_auth_cookies(response, access_token=payload.access_token, refresh_token=payload.refresh_token, expires_in=payload.expires_in or 3600)
+        return None
+    if not payload.code:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Missing recovery code or tokens")
     try:
         with httpx.Client(timeout=10.0) as client:
             supabase_response = client.post(_auth_url("/token?grant_type=pkce"), headers=_auth_headers(), json={"auth_code": payload.code})
