@@ -405,6 +405,7 @@ def _decode_supabase_token(token: str) -> dict[str, Any]:
         detail="Invalid or expired Supabase token",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    header: dict[str, Any] = {}
     try:
         header = jwt.get_unverified_header(token)
         algorithm = header.get("alg")
@@ -424,7 +425,18 @@ def _decode_supabase_token(token: str) -> dict[str, Any]:
         if issuer:
             decode_kwargs["issuer"] = issuer
         payload = jwt.decode(token, key, **decode_kwargs)
-    except (JWTError, ValueError, RuntimeError, HTTPException):
+    except (JWTError, ValueError, RuntimeError, HTTPException) as exc:
+        # The client only ever sees the generic 401 above -- log the real
+        # reason (alg/kid identify which signing key was expected, without
+        # logging the token itself) so a rejection here is diagnosable later.
+        # This path is not visible in Supabase's own dashboard/logs: once a
+        # token has been issued, whether we accept it is entirely on us.
+        logger.warning(
+            "Rejecting Supabase token: alg=%s kid=%s error=%r",
+            header.get("alg"),
+            header.get("kid"),
+            exc,
+        )
         raise credentials_exception
 
     sub = payload.get("sub")

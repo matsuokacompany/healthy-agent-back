@@ -75,3 +75,20 @@ def test_decode_supabase_hs256_token_rejects_invalid_required_claims(monkeypatch
         _decode_supabase_token(token)
 
     assert exc.value.status_code == 401
+
+
+def test_decode_supabase_token_logs_the_rejection_reason(monkeypatch, caplog):
+    # Regression test: a rejected token used to surface only as a generic
+    # 401 to the client, with nothing logged on our side either -- making a
+    # real-world rejection (e.g. a password-recovery token that fails our
+    # own verification) undiagnosable, since it never touches Supabase's own
+    # logs once the token has already been issued.
+    configure_supabase(monkeypatch)
+    token = make_token(settings.SUPABASE_JWT_SECRET, settings.SUPABASE_PROJECT_URL, aud="anon")
+
+    with caplog.at_level("WARNING", logger="app.core.auth"):
+        with pytest.raises(HTTPException):
+            _decode_supabase_token(token)
+
+    assert any("Rejecting Supabase token" in record.message for record in caplog.records)
+    assert any("alg=HS256" in record.message for record in caplog.records)
