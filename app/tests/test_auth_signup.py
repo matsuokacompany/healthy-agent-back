@@ -473,7 +473,7 @@ def test_change_password_accepts_bearer_token_for_native_clients(monkeypatch):
     )
     monkeypatch.setattr(auth_routes_module, "_auth_url", lambda path: "https://example.supabase.co/auth/v1" + path)
     monkeypatch.setattr(auth_routes_module, "_auth_headers", lambda: {})
-    monkeypatch.setattr(auth_routes_module.httpx, "patch", lambda *a, **k: FakeSupabaseUserPatchResponse())
+    monkeypatch.setattr(auth_routes_module.httpx, "put", lambda *a, **k: FakeSupabaseUserPatchResponse())
 
     response = client.post(
         "/api/auth/change-password",
@@ -494,7 +494,7 @@ def test_change_password_logs_supabase_rejection_reason(monkeypatch, caplog):
     # password-recovery link expired between the exchange and the password
     # submission) used to surface as a bare 401 with nothing logged on our
     # side -- and it will never show up in Supabase's own dashboard either,
-    # since Supabase already issued this token; the PATCH /user call it
+    # since Supabase already issued this token; the PUT /user call it
     # rejects here is between us and Supabase, not something a user's
     # browser session shows up in.
     client, db = build_client()
@@ -509,7 +509,7 @@ def test_change_password_logs_supabase_rejection_reason(monkeypatch, caplog):
     )
     monkeypatch.setattr(auth_routes_module, "_auth_url", lambda path: "https://example.supabase.co/auth/v1" + path)
     monkeypatch.setattr(auth_routes_module, "_auth_headers", lambda: {})
-    monkeypatch.setattr(auth_routes_module.httpx, "patch", lambda *a, **k: FakeSupabaseUserPatchRejection())
+    monkeypatch.setattr(auth_routes_module.httpx, "put", lambda *a, **k: FakeSupabaseUserPatchRejection())
 
     with caplog.at_level("WARNING", logger="app.routes.auth_routes"):
         response = client.post(
@@ -521,6 +521,40 @@ def test_change_password_logs_supabase_rejection_reason(monkeypatch, caplog):
     assert response.status_code == 401
     assert any("Supabase rejected password change" in record.message for record in caplog.records)
     assert any("Token has expired or is invalid" in record.message for record in caplog.records)
+
+
+def test_change_password_calls_supabase_with_put_not_patch(monkeypatch):
+    # Regression test: production logs showed every single change-password
+    # attempt failing with "status=405 body=" -- Supabase Auth's (GoTrue)
+    # PUT /user endpoint returns 405 Method Not Allowed for PATCH, which this
+    # code used unconditionally, so the call never had a chance to succeed
+    # regardless of how valid or fresh the session was.
+    client, db = build_client()
+    supabase_user_id = uuid.uuid4()
+    db.add(User(name="Paciente", email="paciente@example.com", supabase_user_id=supabase_user_id))
+    db.commit()
+
+    monkeypatch.setattr(
+        auth_module,
+        "_decode_supabase_token",
+        lambda token: {"sub": str(supabase_user_id), "email": "paciente@example.com", "user_metadata": {}},
+    )
+    monkeypatch.setattr(auth_routes_module, "_auth_url", lambda path: "https://example.supabase.co/auth/v1" + path)
+    monkeypatch.setattr(auth_routes_module, "_auth_headers", lambda: {})
+
+    def fail_if_called(*_a, **_k):
+        raise AssertionError("change-password must call PUT /user, not PATCH")
+
+    monkeypatch.setattr(auth_routes_module.httpx, "patch", fail_if_called)
+    monkeypatch.setattr(auth_routes_module.httpx, "put", lambda *a, **k: FakeSupabaseUserPatchResponse())
+
+    response = client.post(
+        "/api/auth/change-password",
+        json={"password": "nova-senha-forte-123"},
+        headers={"Authorization": "Bearer fake-access-token"},
+    )
+
+    assert response.status_code == 204
 
 
 def professional_signup_payload(**overrides):
