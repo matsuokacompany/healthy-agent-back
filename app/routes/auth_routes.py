@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import logging
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -43,6 +44,7 @@ from app.models.schemas import (
 )
 
 router = APIRouter(tags=["Auth"])
+logger = logging.getLogger(__name__)
 
 
 def _frontend_allowlist() -> list[str]:
@@ -401,8 +403,25 @@ def change_password(
     # token instead (see get_current_user) — fall back to it here too.
     access_token = request.cookies.get(ACCESS_COOKIE) or (credentials.credentials if credentials else None)
     if not access_token:
+        # get_current_user above already required a valid session to reach
+        # this point, so this only fires for the bearer-only (native app)
+        # path when no bearer token was actually sent -- logged because it
+        # otherwise looks identical to a Supabase-side rejection below.
+        logger.warning("change-password rejected: no access token cookie or bearer header present for user_id=%s", current_user.id)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     supabase_response = httpx.patch(_auth_url("/user"), headers={**_auth_headers(), "Authorization": f"Bearer {access_token}"}, json={"password": payload.password}, timeout=10.0)
     if supabase_response.status_code >= 400:
+        # Unlike the branch above, this rejection comes from Supabase itself
+        # (e.g. the access token from a password-recovery link expired or was
+        # already used by the time the form was submitted) -- log its status
+        # and body so that distinction is visible without needing Supabase's
+        # own dashboard, which won't show a rejection of a token it already
+        # issued.
+        logger.warning(
+            "Supabase rejected password change for user_id=%s: status=%s body=%s",
+            current_user.id,
+            supabase_response.status_code,
+            supabase_response.text,
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication failed")
     return None
