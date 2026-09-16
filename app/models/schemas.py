@@ -372,7 +372,13 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class RecoveryExchangeRequest(BaseModel):
-    code: str
+    # Either `code` (PKCE flow, ?code=...) or the access_token/refresh_token
+    # pair (implicit flow, #access_token=...) -- see recovery_exchange's
+    # docstring for why both are accepted.
+    code: str | None = None
+    access_token: str | None = None
+    refresh_token: str | None = None
+    expires_in: int | None = None
 
 
 class ChangePasswordRequest(BaseModel):

@@ -85,7 +85,11 @@ def test_forgot_password_redirects_recovery_to_frontend_reset_password_page(monk
 
     assert response.status_code == 202
     assert len(calls) == 1
-    assert calls[0]["json"]["redirect_to"] == "https://app.julha.com.br/reset-password"
+    # Regression test: redirect_to is a QUERY parameter, not a body field --
+    # confirmed against a real recovery click that landed on the Site URL
+    # instead, because Supabase silently ignores it in the JSON body.
+    assert calls[0]["params"] == {"redirect_to": "https://app.julha.com.br/reset-password"}
+    assert "redirect_to" not in calls[0]["json"]
 
 
 def test_recovery_exchange_creates_session_and_local_user(monkeypatch):
@@ -110,6 +114,37 @@ def test_recovery_exchange_creates_session_and_local_user(monkeypatch):
 
     user = db.query(User).filter(User.email == "recuperando@example.com").one()
     assert user.supabase_user_id == supabase_user_id
+
+
+def test_recovery_exchange_accepts_implicit_flow_tokens(monkeypatch):
+    # This Supabase project turned out to issue implicit-flow recovery links
+    # (#access_token=...&refresh_token=...) rather than the PKCE ?code= flow
+    # GET /callback expects -- confirmed against a real recovery link.
+    client, db = build_client()
+    supabase_user_id = uuid.uuid4()
+    monkeypatch.setattr(
+        auth_routes_module,
+        "_decode_supabase_token",
+        lambda token: {"sub": str(supabase_user_id), "email": "recuperando@example.com", "user_metadata": {}},
+    )
+
+    response = client.post(
+        "/api/auth/recovery/exchange",
+        json={"access_token": "implicit-access-token", "refresh_token": "implicit-refresh-token", "expires_in": 3600},
+    )
+
+    assert response.status_code == 204
+    assert ACCESS_COOKIE in response.cookies
+    user = db.query(User).filter(User.email == "recuperando@example.com").one()
+    assert user.supabase_user_id == supabase_user_id
+
+
+def test_recovery_exchange_requires_code_or_tokens(monkeypatch):
+    client, _ = build_client()
+
+    response = client.post("/api/auth/recovery/exchange", json={})
+
+    assert response.status_code == 422
 
 
 def test_default_frontend_origin_prefers_non_localhost_deterministically(monkeypatch):
