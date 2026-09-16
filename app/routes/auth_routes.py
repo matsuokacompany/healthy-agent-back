@@ -17,7 +17,6 @@ from app.core.auth import (
     _decode_supabase_token,
     _resolve_or_create_user,
     bearer_scheme_optional,
-    callback_redirect_to,
     clear_auth_cookies,
     get_current_user,
     set_auth_cookies,
@@ -38,6 +37,7 @@ from app.models.schemas import (
     ForgotPasswordRequest,
     LoginRequest,
     ProfessionalSignupRequest,
+    RecoveryExchangeRequest,
     SignupRequest,
     UserRead,
 )
@@ -45,9 +45,28 @@ from app.models.schemas import (
 router = APIRouter(tags=["Auth"])
 
 
+def _frontend_allowlist() -> list[str]:
+    # A list, not a set: order matters for _default_frontend_origin() below,
+    # and a set's iteration order is hash-randomized per process in CPython --
+    # picking a "first" entry from one would non-deterministically flip
+    # between the dev and production origin on every server restart.
+    return [origin.strip().rstrip("/") for origin in settings.AUTH_REDIRECT_ALLOWLIST.split(",") if origin.strip()]
+
+
+def _default_frontend_origin() -> str | None:
+    """The frontend origin to use when no explicit redirect destination is
+    given (e.g. building a link for an outbound email, or GET /callback's own
+    fallback when it wasn't asked to land anywhere specific) -- prefers a
+    non-localhost entry so a dev origin listed alongside the production one
+    in AUTH_REDIRECT_ALLOWLIST is never picked as the default in production."""
+    origins = _frontend_allowlist()
+    non_local = [origin for origin in origins if not origin.startswith("http://localhost")]
+    return next(iter(non_local), None) or next(iter(origins), None)
+
+
 def _allowed_redirect(url: str | None) -> str:
-    allowlist = {origin.strip().rstrip("/") for origin in settings.AUTH_REDIRECT_ALLOWLIST.split(",") if origin.strip()}
-    fallback = next(iter(allowlist), "/")
+    allowlist = set(_frontend_allowlist())
+    fallback = _default_frontend_origin() or "/"
     if not url:
         return fallback
     parsed = urlparse(url)
@@ -285,14 +304,47 @@ def forgot_password(request: Request, payload: ForgotPasswordRequest, response: 
     set_no_store(response)
     try:
         body: dict = {"email": payload.email}
-        redirect_to = callback_redirect_to()
-        if redirect_to:
-            body["redirect_to"] = redirect_to
+        # Deliberately NOT callback_redirect_to() (GET /callback): that's the
+        # right landing spot for signup/invite confirmation -- it logs the
+        # user straight into the app -- but for recovery it silently defeats
+        # the point, since it drops the browser on the frontend's bare origin,
+        # which middleware.ts redirects straight to /login with no chance to
+        # set a new password. Recovery must land on the frontend's own
+        # /reset-password page, which exchanges the code itself via
+        # POST /recovery/exchange below.
+        frontend_origin = _default_frontend_origin()
+        if frontend_origin:
+            body["redirect_to"] = f"{frontend_origin}/reset-password"
         with httpx.Client(timeout=10.0) as client:
             client.post(_auth_url("/recover"), headers=_auth_headers(), json=body)
     except Exception:
         pass
     return {"message": "If the email exists, password recovery instructions will be sent."}
+
+
+@router.post("/recovery/exchange", status_code=status.HTTP_204_NO_CONTENT)
+def recovery_exchange(payload: RecoveryExchangeRequest, response: Response, db: Session = Depends(get_db)):
+    """Exchanges a Supabase password-recovery PKCE code for a session.
+
+    Called by the frontend's /reset-password page right after it lands there
+    (see ResetPasswordPage's prepareRecoverySession) -- distinct from
+    GET /callback, which is a full-page redirect target for signup/invite
+    confirmation. Recovery instead needs the browser to stay on
+    /reset-password so the user can set a new password with
+    POST /change-password right after this establishes their session cookies.
+    """
+    set_no_store(response)
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            supabase_response = client.post(_auth_url("/token?grant_type=pkce"), headers=_auth_headers(), json={"auth_code": payload.code})
+    except (httpx.HTTPError, RuntimeError):
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Recovery exchange failed")
+    if supabase_response.status_code >= 400:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired recovery code")
+    session = supabase_response.json()
+    _session_from_supabase_payload(session, db)
+    set_auth_cookies(response, access_token=session["access_token"], refresh_token=session["refresh_token"], expires_in=int(session.get("expires_in") or 3600))
+    return None
 
 
 @router.get("/callback")

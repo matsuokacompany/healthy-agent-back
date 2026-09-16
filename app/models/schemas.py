@@ -371,6 +371,10 @@ class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
 
+class RecoveryExchangeRequest(BaseModel):
+    code: str
+
+
 class ChangePasswordRequest(BaseModel):
     password: str = Field(min_length=8, max_length=1024)
 
