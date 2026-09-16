@@ -409,7 +409,12 @@ def change_password(
         # otherwise looks identical to a Supabase-side rejection below.
         logger.warning("change-password rejected: no access token cookie or bearer header present for user_id=%s", current_user.id)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
-    supabase_response = httpx.patch(_auth_url("/user"), headers={**_auth_headers(), "Authorization": f"Bearer {access_token}"}, json={"password": payload.password}, timeout=10.0)
+    # Supabase Auth's (GoTrue) user-update endpoint only accepts PUT -- PATCH
+    # returns 405 Method Not Allowed with an empty body, which this code used
+    # to treat as a generic authentication failure. Confirmed via production
+    # logs: every change-password call failed this way, regardless of how
+    # fresh the underlying session was.
+    supabase_response = httpx.put(_auth_url("/user"), headers={**_auth_headers(), "Authorization": f"Bearer {access_token}"}, json={"password": payload.password}, timeout=10.0)
     if supabase_response.status_code >= 400:
         # Unlike the branch above, this rejection comes from Supabase itself
         # (e.g. the access token from a password-recovery link expired or was
