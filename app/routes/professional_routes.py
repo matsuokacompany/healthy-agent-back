@@ -26,6 +26,7 @@ from app.models.schemas import (
     PatientDashboardCalendarResponse,
     PatientDashboardCheckinsResponse,
     PatientDashboardResponseV2,
+    PatientTopSymptomTermsResponse,
     PatientLinkRequestCreate,
     PatientLinkRequestSentRead,
     ProfessionalAiReportRequest,
@@ -122,6 +123,16 @@ def get_professional_patient_checkins(
         ),
         order=order,
     )
+
+
+@router.get("/patients/{patient_id}/symptom-terms", response_model=PatientTopSymptomTermsResponse)
+def get_professional_patient_symptom_terms(
+    patient_id: int,
+    limit: int = Query(6, ge=1, le=20),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return ProfessionalService(db).get_top_symptom_terms(current_user, patient_id, limit=limit)
 
 
 @router.get("/patients/{patient_id}/calendar", response_model=PatientDashboardCalendarResponse)

@@ -784,6 +784,13 @@ class PatientDashboardReportItem(BaseModel):
     had_symptoms: Optional[bool] = None
     symptom_description: Optional[str] = None
     red_flag_category: Optional[str] = None
+    diet_adherence: Optional[bool] = None
+    # Free-text answer to "o que você comeu fora da dieta?" -- only ever
+    # asked (so only ever populated) when diet_adherence is False.
+    lifestyle_notes: Optional[str] = None
+    exercise_adherence: Optional[bool] = None
+    medication_adherence: Optional[bool] = None
+    medication_adherence_level: Optional[str] = None
     prompt_sent_at: datetime
     answered_at: Optional[datetime] = None
     expires_at: datetime
