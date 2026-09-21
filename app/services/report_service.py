@@ -92,11 +92,11 @@ class ReportService:
             "SINTOMAS — PERÍODO ATUAL:"
         ]
         for sintoma, grupo in atual.items():
-            relatorio.append(f"- {sintoma}: {self._descricao_ocorrencias(grupo)}")
+            relatorio.append(f"- {self._symptom_label(sintoma, grupo)}: {self._descricao_ocorrencias(grupo)}")
 
         relatorio.append("\nSINTOMAS — PERÍODO ANTERIOR:")
         for sintoma, grupo in anterior.items():
-            relatorio.append(f"- {sintoma}: {self._descricao_ocorrencias(grupo)}")
+            relatorio.append(f"- {self._symptom_label(sintoma, grupo)}: {self._descricao_ocorrencias(grupo)}")
 
         relatorio.append("\nVARIAÇÃO DE SINTOMAS:")
         relatorio.append(f"- Total atual: {total_atual}")
@@ -123,6 +123,17 @@ class ReportService:
             base += f", persistente por até {grupo['maior_sequencia']} dias seguidos"
         return base
 
+    @staticmethod
+    def _symptom_label(chave: str, grupo: dict) -> str:
+        # The parenthetical is the ORIGIN report's own wording -- see
+        # _agrupar_sintomas -- so a continuation ("mesma dor, mesmo lugar")
+        # still gives the AI the detailed description from when the symptom
+        # was first actually reported, not just the short clinical term.
+        origem = grupo.get("origin_description") or ""
+        if not origem or origem.casefold() == chave.casefold():
+            return chave
+        return f"{chave} ({origem})"
+
     def _agrupar_sintomas(self, relatorios: list[DailyReport]) -> dict:
         """Agrupa check-ins com sintoma pelo(s) SymptomTerm normalizado(s)
         (ver SymptomNormalizationService) em vez do texto livre bruto -- é
@@ -135,21 +146,42 @@ class ReportService:
         if not relatorios:
             return {}
 
-        report_ids = [r.id for r in relatorios]
+        relatorios_ordenados = sorted(relatorios, key=lambda r: r.report_date)
+        report_ids = [r.id for r in relatorios_ordenados]
         term_rows = (
-            self.db.query(DailyReportSymptomTerm.daily_report_id, SymptomTerm.label, DailyReportSymptomTerm.streak_days)
+            self.db.query(
+                DailyReportSymptomTerm.daily_report_id,
+                SymptomTerm.label,
+                DailyReportSymptomTerm.streak_days,
+                DailyReportSymptomTerm.origin_report_id,
+            )
             .join(SymptomTerm, SymptomTerm.id == DailyReportSymptomTerm.symptom_term_id)
             .filter(DailyReportSymptomTerm.daily_report_id.in_(report_ids))
             .all()
         )
         terms_by_report: dict[int, list[str]] = defaultdict(list)
         streak_by_report: dict[int, int] = {}
-        for daily_report_id, label, streak_days in term_rows:
+        # A report that continues a prior day's symptom points back to
+        # whichever report first described it in detail (see
+        # SymptomNormalizationService) -- used below to surface that detail
+        # instead of the (possibly uninformative) follow-up phrase.
+        origin_by_report: dict[int, int] = {}
+        for daily_report_id, label, streak_days, origin_report_id in term_rows:
             terms_by_report[daily_report_id].append(label)
             streak_by_report[daily_report_id] = max(streak_by_report.get(daily_report_id, 0), streak_days)
+            if origin_report_id is not None:
+                origin_by_report[daily_report_id] = origin_report_id
 
-        grupos: dict[str, dict] = defaultdict(lambda: {"ocorrencias": 0, "maior_sequencia": 0})
-        for r in relatorios:
+        known_reports = {r.id: r for r in relatorios_ordenados}
+        missing_origin_ids = set(origin_by_report.values()) - known_reports.keys()
+        if missing_origin_ids:
+            extra_reports = self.db.query(DailyReport).filter(DailyReport.id.in_(missing_origin_ids)).all()
+            for extra_report in extra_reports:
+                DailyReportService.hydrate_clinical(extra_report)
+                known_reports[extra_report.id] = extra_report
+
+        grupos: dict[str, dict] = {}
+        for r in relatorios_ordenados:
             DailyReportService.hydrate_clinical(r)
             labels = terms_by_report.get(r.id)
             if not labels and r.symptom_description:
@@ -160,8 +192,19 @@ class ReportService:
             if not labels:
                 continue
             chave = ", ".join(dict.fromkeys(sorted(labels, key=str.casefold)))
-            grupos[chave]["ocorrencias"] += 1
+            grupo = grupos.setdefault(chave, {"ocorrencias": 0, "maior_sequencia": 0, "origin_report_id": None})
+            grupo["ocorrencias"] += 1
             if r.id in streak_by_report:
-                grupos[chave]["maior_sequencia"] = max(grupos[chave]["maior_sequencia"], streak_by_report[r.id])
+                grupo["maior_sequencia"] = max(grupo["maior_sequencia"], streak_by_report[r.id])
+            if grupo["origin_report_id"] is None:
+                # relatorios_ordenados is date-ascending, so the first time
+                # a key is seen is its group's earliest report.
+                grupo["origin_report_id"] = origin_by_report.get(r.id, r.id)
 
-        return dict(grupos)
+        for grupo in grupos.values():
+            origin_report = known_reports.get(grupo["origin_report_id"])
+            grupo["origin_description"] = (
+                " ".join((origin_report.symptom_description or "").split()) if origin_report else ""
+            )
+
+        return grupos

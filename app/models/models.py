@@ -496,6 +496,14 @@ class DailyReportSymptomTerm(Base):
     # it resolves a description like "mesma dor, mesmo lugar" against the
     # patient's most recent prior check-in. 1 means "new/not a continuation".
     streak_days = Column(Integer, nullable=False, default=1)
+    # NULL means THIS report's own symptom_description is the authoritative,
+    # detailed one. Set by SymptomNormalizationService when it resolves a
+    # purely referential follow-up ("mesma dor, mesmo lugar") onto a prior
+    # day's term: it chains to that prior report's own origin (not just to
+    # "yesterday"), so the detail (laterality, region, etc.) from the day
+    # the symptom was first actually described survives any number of
+    # "mesma dor" days in a row.
+    origin_report_id = Column(Integer, ForeignKey("daily_reports.id", ondelete="SET NULL"), nullable=True)
 
 
 class ClinicalAttachment(Base):

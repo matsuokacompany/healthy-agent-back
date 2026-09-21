@@ -27,6 +27,7 @@ from app.models.schemas import (
     PatientDashboardCalendarResponse,
     PatientDashboardCheckinsResponse,
     PatientDashboardResponseV2,
+    PatientTopSymptomTermsResponse,
     ProfessionalAiReportResponse,
     ProfessionalPatientRead,
     ProfessionalPatientCreate,
@@ -225,6 +226,10 @@ class ProfessionalService:
             items=[self.dashboard_service._build_report_item(report) for report in items],
             pagination=self.dashboard_service._build_pagination(pagination, total),
         )
+
+    def get_top_symptom_terms(self, current_user: User, patient_id: int, *, limit: int = 6) -> PatientTopSymptomTermsResponse:
+        self._require_patient_access(current_user, patient_id)
+        return PatientTopSymptomTermsResponse(items=self.dashboard_service._get_top_symptom_terms(patient_id, limit=limit))
 
     def get_calendar(
         self,

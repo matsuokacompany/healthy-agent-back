@@ -249,6 +249,55 @@ def test_normalize_resets_the_streak_when_the_term_changes(monkeypatch):
     assert streak_of(day2.id) == 1
 
 
+def test_normalize_chains_origin_report_to_where_the_symptom_was_first_described(monkeypatch):
+    # A patient reporting a detailed symptom on day 1, then "mesma dor,
+    # mesmo lugar" on day 2 and 3, should have every later day's
+    # origin_report_id point back to day 1 -- the report whose free text
+    # actually carries the detail (e.g. laterality) -- not just to
+    # "yesterday", which on day 3 would only carry day 2's own
+    # uninformative "mesma dor" text.
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.symptom_normalization_service.InsightService",
+        FakeInsightService,
+    )
+    db = build_session()
+
+    def origin_of(report_id):
+        return (
+            db.query(DailyReportSymptomTerm.origin_report_id)
+            .filter(DailyReportSymptomTerm.daily_report_id == report_id)
+            .scalar()
+        )
+
+    patient = create_patient(db)
+    today = date.today()
+
+    day1 = create_patient_with_report(
+        db, patient=patient, report_date=today - timedelta(days=2),
+        symptom_description="Dor lateral direita da pelve/barriga",
+    )
+    FakeInsightService.next_result = {"termos": ["Dor pélvica"]}
+    SymptomNormalizationService.normalize(db, day1, day1.symptom_description)
+    # day1 IS the origin -- nothing to chain to.
+    assert origin_of(day1.id) is None
+
+    day2 = create_patient_with_report(
+        db, patient=patient, report_date=today - timedelta(days=1), symptom_description="Mesma dor, mesmo lugar"
+    )
+    FakeInsightService.next_result = {"termos": ["Dor pélvica"]}
+    SymptomNormalizationService.normalize(db, day2, day2.symptom_description)
+    assert origin_of(day2.id) == day1.id
+
+    day3 = create_patient_with_report(
+        db, patient=patient, report_date=today, symptom_description="Ainda a mesma dor"
+    )
+    FakeInsightService.next_result = {"termos": ["Dor pélvica"]}
+    SymptomNormalizationService.normalize(db, day3, day3.symptom_description)
+    # Chains through day2's own origin, not to day2 itself.
+    assert origin_of(day3.id) == day1.id
+
+
 def test_normalize_replaces_prior_terms_on_reprocessing(monkeypatch):
     monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(

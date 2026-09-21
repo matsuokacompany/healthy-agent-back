@@ -227,19 +227,20 @@ def test_build_symptoms_groups_by_normalized_term_and_falls_back_to_raw_text():
 
     summary = CustomReportService(db).build_summary(user.id, start_date, end_date)
 
-    # A classified entry leads with the normalized term, with the patient's
-    # own (most recent) wording kept as a parenthetical — the term is what
-    # tells a reader what the symptom actually IS, including on a later
-    # purely referential answer ("mesma dor, mesmo lugar") that carries no
-    # symptom information of its own.
+    # A classified entry leads with the normalized term, with the ORIGIN
+    # report's own wording kept as a parenthetical — since neither link here
+    # was created through SymptomNormalizationService's continuity chain
+    # (no origin_report_id set on either), the group's origin defaults to
+    # its earliest report (normalized_a, "diarréia"), not the most recent
+    # one.
     by_description = {item.description: item for item in summary.symptoms}
-    assert by_description["Diarreia (Um pouco de diarréia)"].occurrences == 2
-    assert by_description["Diarreia (Um pouco de diarréia)"].first_reported_at == start_date
-    assert by_description["Diarreia (Um pouco de diarréia)"].last_reported_at == start_date + timedelta(days=1)
+    assert by_description["Diarreia (diarréia)"].occurrences == 2
+    assert by_description["Diarreia (diarréia)"].first_reported_at == start_date
+    assert by_description["Diarreia (diarréia)"].last_reported_at == start_date + timedelta(days=1)
     assert by_description["Dor no ombro direito"].occurrences == 1
     assert by_description["Dor no ombro direito"].first_reported_at == unprocessed.report_date
     # Both links above default to streak_days=1 (no continuation detected).
-    assert by_description["Diarreia (Um pouco de diarréia)"].longest_streak_days == 1
+    assert by_description["Diarreia (diarréia)"].longest_streak_days == 1
     # No normalized term at all -> nothing to report a streak from.
     assert by_description["Dor no ombro direito"].longest_streak_days is None
 
@@ -268,8 +269,14 @@ def test_build_symptoms_surfaces_the_longest_streak_in_the_period():
     db.commit()
     db.add_all([
         DailyReportSymptomTerm(daily_report_id=day1.id, symptom_term_id=term.id, patient_id=user.id, streak_days=1),
-        DailyReportSymptomTerm(daily_report_id=day2.id, symptom_term_id=term.id, patient_id=user.id, streak_days=2),
-        DailyReportSymptomTerm(daily_report_id=day3.id, symptom_term_id=term.id, patient_id=user.id, streak_days=3),
+        DailyReportSymptomTerm(
+            daily_report_id=day2.id, symptom_term_id=term.id, patient_id=user.id,
+            streak_days=2, origin_report_id=day1.id,
+        ),
+        DailyReportSymptomTerm(
+            daily_report_id=day3.id, symptom_term_id=term.id, patient_id=user.id,
+            streak_days=3, origin_report_id=day1.id,
+        ),
     ])
     db.commit()
 
@@ -278,6 +285,46 @@ def test_build_symptoms_surfaces_the_longest_streak_in_the_period():
     assert len(summary.symptoms) == 1
     assert summary.symptoms[0].occurrences == 3
     assert summary.symptoms[0].longest_streak_days == 3
+    # The parenthetical is day1's own (detailed) wording, not day3's
+    # uninformative "ainda a mesma dor".
+    assert summary.symptoms[0].description == "Cefaleia (Dor de cabeça)"
+
+
+def test_build_symptoms_resolves_an_origin_report_outside_the_queried_period():
+    # The symptom can have started before the period being summarized --
+    # the origin report itself won't be in `reports`, so it must be
+    # fetched separately to still show the detailed description.
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    end_date = date.today()
+    start_date = end_date - timedelta(days=29)
+
+    origin_report = create_report(
+        db, user=user, plan=plan, report_date=start_date - timedelta(days=10), completed=True,
+        had_symptoms=True, symptom_description="Dor lateral direita da pelve",
+    )
+    continuation = create_report(
+        db, user=user, plan=plan, report_date=start_date, completed=True,
+        had_symptoms=True, symptom_description="Mesma dor, mesmo lugar",
+    )
+
+    term = SymptomTerm(label="Dor pélvica")
+    db.add(term)
+    db.commit()
+    db.add_all([
+        DailyReportSymptomTerm(daily_report_id=origin_report.id, symptom_term_id=term.id, patient_id=user.id),
+        DailyReportSymptomTerm(
+            daily_report_id=continuation.id, symptom_term_id=term.id, patient_id=user.id,
+            streak_days=2, origin_report_id=origin_report.id,
+        ),
+    ])
+    db.commit()
+
+    summary = CustomReportService(db).build_summary(user.id, start_date, end_date)
+
+    assert len(summary.symptoms) == 1
+    assert summary.symptoms[0].occurrences == 1
+    assert summary.symptoms[0].description == "Dor pélvica (Dor lateral direita da pelve)"
 
 
 def test_build_symptoms_merges_terms_from_the_same_compound_message_into_one_entry():

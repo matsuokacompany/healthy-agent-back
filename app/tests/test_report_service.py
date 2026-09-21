@@ -149,15 +149,27 @@ def test_report_service_groups_by_normalized_term_instead_of_raw_text():
     db.commit()
     db.add_all([
         DailyReportSymptomTerm(daily_report_id=day1.id, symptom_term_id=term.id, patient_id=user.id, streak_days=1),
-        DailyReportSymptomTerm(daily_report_id=day2.id, symptom_term_id=term.id, patient_id=user.id, streak_days=2),
-        DailyReportSymptomTerm(daily_report_id=day3.id, symptom_term_id=term.id, patient_id=user.id, streak_days=3),
+        # day2/day3 chain to day1 -- the report that first described the
+        # symptom in detail -- exactly what SymptomNormalizationService
+        # would set for a real continuation.
+        DailyReportSymptomTerm(
+            daily_report_id=day2.id, symptom_term_id=term.id, patient_id=user.id,
+            streak_days=2, origin_report_id=day1.id,
+        ),
+        DailyReportSymptomTerm(
+            daily_report_id=day3.id, symptom_term_id=term.id, patient_id=user.id,
+            streak_days=3, origin_report_id=day1.id,
+        ),
     ])
     db.commit()
 
     relatorio = ReportService(db).gerar_relatorio(user.id, "semanal")
 
     assert "Mesma dor, mesmo lugar" not in relatorio
-    assert "- Cefaleia: 3 ocorrência(s), persistente por até 3 dias seguidos" in relatorio
+    assert "Ainda a mesma dor" not in relatorio
+    # The AI-facing text carries the ORIGIN description (day1's, the
+    # detailed one) alongside the term, not just the short clinical label.
+    assert "- Cefaleia (Dor de cabeça): 3 ocorrência(s), persistente por até 3 dias seguidos" in relatorio
 
 
 def test_report_service_falls_back_to_raw_text_without_a_normalized_term():

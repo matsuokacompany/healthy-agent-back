@@ -91,6 +91,43 @@ def test_get_calendar_returns_days_with_checkin_data():
     assert other_day.has_checkin is False
 
 
+def test_get_calendar_surfaces_symptom_description_and_diet_lifestyle_notes():
+    # The professional's day-detail modal reads these off each day's
+    # checkins -- without them the modal can only show "Sim/Não", not what
+    # the patient actually wrote (the symptom itself, or what they ate
+    # outside the diet).
+    db = build_session()
+    professional, patient, plan = create_professional_and_patient(db)
+    db.add(
+        DailyReport(
+            user_id=patient.id,
+            monitoring_plan_id=plan.id,
+            report_date=date(2026, 3, 5),
+            check_type=CheckTypeEnum.MORNING,
+            status=DailyReportStatusEnum.COMPLETED,
+            completed=True,
+            had_symptoms=True,
+            symptom_description="Dor lateral direita da pelve",
+            diet_adherence=False,
+            lifestyle_notes="Comi um pedaço de bolo no aniversário de um amigo",
+            awaiting_response=False,
+            awaiting_cause=False,
+            prompt_sent_at=datetime(2026, 3, 5, 8, tzinfo=timezone.utc),
+            expires_at=datetime(2026, 3, 6, 8, tzinfo=timezone.utc),
+        )
+    )
+    db.commit()
+
+    calendar = ProfessionalService(db).get_calendar(professional, patient.id, year=2026, month=3)
+
+    day = next(day for day in calendar.days if day.date == date(2026, 3, 5))
+    assert len(day.checkins) == 1
+    checkin = day.checkins[0]
+    assert checkin.symptom_description == "Dor lateral direita da pelve"
+    assert checkin.diet_adherence is False
+    assert checkin.lifestyle_notes == "Comi um pedaço de bolo no aniversário de um amigo"
+
+
 def test_get_calendar_rejects_professional_without_link():
     db = build_session()
     professional, patient, _ = create_professional_and_patient(db, link=False)
