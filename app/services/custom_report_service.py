@@ -145,7 +145,12 @@ class CustomReportService:
         # description below, so nothing silently disappears from the list.
         report_ids = [report.id for report in completed_with_symptoms]
         term_rows = (
-            self.db.query(DailyReportSymptomTerm.daily_report_id, SymptomTerm.label, DailyReportSymptomTerm.streak_days)
+            self.db.query(
+                DailyReportSymptomTerm.daily_report_id,
+                SymptomTerm.label,
+                DailyReportSymptomTerm.streak_days,
+                DailyReportSymptomTerm.origin_report_id,
+            )
             .join(SymptomTerm, SymptomTerm.id == DailyReportSymptomTerm.symptom_term_id)
             .filter(DailyReportSymptomTerm.daily_report_id.in_(report_ids))
             .all()
@@ -155,9 +160,28 @@ class CustomReportService:
         # cabeça") can carry a different streak per term; the report's own
         # contribution to a group's "longest streak" is the highest of them.
         streak_by_report: dict[int, int] = {}
-        for daily_report_id, label, streak_days in term_rows:
+        # A report that continues a prior day's symptom ("mesma dor, mesmo
+        # lugar") points back to whichever report first described it in
+        # detail -- this is what lets the description below show that
+        # detail (e.g. laterality) instead of the uninformative follow-up
+        # phrase, no matter how many "mesma dor" days are in between.
+        origin_by_report: dict[int, int] = {}
+        for daily_report_id, label, streak_days, origin_report_id in term_rows:
             terms_by_report[daily_report_id].append(label)
             streak_by_report[daily_report_id] = max(streak_by_report.get(daily_report_id, 0), streak_days)
+            if origin_report_id is not None:
+                origin_by_report[daily_report_id] = origin_report_id
+
+        # Origin reports for a continuation can fall outside the queried
+        # period (the symptom may have started before it) -- fetch whichever
+        # ones aren't already in hand.
+        known_reports = {report.id: report for report in completed_with_symptoms}
+        missing_origin_ids = set(origin_by_report.values()) - known_reports.keys()
+        if missing_origin_ids:
+            extra_reports = self.db.query(DailyReport).filter(DailyReport.id.in_(missing_origin_ids)).all()
+            for extra_report in extra_reports:
+                DailyReportService.hydrate_clinical(extra_report)
+                known_reports[extra_report.id] = extra_report
 
         # Group by the *set* of terms a single check-in was classified into,
         # not by each term individually -- a compound message like "Refluxo,
@@ -181,9 +205,12 @@ class CustomReportService:
         symptoms = []
         for key, symptom_reports in occurrences.items():
             streaks = [streak_by_report[report.id] for report in symptom_reports if report.id in streak_by_report]
+            earliest_report = min(symptom_reports, key=lambda report: report.report_date)
+            origin_id = origin_by_report.get(earliest_report.id, earliest_report.id)
+            origin_report = known_reports.get(origin_id, earliest_report)
             symptoms.append(
                 CustomClinicalSymptomOccurrence(
-                    description=self._display_description(labels[key], symptom_reports),
+                    description=self._display_description(labels[key], origin_report),
                     occurrences=len(symptom_reports),
                     first_reported_at=min(report.report_date for report in symptom_reports),
                     last_reported_at=max(report.report_date for report in symptom_reports),
@@ -193,17 +220,17 @@ class CustomReportService:
         return sorted(symptoms, key=lambda item: (-item.occurrences, item.description.casefold()))
 
     @staticmethod
-    def _display_description(label: str, symptom_reports: list[DailyReport]) -> str:
-        # The clinical term leads (what the symptom actually IS, resolved
-        # across every report in the group -- including a later, purely
-        # referential answer like "mesma dor, mesmo lugar" that carries no
-        # symptom information of its own), with the patient's own most
-        # recent phrasing kept as a parenthetical so they still recognize
-        # it as their own words. When the term IS the raw text (not yet
-        # classified), there's nothing to disambiguate, so it's shown as-is.
-        latest_report = max(symptom_reports, key=lambda report: report.report_date)
-        raw_text = " ".join(latest_report.symptom_description.split())
-        if raw_text.casefold() == label.casefold():
+    def _display_description(label: str, origin_report: DailyReport) -> str:
+        # The clinical term leads (what the symptom actually IS); the
+        # parenthetical is the ORIGIN report's own wording -- for a report
+        # that is itself the origin, that's just its own description; for a
+        # later continuation ("mesma dor, mesmo lugar"), it's the
+        # description from when the symptom was first actually described,
+        # not a possibly uninformative "mesma dor" repeat. When the term IS
+        # that raw text (not yet classified), there's nothing to
+        # disambiguate, so it's shown as-is.
+        raw_text = " ".join((origin_report.symptom_description or "").split())
+        if not raw_text or raw_text.casefold() == label.casefold():
             return label
         return f"{label} ({raw_text})"
 

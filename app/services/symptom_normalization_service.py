@@ -97,9 +97,10 @@ class SymptomNormalizationService:
         # Context from the patient's most recent PRIOR symptomatic check-in
         # (if any) — lets the model resolve a deictic answer like "mesma
         # dor, mesmo lugar" onto the same term(s) already recorded instead
-        # of inventing a new, unrelated-looking entry. prev_streak_by_term
-        # doubles as the base for this report's own streak_days below.
-        prev_streak_by_term, previous_terms_text = cls._previous_symptom_context(db, report)
+        # of inventing a new, unrelated-looking entry. prev_context doubles
+        # as the base for this report's own streak_days/origin_report_id
+        # below: term_id -> (streak_days, origin_report_id).
+        prev_context, previous_terms_text = cls._previous_symptom_context(db, report)
         context_block = ""
         if previous_terms_text:
             context_block = (
@@ -159,24 +160,33 @@ class SymptomNormalizationService:
 
         db.query(DailyReportSymptomTerm).filter(DailyReportSymptomTerm.daily_report_id == report.id).delete()
         for term_id in dict.fromkeys(resolved_term_ids):  # de-dupe, keep first-seen order
-            streak_days = prev_streak_by_term.get(term_id, 0) + 1
+            prev = prev_context.get(term_id)
+            streak_days = (prev[0] if prev else 0) + 1
+            # None here means THIS report is the origin (nothing to chain
+            # to) -- prev[1] is already resolved to the true origin by
+            # _previous_symptom_context, not just "yesterday", so the
+            # detailed description survives any number of "mesma dor" days.
+            origin_report_id = prev[1] if prev else None
             db.add(
                 DailyReportSymptomTerm(
                     daily_report_id=report.id,
                     symptom_term_id=term_id,
                     patient_id=report.user_id,
                     streak_days=streak_days,
+                    origin_report_id=origin_report_id,
                 )
             )
         db.commit()
 
     @staticmethod
-    def _previous_symptom_context(db: Session, report: DailyReport) -> tuple[dict[int, int], str]:
+    def _previous_symptom_context(db: Session, report: DailyReport) -> tuple[dict[int, tuple[int, int]], str]:
         """Looks up the patient's most recent OTHER symptomatic check-in
         (any status, any distance in time — a missed day in between is fine,
         the reference is still "the last time you told us") and returns its
-        term ids -> streak_days (the base this report's own streak builds
-        on) plus a display string for the prompt's context block."""
+        term ids -> (streak_days, origin_report_id) (the base this report's
+        own streak/origin build on — origin_report_id is resolved to the
+        previous report's own id when IT has no origin, i.e. it IS one)
+        plus a display string for the prompt's context block."""
         previous_report = (
             db.query(DailyReport)
             .filter(
@@ -191,11 +201,19 @@ class SymptomNormalizationService:
             return {}, ""
 
         rows = (
-            db.query(DailyReportSymptomTerm.symptom_term_id, SymptomTerm.label, DailyReportSymptomTerm.streak_days)
+            db.query(
+                DailyReportSymptomTerm.symptom_term_id,
+                SymptomTerm.label,
+                DailyReportSymptomTerm.streak_days,
+                DailyReportSymptomTerm.origin_report_id,
+            )
             .join(SymptomTerm, SymptomTerm.id == DailyReportSymptomTerm.symptom_term_id)
             .filter(DailyReportSymptomTerm.daily_report_id == previous_report.id)
             .all()
         )
-        prev_streak_by_term = {term_id: streak_days for term_id, _label, streak_days in rows}
-        previous_terms_text = ", ".join(dict.fromkeys(label for _term_id, label, _streak_days in rows))
-        return prev_streak_by_term, previous_terms_text
+        prev_context = {
+            term_id: (streak_days, origin_report_id or previous_report.id)
+            for term_id, _label, streak_days, origin_report_id in rows
+        }
+        previous_terms_text = ", ".join(dict.fromkeys(label for _term_id, label, _streak_days, _origin in rows))
+        return prev_context, previous_terms_text
