@@ -194,17 +194,18 @@ class CustomReportService:
 
     @staticmethod
     def _display_description(label: str, symptom_reports: list[DailyReport]) -> str:
-        # A patient recognizes their own words ("ardência na pálpebra"), not
-        # the clinical term alone ("Erupção cutânea") — so lead with what
-        # they actually wrote (their most recent phrasing of it) and keep
-        # the term as a parenthetical for whoever reads the report next.
-        # When the term IS the raw text (not yet classified), there's
-        # nothing to disambiguate, so it's shown as-is.
+        # The clinical term leads (what the symptom actually IS, resolved
+        # across every report in the group -- including a later, purely
+        # referential answer like "mesma dor, mesmo lugar" that carries no
+        # symptom information of its own), with the patient's own most
+        # recent phrasing kept as a parenthetical so they still recognize
+        # it as their own words. When the term IS the raw text (not yet
+        # classified), there's nothing to disambiguate, so it's shown as-is.
         latest_report = max(symptom_reports, key=lambda report: report.report_date)
         raw_text = " ".join(latest_report.symptom_description.split())
         if raw_text.casefold() == label.casefold():
             return label
-        return f"{raw_text} ({label})"
+        return f"{label} ({raw_text})"
 
     def _build_timeline(
         self,

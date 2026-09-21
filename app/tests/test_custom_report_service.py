@@ -227,17 +227,19 @@ def test_build_symptoms_groups_by_normalized_term_and_falls_back_to_raw_text():
 
     summary = CustomReportService(db).build_summary(user.id, start_date, end_date)
 
-    # A classified entry shows the patient's own (most recent) wording with
-    # the normalized term in parentheses, not the term alone — a patient
-    # doesn't reliably recognize "Diarreia" without the context they gave.
+    # A classified entry leads with the normalized term, with the patient's
+    # own (most recent) wording kept as a parenthetical — the term is what
+    # tells a reader what the symptom actually IS, including on a later
+    # purely referential answer ("mesma dor, mesmo lugar") that carries no
+    # symptom information of its own.
     by_description = {item.description: item for item in summary.symptoms}
-    assert by_description["Um pouco de diarréia (Diarreia)"].occurrences == 2
-    assert by_description["Um pouco de diarréia (Diarreia)"].first_reported_at == start_date
-    assert by_description["Um pouco de diarréia (Diarreia)"].last_reported_at == start_date + timedelta(days=1)
+    assert by_description["Diarreia (Um pouco de diarréia)"].occurrences == 2
+    assert by_description["Diarreia (Um pouco de diarréia)"].first_reported_at == start_date
+    assert by_description["Diarreia (Um pouco de diarréia)"].last_reported_at == start_date + timedelta(days=1)
     assert by_description["Dor no ombro direito"].occurrences == 1
     assert by_description["Dor no ombro direito"].first_reported_at == unprocessed.report_date
     # Both links above default to streak_days=1 (no continuation detected).
-    assert by_description["Um pouco de diarréia (Diarreia)"].longest_streak_days == 1
+    assert by_description["Diarreia (Um pouco de diarréia)"].longest_streak_days == 1
     # No normalized term at all -> nothing to report a streak from.
     assert by_description["Dor no ombro direito"].longest_streak_days is None
 
@@ -310,7 +312,7 @@ def test_build_symptoms_merges_terms_from_the_same_compound_message_into_one_ent
 
     assert len(summary.symptoms) == 1
     assert summary.symptoms[0].description == (
-        "Palpebra ardendo como se tivesse queimada e com casquinhas (Ardência, Erupção cutânea)"
+        "Ardência, Erupção cutânea (Palpebra ardendo como se tivesse queimada e com casquinhas)"
     )
     assert summary.symptoms[0].occurrences == 1
     assert (
