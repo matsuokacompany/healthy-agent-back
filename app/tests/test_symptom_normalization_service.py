@@ -146,6 +146,28 @@ def test_normalize_dedupes_repeated_and_case_variant_terms(monkeypatch):
     assert db.query(DailyReportSymptomTerm).filter(DailyReportSymptomTerm.daily_report_id == report.id).count() == 1
 
 
+def test_normalize_dedupes_label_carrying_invisible_character(monkeypatch):
+    # Regression: a real patient ended up with two "dor" SymptomTerm rows
+    # that rendered identically in the UI -- the case-insensitive DB unique
+    # index (lower(label)) doesn't catch a label carrying a zero-width
+    # space, and neither did the old .casefold()-only in-memory match.
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.symptom_normalization_service.InsightService",
+        FakeInsightService,
+    )
+    db = build_session()
+    db.add(SymptomTerm(label="dor"))
+    db.commit()
+    FakeInsightService.next_result = {"termos": ["dor​"]}
+    report = create_patient_with_report(db, symptom_description="Mesma dor de sempre")
+
+    SymptomNormalizationService.normalize(db, report, report.symptom_description)
+
+    assert db.query(SymptomTerm).count() == 1
+    assert linked_labels(db, report.id) == ["dor"]
+
+
 def test_normalize_includes_previous_checkin_terms_as_context(monkeypatch):
     monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(

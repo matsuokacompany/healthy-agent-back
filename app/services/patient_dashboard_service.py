@@ -10,6 +10,7 @@ from sqlalchemy.orm import Query, Session, selectinload
 
 from app.core.config import settings
 from app.core.permissions import has_any_role, is_super_admin, require_role
+from app.core.symptom_text import normalize_symptom_label
 from app.models.models import (
     Anamnese,
     DailyReport,
@@ -212,11 +213,22 @@ class PatientDashboardService:
             .join(DailyReportSymptomTerm, DailyReportSymptomTerm.symptom_term_id == SymptomTerm.id)
             .filter(DailyReportSymptomTerm.patient_id == patient_id)
             .group_by(SymptomTerm.label)
-            .order_by(func.count(DailyReportSymptomTerm.daily_report_id).desc())
-            .limit(limit)
             .all()
         )
-        return [PatientTopSymptomTerm(label=label, count=int(term_count)) for label, term_count in rows]
+        # Grouped by the raw label above, but two SymptomTerm rows can still
+        # render identically (e.g. one carrying a zero-width character the
+        # case-insensitive DB uniqueness index doesn't catch -- see
+        # clean_symptom_label) -- merge those here on the normalized key so
+        # the ranking never double-counts what looks like one symptom.
+        merged: dict[str, dict] = {}
+        for label, term_count in rows:
+            key = normalize_symptom_label(label)
+            entry = merged.setdefault(key, {"label": label, "count": 0})
+            entry["count"] += int(term_count)
+            if len(label) < len(entry["label"]):
+                entry["label"] = label
+        ordered = sorted(merged.values(), key=lambda entry: entry["count"], reverse=True)[:limit]
+        return [PatientTopSymptomTerm(label=entry["label"], count=entry["count"]) for entry in ordered]
 
     @staticmethod
     def _ensure_patient_access(current_user: User) -> None:

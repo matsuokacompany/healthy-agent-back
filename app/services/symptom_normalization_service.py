@@ -3,6 +3,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.symptom_text import clean_symptom_label, normalize_symptom_label
 from app.db.security_context import set_database_service_context
 from app.models.models import DailyReport, DailyReportSymptomTerm, SymptomTerm
 from app.services.insight_service import InsightService
@@ -134,10 +135,11 @@ class SymptomNormalizationService:
             report.id, symptom_description, result.get("termos"),
         )
         labels = [
-            label.strip()[: cls.MAX_TERM_LENGTH]
+            clean_symptom_label(label)[: cls.MAX_TERM_LENGTH]
             for label in (result.get("termos") or [])
             if isinstance(label, str) and label.strip()
         ]
+        labels = [label for label in labels if label]
         if not labels:
             return
 
@@ -146,15 +148,16 @@ class SymptomNormalizationService:
         # policies in alembic 0028).
         set_database_service_context(db, "symptom_normalization")
 
-        by_lower = {term.label.casefold(): term.id for term in vocabulary}
+        by_normalized = {normalize_symptom_label(term.label): term.id for term in vocabulary}
         resolved_term_ids: list[int] = []
         for label in labels:
-            term_id = by_lower.get(label.casefold())
+            key = normalize_symptom_label(label)
+            term_id = by_normalized.get(key)
             if term_id is None:
                 new_term = SymptomTerm(label=label)
                 db.add(new_term)
                 db.flush()
-                by_lower[label.casefold()] = new_term.id
+                by_normalized[key] = new_term.id
                 term_id = new_term.id
             resolved_term_ids.append(term_id)
 
