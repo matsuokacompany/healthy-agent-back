@@ -420,6 +420,8 @@ class PatientDashboardService:
         )
 
     def _build_calendar_day(self, current_date: date, reports: list[DailyReport]) -> PatientDashboardCalendarDay:
+        for report in reports:
+            DailyReportService.hydrate_clinical(report)
         checkins = [
             PatientDashboardCalendarCheckin(
                 id=report.id,
@@ -427,7 +429,10 @@ class PatientDashboardService:
                 status=report.status,
                 completed=report.completed,
                 had_symptoms=report.had_symptoms,
+                symptom_description=report.symptom_description,
+                red_flag_category=report.red_flag_category,
                 diet_adherence=report.diet_adherence,
+                lifestyle_notes=report.lifestyle_notes,
                 exercise_adherence=report.exercise_adherence,
                 medication_adherence=report.medication_adherence,
                 medication_adherence_level=report.medication_adherence_level,
