@@ -93,8 +93,25 @@ class SymptomNormalizationService:
     def _normalize(cls, db: Session, report: DailyReport, symptom_description: str) -> None:
         vocabulary = db.query(SymptomTerm).order_by(SymptomTerm.label.asc()).all()
         vocabulary_text = ", ".join(term.label for term in vocabulary) or "(vocabulário ainda vazio)"
+
+        # Context from the patient's most recent PRIOR symptomatic check-in
+        # (if any) — lets the model resolve a deictic answer like "mesma
+        # dor, mesmo lugar" onto the same term(s) already recorded instead
+        # of inventing a new, unrelated-looking entry. prev_streak_by_term
+        # doubles as the base for this report's own streak_days below.
+        prev_streak_by_term, previous_terms_text = cls._previous_symptom_context(db, report)
+        context_block = ""
+        if previous_terms_text:
+            context_block = (
+                f"SINTOMA(S) DO CHECK-IN ANTERIOR DESTE PACIENTE: {previous_terms_text}\n"
+                "Se a descrição do paciente indicar que é o mesmo sintoma do check-in "
+                "anterior (ex.: \"mesma dor\", \"igual\", \"mesmo lugar\", \"continua\", "
+                "\"segue igual\"), responda com EXATAMENTE o(s) mesmo(s) termo(s) listado(s) "
+                "acima, em vez de propor um termo novo.\n\n"
+            )
         prompt_input = (
             f"VOCABULÁRIO DISPONÍVEL: {vocabulary_text}\n\n"
+            f"{context_block}"
             f"DESCRIÇÃO DO PACIENTE: {symptom_description}"
         )
 
@@ -142,5 +159,43 @@ class SymptomNormalizationService:
 
         db.query(DailyReportSymptomTerm).filter(DailyReportSymptomTerm.daily_report_id == report.id).delete()
         for term_id in dict.fromkeys(resolved_term_ids):  # de-dupe, keep first-seen order
-            db.add(DailyReportSymptomTerm(daily_report_id=report.id, symptom_term_id=term_id, patient_id=report.user_id))
+            streak_days = prev_streak_by_term.get(term_id, 0) + 1
+            db.add(
+                DailyReportSymptomTerm(
+                    daily_report_id=report.id,
+                    symptom_term_id=term_id,
+                    patient_id=report.user_id,
+                    streak_days=streak_days,
+                )
+            )
         db.commit()
+
+    @staticmethod
+    def _previous_symptom_context(db: Session, report: DailyReport) -> tuple[dict[int, int], str]:
+        """Looks up the patient's most recent OTHER symptomatic check-in
+        (any status, any distance in time — a missed day in between is fine,
+        the reference is still "the last time you told us") and returns its
+        term ids -> streak_days (the base this report's own streak builds
+        on) plus a display string for the prompt's context block."""
+        previous_report = (
+            db.query(DailyReport)
+            .filter(
+                DailyReport.user_id == report.user_id,
+                DailyReport.id != report.id,
+                DailyReport.had_symptoms.is_(True),
+            )
+            .order_by(DailyReport.report_date.desc(), DailyReport.id.desc())
+            .first()
+        )
+        if previous_report is None:
+            return {}, ""
+
+        rows = (
+            db.query(DailyReportSymptomTerm.symptom_term_id, SymptomTerm.label, DailyReportSymptomTerm.streak_days)
+            .join(SymptomTerm, SymptomTerm.id == DailyReportSymptomTerm.symptom_term_id)
+            .filter(DailyReportSymptomTerm.daily_report_id == previous_report.id)
+            .all()
+        )
+        prev_streak_by_term = {term_id: streak_days for term_id, _label, streak_days in rows}
+        previous_terms_text = ", ".join(dict.fromkeys(label for _term_id, label, _streak_days in rows))
+        return prev_streak_by_term, previous_terms_text

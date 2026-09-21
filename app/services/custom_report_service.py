@@ -145,14 +145,19 @@ class CustomReportService:
         # description below, so nothing silently disappears from the list.
         report_ids = [report.id for report in completed_with_symptoms]
         term_rows = (
-            self.db.query(DailyReportSymptomTerm.daily_report_id, SymptomTerm.label)
+            self.db.query(DailyReportSymptomTerm.daily_report_id, SymptomTerm.label, DailyReportSymptomTerm.streak_days)
             .join(SymptomTerm, SymptomTerm.id == DailyReportSymptomTerm.symptom_term_id)
             .filter(DailyReportSymptomTerm.daily_report_id.in_(report_ids))
             .all()
         )
         terms_by_report: dict[int, list[str]] = defaultdict(list)
-        for daily_report_id, label in term_rows:
+        # A report classified into more than one term (e.g. "Refluxo, dor de
+        # cabeça") can carry a different streak per term; the report's own
+        # contribution to a group's "longest streak" is the highest of them.
+        streak_by_report: dict[int, int] = {}
+        for daily_report_id, label, streak_days in term_rows:
             terms_by_report[daily_report_id].append(label)
+            streak_by_report[daily_report_id] = max(streak_by_report.get(daily_report_id, 0), streak_days)
 
         # Group by the *set* of terms a single check-in was classified into,
         # not by each term individually -- a compound message like "Refluxo,
@@ -173,15 +178,18 @@ class CustomReportService:
             labels.setdefault(key, ", ".join(sorted(unique_labels, key=str.casefold)))
             occurrences[key].append(report)
 
-        symptoms = [
-            CustomClinicalSymptomOccurrence(
-                description=self._display_description(labels[key], symptom_reports),
-                occurrences=len(symptom_reports),
-                first_reported_at=min(report.report_date for report in symptom_reports),
-                last_reported_at=max(report.report_date for report in symptom_reports),
+        symptoms = []
+        for key, symptom_reports in occurrences.items():
+            streaks = [streak_by_report[report.id] for report in symptom_reports if report.id in streak_by_report]
+            symptoms.append(
+                CustomClinicalSymptomOccurrence(
+                    description=self._display_description(labels[key], symptom_reports),
+                    occurrences=len(symptom_reports),
+                    first_reported_at=min(report.report_date for report in symptom_reports),
+                    last_reported_at=max(report.report_date for report in symptom_reports),
+                    longest_streak_days=max(streaks) if streaks else None,
+                )
             )
-            for key, symptom_reports in occurrences.items()
-        ]
         return sorted(symptoms, key=lambda item: (-item.occurrences, item.description.casefold()))
 
     @staticmethod

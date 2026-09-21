@@ -491,6 +491,11 @@ class DailyReportSymptomTerm(Base):
     # Denormalized from daily_reports.user_id so RLS can check patient
     # access directly, matching ClinicalAttachment's pattern.
     patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    # How many consecutive check-ins (including this one) this patient has
+    # reported this same term for — set by SymptomNormalizationService when
+    # it resolves a description like "mesma dor, mesmo lugar" against the
+    # patient's most recent prior check-in. 1 means "new/not a continuation".
+    streak_days = Column(Integer, nullable=False, default=1)
 
 
 class ClinicalAttachment(Base):

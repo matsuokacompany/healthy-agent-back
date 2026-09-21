@@ -1044,6 +1044,11 @@ class CustomClinicalSymptomOccurrence(BaseModel):
     occurrences: int = Field(ge=1)
     first_reported_at: date
     last_reported_at: date
+    # Longest run of consecutive check-ins (per SymptomNormalizationService's
+    # streak_days) this symptom was reported for within this period — None
+    # when none of the underlying reports carry a normalized term yet
+    # (pre-classification fallback to raw text, see _build_symptoms).
+    longest_streak_days: int | None = Field(default=None, ge=1)
 
 
 class CustomClinicalTimelineGroup(BaseModel):
