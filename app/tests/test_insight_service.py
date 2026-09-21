@@ -31,6 +31,21 @@ def test_deteccao_sinais_alerta_builds_with_categoria_keys():
     assert service.modo == "deteccao_sinais_alerta"
 
 
+def test_normalizacao_sintomas_prompt_steers_away_from_bare_generic_term():
+    # A ranking card showing just "Dor" repeated gives the professional
+    # nothing to act on -- the classifier should prefer a term that
+    # carries the location/type the patient's description gives it (e.g.
+    # "Dor abdominal") and fall back to the bare term only when the
+    # description truly gives no such detail.
+    service = build_service("normalizacao_sintomas")
+
+    system_prompt = service.prompt.messages[0].prompt.template
+
+    assert "específic" in system_prompt.lower()
+    assert '"Dor"' in system_prompt
+    assert "Dor abdominal" in system_prompt
+
+
 def test_deteccao_schema_accepts_a_known_category_and_none():
     schema = InsightService._build_deteccao_schema(_CATEGORIA_KEYS)
     assert schema(categoria="febre").categoria == "febre"
