@@ -139,3 +139,26 @@ def test_top_symptom_terms_empty_when_no_reports():
     result = PatientDashboardService(db).get_top_symptom_terms(patient)
 
     assert result.items == []
+
+
+def test_top_symptom_terms_merges_labels_that_render_identically():
+    # Regression: two SymptomTerm rows that look identical ("dor" and
+    # "dor" carrying a zero-width space) must still count as one entry in
+    # the ranking, even though they're distinct rows the DB's
+    # case-insensitive unique index didn't catch.
+    db = build_session()
+    patient = create_patient(db)
+    dor_a = SymptomTerm(label="dor")
+    dor_b = SymptomTerm(label="dor​")
+    db.add_all([dor_a, dor_b])
+    db.commit()
+
+    report_a = create_report(db, user=patient, report_date=date(2026, 1, 1))
+    report_b = create_report(db, user=patient, report_date=date(2026, 1, 2))
+    link_term(db, report=report_a, patient_id=patient.id, term=dor_a)
+    link_term(db, report=report_b, patient_id=patient.id, term=dor_b)
+
+    result = PatientDashboardService(db).get_top_symptom_terms(patient)
+
+    assert [item.label for item in result.items] == ["dor"]
+    assert [item.count for item in result.items] == [2]
