@@ -4,7 +4,15 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base_class import Base
-from app.models.models import CheckTypeEnum, DailyReport, DailyReportStatusEnum, MonitoringPlan, User
+from app.models.models import (
+    CheckTypeEnum,
+    DailyReport,
+    DailyReportStatusEnum,
+    DailyReportSymptomTerm,
+    MonitoringPlan,
+    SymptomTerm,
+    User,
+)
 from app.services.report_service import ReportService
 
 
@@ -112,3 +120,54 @@ def test_report_service_includes_adherence_and_negative_checkins():
     assert "Dias/check-ins com sintomas: 1" in relatorio
     assert "Dias/check-ins sem sintomas: 1" in relatorio
     assert "Taxa de adesão: 100.0%" in relatorio
+
+
+def test_report_service_groups_by_normalized_term_instead_of_raw_text():
+    # Without this, a continuation answer like "mesma dor, mesmo lugar"
+    # would show up as its own unrelated-looking line in the exact text fed
+    # to the AI clinical-assessment prompt, instead of adding to the
+    # existing symptom's count.
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    today = datetime.now(timezone.utc).date()
+
+    day1 = create_completed_report(
+        db, user=user, plan=plan, symptom="Dor de cabeça",
+        created_at=datetime.combine(today - timedelta(days=2), datetime.min.time(), tzinfo=timezone.utc),
+    )
+    day2 = create_completed_report(
+        db, user=user, plan=plan, symptom="Mesma dor, mesmo lugar",
+        created_at=datetime.combine(today - timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc),
+    )
+    day3 = create_completed_report(
+        db, user=user, plan=plan, symptom="Ainda a mesma dor",
+        created_at=datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc),
+    )
+
+    term = SymptomTerm(label="Cefaleia")
+    db.add(term)
+    db.commit()
+    db.add_all([
+        DailyReportSymptomTerm(daily_report_id=day1.id, symptom_term_id=term.id, patient_id=user.id, streak_days=1),
+        DailyReportSymptomTerm(daily_report_id=day2.id, symptom_term_id=term.id, patient_id=user.id, streak_days=2),
+        DailyReportSymptomTerm(daily_report_id=day3.id, symptom_term_id=term.id, patient_id=user.id, streak_days=3),
+    ])
+    db.commit()
+
+    relatorio = ReportService(db).gerar_relatorio(user.id, "semanal")
+
+    assert "Mesma dor, mesmo lugar" not in relatorio
+    assert "- Cefaleia: 3 ocorrência(s), persistente por até 3 dias seguidos" in relatorio
+
+
+def test_report_service_falls_back_to_raw_text_without_a_normalized_term():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    now = datetime.now(timezone.utc)
+
+    create_completed_report(db, user=user, plan=plan, symptom="Dor no cotovelo", created_at=now)
+
+    relatorio = ReportService(db).gerar_relatorio(user.id, "semanal")
+
+    assert "- dor no cotovelo: 1 ocorrência(s)" in relatorio
+    assert "persistente" not in relatorio

@@ -236,6 +236,46 @@ def test_build_symptoms_groups_by_normalized_term_and_falls_back_to_raw_text():
     assert by_description["Um pouco de diarréia (Diarreia)"].last_reported_at == start_date + timedelta(days=1)
     assert by_description["Dor no ombro direito"].occurrences == 1
     assert by_description["Dor no ombro direito"].first_reported_at == unprocessed.report_date
+    # Both links above default to streak_days=1 (no continuation detected).
+    assert by_description["Um pouco de diarréia (Diarreia)"].longest_streak_days == 1
+    # No normalized term at all -> nothing to report a streak from.
+    assert by_description["Dor no ombro direito"].longest_streak_days is None
+
+
+def test_build_symptoms_surfaces_the_longest_streak_in_the_period():
+    db = build_session()
+    user, plan = create_user_and_plan(db)
+    end_date = date.today()
+    start_date = end_date - timedelta(days=29)
+
+    day1 = create_report(
+        db, user=user, plan=plan, report_date=start_date, completed=True,
+        had_symptoms=True, symptom_description="Dor de cabeça",
+    )
+    day2 = create_report(
+        db, user=user, plan=plan, report_date=start_date + timedelta(days=1), completed=True,
+        had_symptoms=True, symptom_description="Mesma dor, mesmo lugar",
+    )
+    day3 = create_report(
+        db, user=user, plan=plan, report_date=start_date + timedelta(days=2), completed=True,
+        had_symptoms=True, symptom_description="Ainda a mesma dor",
+    )
+
+    term = SymptomTerm(label="Cefaleia")
+    db.add(term)
+    db.commit()
+    db.add_all([
+        DailyReportSymptomTerm(daily_report_id=day1.id, symptom_term_id=term.id, patient_id=user.id, streak_days=1),
+        DailyReportSymptomTerm(daily_report_id=day2.id, symptom_term_id=term.id, patient_id=user.id, streak_days=2),
+        DailyReportSymptomTerm(daily_report_id=day3.id, symptom_term_id=term.id, patient_id=user.id, streak_days=3),
+    ])
+    db.commit()
+
+    summary = CustomReportService(db).build_summary(user.id, start_date, end_date)
+
+    assert len(summary.symptoms) == 1
+    assert summary.symptoms[0].occurrences == 3
+    assert summary.symptoms[0].longest_streak_days == 3
 
 
 def test_build_symptoms_merges_terms_from_the_same_compound_message_into_one_entry():

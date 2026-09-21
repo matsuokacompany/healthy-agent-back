@@ -43,7 +43,7 @@ def build_session():
     return testing_session()
 
 
-def create_patient_with_report(db, *, had_symptoms=True, symptom_description="Um pouco de diarréia"):
+def create_patient(db):
     user = User(name="Paciente", email=f"p-{datetime.now().timestamp()}@example.com")
     db.add(user)
     db.commit()
@@ -52,12 +52,19 @@ def create_patient_with_report(db, *, had_symptoms=True, symptom_description="Um
     db.add(plan)
     db.commit()
     db.refresh(plan)
+    return user, plan
+
+
+def create_patient_with_report(
+    db, *, had_symptoms=True, symptom_description="Um pouco de diarréia", patient=None, report_date=None
+):
+    user, plan = patient if patient is not None else create_patient(db)
 
     now = datetime.now(timezone.utc)
     report = DailyReport(
         user_id=user.id,
         monitoring_plan_id=plan.id,
-        report_date=date.today(),
+        report_date=report_date or date.today(),
         check_type=CheckTypeEnum.MORNING,
         status=DailyReportStatusEnum.COMPLETED,
         completed=True,
@@ -137,6 +144,109 @@ def test_normalize_dedupes_repeated_and_case_variant_terms(monkeypatch):
 
     assert linked_labels(db, report.id) == ["Cefaleia"]
     assert db.query(DailyReportSymptomTerm).filter(DailyReportSymptomTerm.daily_report_id == report.id).count() == 1
+
+
+def test_normalize_includes_previous_checkin_terms_as_context(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.symptom_normalization_service.InsightService",
+        FakeInsightService,
+    )
+    db = build_session()
+    patient = create_patient(db)
+
+    first = create_patient_with_report(
+        db, patient=patient, report_date=date.today() - timedelta(days=1), symptom_description="Dor de cabeça latejante"
+    )
+    FakeInsightService.next_result = {"termos": ["Cefaleia"]}
+    SymptomNormalizationService.normalize(db, first, first.symptom_description)
+
+    second = create_patient_with_report(db, patient=patient, symptom_description="Mesma dor, mesmo lugar")
+    FakeInsightService.next_result = {"termos": ["Cefaleia"]}
+    SymptomNormalizationService.normalize(db, second, second.symptom_description)
+
+    assert "Cefaleia" in FakeInsightService.last_prompt_input
+    assert "CHECK-IN ANTERIOR" in FakeInsightService.last_prompt_input
+    assert "Mesma dor, mesmo lugar" in FakeInsightService.last_prompt_input
+
+
+def test_normalize_first_checkin_has_no_previous_context(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.symptom_normalization_service.InsightService",
+        FakeInsightService,
+    )
+    FakeInsightService.next_result = {"termos": ["Cefaleia"]}
+
+    db = build_session()
+    report = create_patient_with_report(db, symptom_description="Dor de cabeça")
+
+    SymptomNormalizationService.normalize(db, report, report.symptom_description)
+
+    assert "CHECK-IN ANTERIOR" not in FakeInsightService.last_prompt_input
+
+
+def test_normalize_builds_a_streak_across_consecutive_checkins_for_the_same_term(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.symptom_normalization_service.InsightService",
+        FakeInsightService,
+    )
+    db = build_session()
+
+    def streak_of(report_id):
+        return (
+            db.query(DailyReportSymptomTerm.streak_days)
+            .filter(DailyReportSymptomTerm.daily_report_id == report_id)
+            .scalar()
+        )
+
+    patient = create_patient(db)
+    today = date.today()
+
+    day1 = create_patient_with_report(db, patient=patient, report_date=today - timedelta(days=2), symptom_description="Dor de cabeça")
+    FakeInsightService.next_result = {"termos": ["Cefaleia"]}
+    SymptomNormalizationService.normalize(db, day1, day1.symptom_description)
+    assert streak_of(day1.id) == 1
+
+    day2 = create_patient_with_report(db, patient=patient, report_date=today - timedelta(days=1), symptom_description="Mesma dor, mesmo lugar")
+    FakeInsightService.next_result = {"termos": ["Cefaleia"]}
+    SymptomNormalizationService.normalize(db, day2, day2.symptom_description)
+    assert streak_of(day2.id) == 2
+
+    day3 = create_patient_with_report(db, patient=patient, report_date=today, symptom_description="Ainda a mesma dor")
+    FakeInsightService.next_result = {"termos": ["Cefaleia"]}
+    SymptomNormalizationService.normalize(db, day3, day3.symptom_description)
+    assert streak_of(day3.id) == 3
+
+
+def test_normalize_resets_the_streak_when_the_term_changes(monkeypatch):
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.symptom_normalization_service.InsightService",
+        FakeInsightService,
+    )
+    db = build_session()
+
+    def streak_of(report_id):
+        return (
+            db.query(DailyReportSymptomTerm.streak_days)
+            .filter(DailyReportSymptomTerm.daily_report_id == report_id)
+            .scalar()
+        )
+
+    patient = create_patient(db)
+    today = date.today()
+
+    day1 = create_patient_with_report(db, patient=patient, report_date=today - timedelta(days=1), symptom_description="Dor de cabeça")
+    FakeInsightService.next_result = {"termos": ["Cefaleia"]}
+    SymptomNormalizationService.normalize(db, day1, day1.symptom_description)
+
+    day2 = create_patient_with_report(db, patient=patient, report_date=today, symptom_description="Diarreia hoje")
+    FakeInsightService.next_result = {"termos": ["Diarreia"]}
+    SymptomNormalizationService.normalize(db, day2, day2.symptom_description)
+
+    assert streak_of(day2.id) == 1
 
 
 def test_normalize_replaces_prior_terms_on_reprocessing(monkeypatch):
