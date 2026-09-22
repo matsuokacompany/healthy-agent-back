@@ -98,7 +98,20 @@ class UserService:
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        for field in ["name", "email", "phone", "city", "state", "gender", "birth_date", "cpf"]:
+        for field in [
+            "name",
+            "email",
+            "phone",
+            "city",
+            "state",
+            "gender",
+            "birth_date",
+            "cpf",
+            "street",
+            "neighborhood",
+            "zip_code",
+            "health_plan",
+        ]:
             value = getattr(payload, field, None)
             if value is not None:
                 if field == "phone":

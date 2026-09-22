@@ -155,6 +155,10 @@ class User(Base):
     gender = Column(String, nullable=True)
     birth_date = Column(Date, nullable=True)
     cpf = Column(String, nullable=True, unique=True)
+    street = Column(String, nullable=True)
+    neighborhood = Column(String, nullable=True)
+    zip_code = Column(String, nullable=True)
+    health_plan = Column(String, nullable=True)
     # Only set by the self-service signup flow (POST /api/auth/signup).
     # Professional-provisioned patients have no direct acceptance to record,
     # since a professional is the one interacting with the platform on the

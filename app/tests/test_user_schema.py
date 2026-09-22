@@ -24,6 +24,74 @@ def test_user_read_accepts_uuid_supabase_user_id_and_serializes_to_string():
     assert user.model_dump(mode="json")["supabase_user_id"] == str(supabase_user_id)
 
 
+def test_user_read_exposes_terms_acceptance_when_present():
+    accepted_at = datetime.now(timezone.utc)
+
+    user = UserRead(
+        id=3,
+        name="Test User",
+        email="user2@example.com",
+        created_at=accepted_at,
+        updated_at=accepted_at,
+        roles=[],
+        terms_accepted_at=accepted_at,
+        terms_version="1.0",
+    )
+
+    assert user.terms_accepted_at == accepted_at
+    assert user.terms_version == "1.0"
+
+
+def test_user_read_defaults_terms_acceptance_to_none():
+    user = UserRead(
+        id=4,
+        name="Test User",
+        email="user3@example.com",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+        roles=[],
+    )
+
+    assert user.terms_accepted_at is None
+    assert user.terms_version is None
+
+
+def test_user_read_exposes_address_and_health_plan_when_present():
+    user = UserRead(
+        id=5,
+        name="Test User",
+        email="user4@example.com",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+        roles=[],
+        street="Rua das Flores, 123",
+        neighborhood="Centro",
+        zip_code="01310-100",
+        health_plan="Unimed",
+    )
+
+    assert user.street == "Rua das Flores, 123"
+    assert user.neighborhood == "Centro"
+    assert user.zip_code == "01310-100"
+    assert user.health_plan == "Unimed"
+
+
+def test_user_read_defaults_address_and_health_plan_to_none():
+    user = UserRead(
+        id=6,
+        name="Test User",
+        email="user5@example.com",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+        roles=[],
+    )
+
+    assert user.street is None
+    assert user.neighborhood is None
+    assert user.zip_code is None
+    assert user.health_plan is None
+
+
 def test_user_create_rejects_email_like_name():
     with pytest.raises(ValidationError):
         UserCreate(name="user@example.com", email="user@example.com")
