@@ -4,6 +4,7 @@ from datetime import date
 import httpx
 
 from app.core.config import settings
+from app.core.phone_masking import mask_phone
 from app.bot.channels.base import BaseBotChannel
 from app.services.bot_service import BotService
 from app.models.models import User, CheckTypeEnum
@@ -157,11 +158,11 @@ class WhatsAppBotChannel(BaseBotChannel):
                 headers=headers,
             )
 
-        logger.info(
-            "WhatsApp API status=%s response=%s",
-            response.status_code,
-            response.text,
-        )
+        # Full body only on failure (below) -- a successful send's body is
+        # just Meta's own message/contact ids, but this logs on every send,
+        # so keep the routine line to a status code rather than making a
+        # habit of putting the full response text in logs.
+        logger.info("WhatsApp API status=%s", response.status_code)
 
         if response.status_code >= 400:
             logger.error(
@@ -285,10 +286,15 @@ class WhatsAppBotChannel(BaseBotChannel):
                     buttons=response.buttons,
                 )
 
+            # Mask the phone (matches BotService._mask_phone's convention)
+            # and skip the reply body -- the bot's confirmation message can
+            # reference the symptom it just recorded, so logging it here
+            # would leak clinical content the same way the raw inbound text
+            # would.
             logger.info(
-                "Mensagem processada | from=%s | response=%s",
-                external_user_id,
-                response.text,
+                "Mensagem processada | from=%s | response_len=%d",
+                mask_phone(external_user_id),
+                len(response.text or ""),
             )
 
     async def _send_response(

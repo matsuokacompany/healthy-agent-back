@@ -124,15 +124,16 @@ class SymptomNormalizationService:
             max_tokens=cls.MAX_TOKENS,
         )
         result = service.gerar_interpretacao(prompt_input)
-        # Diagnostic: three rounds of prompt/code fixes (compound-message
-        # rule, few-shot example, session-rollback recovery) all failed to
-        # change the outcome for at least one real report -- logging the
-        # model's actual raw answer, instead of guessing at more prompt
-        # tweaks blind, is the only way left to tell whether the model is
-        # still under-extracting or something upstream of it is at fault.
+        # Diagnostic, but never the clinical free text itself -- app logs
+        # don't get the same encryption/retention treatment as the DB
+        # column (docs/security.md: "Nunca registre os valores clínicos ou
+        # os envelopes"), so logging symptom_description here would quietly
+        # defeat clinical field encryption for every check-in. The
+        # description's length is still enough to tell an empty/near-empty
+        # classifier input apart from a real under-extraction.
         logger.info(
-            "Symptom normalization result for daily_report_id=%s: description=%r termos=%r",
-            report.id, symptom_description, result.get("termos"),
+            "Symptom normalization result for daily_report_id=%s: description_len=%d termos=%r",
+            report.id, len(symptom_description), result.get("termos"),
         )
         labels = [
             clean_symptom_label(label)[: cls.MAX_TERM_LENGTH]
