@@ -227,6 +227,12 @@ class UserRead(UserBase, ORMModel):
     created_at: datetime
     updated_at: datetime
     roles: List[RoleNameEnum] = Field(default_factory=list)
+    # Only ever set by the self-signup flow (see auth_routes.py) -- a patient
+    # created directly by a professional (ProfessionalService.create_patient)
+    # never goes through that screen, so this stays null for them even
+    # though they are a real, active platform user.
+    terms_accepted_at: Optional[datetime] = None
+    terms_version: Optional[str] = None
 
 
 class AuthSessionRead(UserRead):
@@ -531,12 +537,36 @@ class MonitoringPlanUpdate(StrictRequestModel):
     end_date: Optional[date] = None
 
 
+class PatientResponsibleProfessional(BaseModel):
+    id: int
+    name: str
+    specialty: Optional[str] = None
+
+
 class MonitoringPlanRead(MonitoringPlanBase, ORMModel):
     id: int
     patient_id: int
     origin: MonitoringPlanOriginEnum = MonitoringPlanOriginEnum.PROFESSIONAL
     created_at: datetime
     updated_at: datetime
+    # Sourced from `professional_links` (not the ORM's own `professionals`
+    # relationship, which isn't filtered to active links) so every response
+    # using this schema -- the patient's own plan list, the admin
+    # monitoramento page -- can show who's actually responsible, instead of
+    # silently dropping the field the way it did before this validator
+    # existed (MonitoringPlanRead had no `professionals` field at all).
+    professionals: List[PatientResponsibleProfessional] = Field(default_factory=list, validation_alias="professional_links")
+
+    @field_validator("professionals", mode="before")
+    @classmethod
+    def _build_professionals(cls, links: object) -> list["PatientResponsibleProfessional"]:
+        if not links:
+            return []
+        return [
+            PatientResponsibleProfessional(id=link.professional.id, name=link.professional.user.name, specialty=link.professional.specialty)
+            for link in links
+            if getattr(link, "active", False) and getattr(link, "professional", None) and getattr(link.professional, "user", None)
+        ]
 
 
 class ProfessionalPatientCreate(UserBase):
@@ -757,12 +787,6 @@ class PatientLastResponse(BaseModel):
 
 class PatientNextCheckin(BaseModel):
     scheduled_at: datetime
-
-
-class PatientResponsibleProfessional(BaseModel):
-    id: int
-    name: str
-    specialty: Optional[str] = None
 
 
 class PatientAnamnesisSummary(BaseModel):
