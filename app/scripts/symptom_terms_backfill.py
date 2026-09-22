@@ -36,6 +36,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--max-records", type=int)
+    parser.add_argument(
+        "--patient-id",
+        type=int,
+        help="only classify/reclassify check-ins for this patient's local user id — "
+        "use to fix one confirmed bad classification without touching (or paying "
+        "for) every other patient's already-correct terms",
+    )
     return parser
 
 
@@ -44,7 +51,7 @@ def main() -> None:
     with SessionLocal() as db:
         set_database_service_context(db, "symptom_terms_backfill")
         service = SymptomTermsBackfillService(db)
-        pending = service.pending_count(reclassify_all=args.reclassify_all)
+        pending = service.pending_count(reclassify_all=args.reclassify_all, patient_id=args.patient_id)
         label = "check-ins to reclassify" if args.reclassify_all else "pending check-ins"
         print(f"{label.capitalize()}: {pending}")
         if not args.execute:
@@ -53,8 +60,13 @@ def main() -> None:
         # Each processed check-in is one OpenAI call (same "normalizacao_sintomas"
         # mode used on new check-ins) — a large --max-records on a big backlog has
         # a real, if small, cost. Run a small batch first if unsure of the size.
-        stats = service.run(batch_size=args.batch_size, max_records=args.max_records, reclassify_all=args.reclassify_all)
-        remaining = service.pending_count(reclassify_all=args.reclassify_all)
+        stats = service.run(
+            batch_size=args.batch_size,
+            max_records=args.max_records,
+            reclassify_all=args.reclassify_all,
+            patient_id=args.patient_id,
+        )
+        remaining = service.pending_count(reclassify_all=args.reclassify_all, patient_id=args.patient_id)
         print(f"Processed={stats.processed}, linked={stats.linked}")
         print(f"Remaining {label}: {remaining}")
 

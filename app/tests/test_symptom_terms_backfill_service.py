@@ -187,3 +187,29 @@ def test_reclassify_all_reprocesses_already_linked_reports_with_the_current_prom
         .all()
     )
     assert linked_labels == ["Cefaleia", "Refluxo"]
+
+
+def test_patient_id_scopes_reclassification_to_one_patient(monkeypatch):
+    # Lets a confirmed bad classification for one patient (e.g. a legacy
+    # generic term predating a prompt fix) be corrected without an OpenAI
+    # call -- and cost -- for every other patient's already-correct terms.
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.symptom_normalization_service.InsightService",
+        FakeInsightService,
+    )
+    FakeInsightService.next_result = {"termos": ["Cefaleia"]}
+
+    db = build_session()
+    target = make_report(db)
+    other = make_report(db)
+    service = SymptomTermsBackfillService(db)
+
+    assert service.pending_count(patient_id=target.user_id) == 1
+    assert service._pending_query(patient_id=target.user_id).all() == [target]
+
+    stats = service.run(patient_id=target.user_id)
+
+    assert stats.processed == 1
+    assert service.pending_count() == 1
+    assert service._pending_query().all() == [other]

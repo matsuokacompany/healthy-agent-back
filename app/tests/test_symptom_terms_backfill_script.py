@@ -27,7 +27,7 @@ def test_dry_run_sets_service_context_and_does_not_call_run(monkeypatch):
         "_parser",
         lambda: SimpleNamespace(
             parse_args=lambda: SimpleNamespace(
-                execute=False, batch_size=100, max_records=None, reclassify_all=False
+                execute=False, batch_size=100, max_records=None, reclassify_all=False, patient_id=None
             )
         ),
     )
@@ -59,7 +59,7 @@ def test_execute_runs_backfill_after_setting_service_context(monkeypatch):
         "_parser",
         lambda: SimpleNamespace(
             parse_args=lambda: SimpleNamespace(
-                execute=True, batch_size=50, max_records=10, reclassify_all=False
+                execute=True, batch_size=50, max_records=10, reclassify_all=False, patient_id=None
             )
         ),
     )
@@ -78,7 +78,7 @@ def test_execute_runs_backfill_after_setting_service_context(monkeypatch):
 
     symptom_terms_backfill.main()
 
-    assert run_calls == [{"batch_size": 50, "max_records": 10, "reclassify_all": False}]
+    assert run_calls == [{"batch_size": 50, "max_records": 10, "reclassify_all": False, "patient_id": None}]
 
 
 def test_reclassify_all_flag_is_forwarded_to_pending_count_and_run(monkeypatch):
@@ -93,7 +93,7 @@ def test_reclassify_all_flag_is_forwarded_to_pending_count_and_run(monkeypatch):
         "_parser",
         lambda: SimpleNamespace(
             parse_args=lambda: SimpleNamespace(
-                execute=True, batch_size=100, max_records=None, reclassify_all=True
+                execute=True, batch_size=100, max_records=None, reclassify_all=True, patient_id=None
             )
         ),
     )
@@ -112,5 +112,8 @@ def test_reclassify_all_flag_is_forwarded_to_pending_count_and_run(monkeypatch):
 
     symptom_terms_backfill.main()
 
-    assert pending_calls == [{"reclassify_all": True}, {"reclassify_all": True}]
-    assert run_calls == [{"batch_size": 100, "max_records": None, "reclassify_all": True}]
+    assert pending_calls == [
+        {"reclassify_all": True, "patient_id": None},
+        {"reclassify_all": True, "patient_id": None},
+    ]
+    assert run_calls == [{"batch_size": 100, "max_records": None, "reclassify_all": True, "patient_id": None}]
