@@ -28,8 +28,8 @@ class SymptomTermsBackfillService:
     def __init__(self, db: Session):
         self.db = db
 
-    def pending_count(self, *, reclassify_all: bool = False) -> int:
-        return self._pending_query(reclassify_all=reclassify_all).count()
+    def pending_count(self, *, reclassify_all: bool = False, patient_id: int | None = None) -> int:
+        return self._pending_query(reclassify_all=reclassify_all, patient_id=patient_id).count()
 
     def run(
         self,
@@ -37,6 +37,7 @@ class SymptomTermsBackfillService:
         batch_size: int = 100,
         max_records: int | None = None,
         reclassify_all: bool = False,
+        patient_id: int | None = None,
     ) -> SymptomTermsBackfillStats:
         if batch_size < 1:
             raise ValueError("batch_size must be at least 1")
@@ -48,7 +49,7 @@ class SymptomTermsBackfillService:
         while max_records is None or stats.processed < max_records:
             limit = batch_size if max_records is None else min(batch_size, max_records - stats.processed)
             reports = (
-                self._pending_query(reclassify_all=reclassify_all)
+                self._pending_query(reclassify_all=reclassify_all, patient_id=patient_id)
                 .filter(DailyReport.id > last_id)
                 .order_by(DailyReport.id.asc())
                 .limit(limit)
@@ -71,10 +72,16 @@ class SymptomTermsBackfillService:
 
         return stats
 
-    def _pending_query(self, *, reclassify_all: bool = False):
+    def _pending_query(self, *, reclassify_all: bool = False, patient_id: int | None = None):
         query = self.db.query(DailyReport).filter(
             DailyReport.completed.is_(True), DailyReport.had_symptoms.is_(True)
         )
+        if patient_id is not None:
+            # Scoping to one patient lets a single confirmed bad
+            # classification (e.g. a legacy generic term predating a
+            # prompt fix) be corrected without an OpenAI call -- and cost
+            # -- for every other patient's already-correct terms too.
+            query = query.filter(DailyReport.user_id == patient_id)
         if reclassify_all:
             return query
         linked = (
