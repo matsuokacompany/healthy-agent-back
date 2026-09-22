@@ -7,6 +7,8 @@ from app.services.red_flag_symptoms import ANAMNESE_RISK_FACTOR_FIELDS
 
 
 class AnamneseClinicalService:
+    ALLERGY_FIELDS = ("medication_allergies", "food_restrictions")
+
     @staticmethod
     def write_risk_factors(anamnese: Anamnese, risk_factors: dict) -> None:
         """Applies whichever of the reviewed risk-factor fields (see
@@ -27,16 +29,37 @@ class AnamneseClinicalService:
 
     @staticmethod
     def write(anamnese: Anamnese, info: str) -> None:
+        AnamneseClinicalService._write_field(anamnese, "info", info)
+
+    @staticmethod
+    def write_allergies(anamnese: Anamnese, values: dict) -> None:
+        """Same presence-vs-absence contract as `write_risk_factors`: pass
+        `payload.dict(exclude_unset=True)` so a partial update only touches
+        the keys the caller actually sent -- an explicit `null` clears a
+        field (ClinicalDataService.write_text treats None as "clear"), while
+        an absent key leaves the stored value untouched."""
+        for field in AnamneseClinicalService.ALLERGY_FIELDS:
+            if field in values:
+                AnamneseClinicalService._write_field(anamnese, field, values[field])
+
+    @staticmethod
+    def _write_field(anamnese: Anamnese, field: str, value: str | None) -> None:
         if settings.CLINICAL_ENCRYPTION_PROVIDER == "disabled" and settings.ENV != "production":
-            anamnese.info = info
-            anamnese.info_encryption_envelope = None
+            setattr(anamnese, field, value)
+            setattr(anamnese, f"{field}_encryption_envelope", None)
             return
-        ClinicalDataService().write_text(anamnese, "info", info)
+        ClinicalDataService().write_text(anamnese, field, value)
 
     @staticmethod
     def hydrate(anamnese: Anamnese) -> Anamnese:
-        if not anamnese.info_encryption_envelope:
+        fields = [
+            field
+            for field in ("info", *AnamneseClinicalService.ALLERGY_FIELDS)
+            if getattr(anamnese, f"{field}_encryption_envelope")
+        ]
+        if not fields:
             return anamnese
-        value = ClinicalDataService().read_text(anamnese, "info")
-        set_committed_value(anamnese, "info", value)
+        service = ClinicalDataService()
+        for field in fields:
+            set_committed_value(anamnese, field, service.read_text(anamnese, field))
         return anamnese

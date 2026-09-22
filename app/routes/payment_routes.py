@@ -51,11 +51,14 @@ def list_public_plans(audience: str = "patient"):
 def _subscription_response(db: Session, current_user: User, subscription: Subscription) -> SelfMonitoringSubscriptionRead:
     max_patients = None
     active_patient_count = None
+    covered_by_professional = False
     if has_role(current_user, RoleNameEnum.PROFESSIONAL):
         profile = db.query(ProfessionalProfile).filter(ProfessionalProfile.user_id == current_user.id).first()
         if profile:
             max_patients = resolve_patient_cap(db, profile)
             active_patient_count = count_active_patients(db, profile.id)
+    else:
+        covered_by_professional = PaymentService(db).is_covered_by_a_paying_professional(current_user.id)
     return SelfMonitoringSubscriptionRead(
         status=subscription.status,
         current_period_end=subscription.current_period_end,
@@ -65,6 +68,7 @@ def _subscription_response(db: Session, current_user: User, subscription: Subscr
         first_paid_at=subscription.first_paid_at,
         max_patients=max_patients,
         active_patient_count=active_patient_count,
+        covered_by_professional=covered_by_professional,
     )
 
 

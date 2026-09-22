@@ -7,7 +7,18 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.db.base_class import Base
-from app.models.models import ProfessionalProfile, Role, RoleNameEnum, Subscription, SubscriptionStatusEnum, User, UserRole
+from app.models.models import (
+    MonitoringPlan,
+    MonitoringPlanOriginEnum,
+    MonitoringProfessional,
+    ProfessionalProfile,
+    Role,
+    RoleNameEnum,
+    Subscription,
+    SubscriptionStatusEnum,
+    User,
+    UserRole,
+)
 from app.services.payment_service import PaymentService, subscription_grants_access
 
 
@@ -497,6 +508,53 @@ def test_has_access_reflects_subscription_status():
     db.commit()
 
     assert PaymentService(db).has_access(user) is True
+
+
+def test_has_access_covers_a_patient_supervised_by_an_actively_paying_professional():
+    db = build_session()
+    patient = create_user(db)
+    professional = create_professional(db, cpf="00000000001")
+    profile = db.query(ProfessionalProfile).filter(ProfessionalProfile.user_id == professional.id).first()
+    db.add(Subscription(user_id=professional.id, status=SubscriptionStatusEnum.ACTIVE.value))
+    plan = MonitoringPlan(patient_id=patient.id, title="Plano", active=True, origin=MonitoringPlanOriginEnum.PROFESSIONAL.value)
+    db.add(plan)
+    db.flush()
+    db.add(MonitoringProfessional(monitoring_plan_id=plan.id, professional_profile_id=profile.id, active=True))
+    db.commit()
+
+    # No Subscription of their own at all -- coverage comes entirely from
+    # the professional who already pays for their spot on the platform.
+    assert PaymentService(db).has_access(patient) is True
+
+
+def test_has_access_denies_a_patient_whose_supervising_professional_is_not_paying():
+    db = build_session()
+    patient = create_user(db)
+    professional = create_professional(db, cpf="00000000002")
+    profile = db.query(ProfessionalProfile).filter(ProfessionalProfile.user_id == professional.id).first()
+    # No Subscription row for the professional at all -- unpaid.
+    plan = MonitoringPlan(patient_id=patient.id, title="Plano", active=True, origin=MonitoringPlanOriginEnum.PROFESSIONAL.value)
+    db.add(plan)
+    db.flush()
+    db.add(MonitoringProfessional(monitoring_plan_id=plan.id, professional_profile_id=profile.id, active=True))
+    db.commit()
+
+    assert PaymentService(db).has_access(patient) is False
+
+
+def test_has_access_ignores_an_inactive_professional_link():
+    db = build_session()
+    patient = create_user(db)
+    professional = create_professional(db, cpf="00000000003")
+    profile = db.query(ProfessionalProfile).filter(ProfessionalProfile.user_id == professional.id).first()
+    db.add(Subscription(user_id=professional.id, status=SubscriptionStatusEnum.ACTIVE.value))
+    plan = MonitoringPlan(patient_id=patient.id, title="Plano", active=False, origin=MonitoringPlanOriginEnum.PROFESSIONAL.value)
+    db.add(plan)
+    db.flush()
+    db.add(MonitoringProfessional(monitoring_plan_id=plan.id, professional_profile_id=profile.id, active=True))
+    db.commit()
+
+    assert PaymentService(db).has_access(patient) is False
 
 
 def test_subscription_grants_access_for_none():

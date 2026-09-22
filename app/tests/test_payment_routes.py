@@ -14,7 +14,15 @@ from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.rate_limit import limiter
 from app.db.base_class import Base
-from app.models.models import Subscription, SubscriptionStatusEnum, User
+from app.models.models import (
+    MonitoringPlan,
+    MonitoringPlanOriginEnum,
+    MonitoringProfessional,
+    ProfessionalProfile,
+    Subscription,
+    SubscriptionStatusEnum,
+    User,
+)
 from app.routes import payment_routes
 from app.services.payment_service import PaymentService
 
@@ -50,6 +58,27 @@ def test_get_subscription_creates_pending_record_on_first_call():
     assert response.status_code == 200
     assert response.json()["status"] == "PENDING"
     assert db.query(Subscription).filter(Subscription.user_id == user.id).count() == 1
+
+
+def test_get_subscription_flags_coverage_by_a_paying_professional():
+    client, db, user = build_app_and_db()
+    professional = User(name="Dra. Ana", email="ana@example.com", cpf="00000000009")
+    db.add(professional)
+    db.flush()
+    profile = ProfessionalProfile(user_id=professional.id, active=True)
+    db.add(profile)
+    db.add(Subscription(user_id=professional.id, status=SubscriptionStatusEnum.ACTIVE.value))
+    db.flush()
+    plan = MonitoringPlan(patient_id=user.id, title="Plano", active=True, origin=MonitoringPlanOriginEnum.PROFESSIONAL.value)
+    db.add(plan)
+    db.flush()
+    db.add(MonitoringProfessional(monitoring_plan_id=plan.id, professional_profile_id=profile.id, active=True))
+    db.commit()
+
+    response = client.get("/billing/subscription")
+
+    assert response.status_code == 200
+    assert response.json()["covered_by_professional"] is True
 
 
 def test_checkout_endpoint_returns_service_result(monkeypatch):

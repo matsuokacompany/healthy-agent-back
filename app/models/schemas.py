@@ -150,6 +150,12 @@ class SelfMonitoringSubscriptionRead(ORMModel):
     # e.g. grandfathered) and how many active patients they currently have.
     max_patients: Optional[int] = None
     active_patient_count: Optional[int] = None
+    # Patient-only (always False for a professional's own subscription):
+    # true when an actively-paying professional already has this patient
+    # under supervision, so the platform doesn't also need this personal
+    # subscription active for self-monitoring access -- see
+    # PaymentService.has_access.
+    covered_by_professional: bool = False
 
 
 class NotificationRead(ORMModel):
@@ -251,6 +257,21 @@ class ClinicalAttachmentRead(ORMModel):
 
 
 class ClinicalAttachmentUrl(BaseModel):
+    url: str
+    expires_in: int
+
+
+class DietDocumentRead(ORMModel):
+    id: int
+    patient_id: int
+    uploaded_by_user_id: int
+    original_filename: str
+    byte_size: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class DietDocumentUrl(BaseModel):
     url: str
     expires_in: int
 
@@ -405,7 +426,12 @@ class AnamneseRiskFactors(BaseModel):
     risk_epilepsy: Optional[bool] = None
 
 
-class AnamneseBase(StrictRequestModel, AnamneseRiskFactors):
+class AnamneseAllergies(BaseModel):
+    medication_allergies: Optional[ClinicalPlainText] = None
+    food_restrictions: Optional[ClinicalPlainText] = None
+
+
+class AnamneseBase(StrictRequestModel, AnamneseRiskFactors, AnamneseAllergies):
     info: ClinicalPlainText
 
 
@@ -413,7 +439,7 @@ class AnamneseCreate(AnamneseBase):
     user_id: int
 
 
-class AnamneseUpdate(StrictRequestModel, AnamneseRiskFactors):
+class AnamneseUpdate(StrictRequestModel, AnamneseRiskFactors, AnamneseAllergies):
     info: Optional[ClinicalPlainText] = None
 
 
@@ -1102,6 +1128,35 @@ class CustomClinicalSummary(BaseModel):
     adherence: CustomClinicalAdherence = Field(default_factory=CustomClinicalAdherence)
     red_flag_events: List[CustomClinicalRedFlagEvent] = Field(default_factory=list)
     risk_factors: List[str] = Field(default_factory=list)
+
+
+class PatientHandoffAllergyMatch(BaseModel):
+    """A literal text match between a registered allergy/restriction term and
+    what the patient wrote in a single check-in -- a factual echo, not a
+    clinical judgment that a reaction occurred."""
+
+    report_date: date
+    matched_terms: List[str] = Field(default_factory=list)
+
+
+class PatientHandoffSummary(BaseModel):
+    """Deterministic, non-AI clinical summary meant to be printed/downloaded
+    and handed to a health professional -- e.g. a self-monitoring patient
+    with nobody assigned on the platform, ahead of a doctor's appointment.
+    Every field here is the patient's own recorded data, with no
+    interpretation or opinion layered on top (that's what the AI-generated
+    self-monitoring insight is for)."""
+
+    patient_id: int
+    generated_at: datetime
+    anamnese_info: Optional[str] = None
+    risk_factors: List[str] = Field(default_factory=list)
+    medication_allergies: Optional[str] = None
+    food_restrictions: Optional[str] = None
+    supplements: List[SupplementRead] = Field(default_factory=list)
+    diet_document: Optional[DietDocumentRead] = None
+    monitoring_summary: Optional[CustomClinicalSummary] = None
+    possible_allergy_matches: List[PatientHandoffAllergyMatch] = Field(default_factory=list)
 
 
 class CustomAiReportPreviewResponse(BaseModel):

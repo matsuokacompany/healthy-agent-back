@@ -12,6 +12,8 @@ from app.models.models import (
     DailyReportStatusEnum,
     MonitoringPlan,
     MonitoringPlanOriginEnum,
+    MonitoringProfessional,
+    ProfessionalProfile,
     SelfMonitoringInsight,
     Subscription,
     SubscriptionStatusEnum,
@@ -110,6 +112,31 @@ def test_insight_blocked_without_subscription():
         SelfMonitoringService(db).insight_report(patient, **cost_kwargs())
 
     assert exc_info.value.status_code == 402
+
+
+def test_insight_not_blocked_for_a_patient_supervised_by_an_actively_paying_professional():
+    db = build_session()
+    patient = User(name="Paciente monitorado", email="monitorado@example.com")
+    professional = User(name="Dra. Ana", email="ana@example.com")
+    db.add_all([patient, professional])
+    db.commit()
+    profile = ProfessionalProfile(user_id=professional.id, active=True)
+    db.add(profile)
+    db.add(Subscription(user_id=professional.id, status=SubscriptionStatusEnum.ACTIVE.value))
+    db.flush()
+    plan = MonitoringPlan(patient_id=patient.id, title="Acompanhamento", active=True, origin=MonitoringPlanOriginEnum.PROFESSIONAL.value)
+    db.add(plan)
+    db.flush()
+    db.add(MonitoringProfessional(monitoring_plan_id=plan.id, professional_profile_id=profile.id, active=True))
+    db.commit()
+
+    # No Subscription row of the patient's own -- would 402 before this
+    # session's payment_service change; now the professional's own active
+    # subscription covers the patient, so it falls through to the
+    # insufficient-data path instead (no check-ins created above).
+    result = SelfMonitoringService(db).insight_report(patient, **cost_kwargs())
+
+    assert result.sufficient_data is False
 
 
 def test_insight_reports_insufficient_data_without_calling_ai(monkeypatch):
@@ -373,3 +400,61 @@ def test_get_insight_404_for_unknown_id():
         SelfMonitoringService(db).get_insight(patient, 999999)
 
     assert exc_info.value.status_code == 404
+
+
+class CapturingInsightService:
+    captured_clinical_text = None
+
+    def __init__(self, **kwargs):
+        pass
+
+    def gerar_interpretacao_com_uso(self, clinical_summary):
+        CapturingInsightService.captured_clinical_text = clinical_summary
+        return InsightGenerationResult(
+            data={"resumo": "Evolução estável", "pontos_positivos": [], "pontos_de_atencao": [], "sugestao": "Converse com um profissional."},
+            input_tokens=120,
+            output_tokens=60,
+        )
+
+
+def test_insight_prompt_includes_allergies_and_diet_document(monkeypatch):
+    from app.models.models import Anamnese, DietDocument
+    from app.services.anamnese_clinical_service import AnamneseClinicalService
+
+    db = build_session()
+    patient, plan = create_patient_with_active_subscription(db)
+    create_completed_checkins(db, patient=patient, plan=plan, start_date=date.today() - timedelta(days=29))
+
+    anamnese = Anamnese(user_id=patient.id)
+    db.add(anamnese)
+    db.flush()
+    AnamneseClinicalService.write(anamnese, "Sem queixas relevantes.")
+    AnamneseClinicalService.write_allergies(
+        anamnese, {"medication_allergies": "Dipirona", "food_restrictions": "Lactose"}
+    )
+    db.add(
+        DietDocument(
+            patient_id=patient.id,
+            uploaded_by_user_id=patient.id,
+            bucket="clinical-documents",
+            object_key="patients/1/diet-plan/x.pdf",
+            original_filename="dieta.pdf",
+            byte_size=10,
+            sha256="abc",
+        )
+    )
+    db.commit()
+
+    CapturingInsightService.captured_clinical_text = None
+    monkeypatch.setattr(
+        "app.services.self_monitoring_service.InsightService",
+        CapturingInsightService,
+    )
+
+    SelfMonitoringService(db).insight_report(patient, **cost_kwargs())
+
+    captured = CapturingInsightService.captured_clinical_text
+    assert captured is not None
+    assert "Dipirona" in captured
+    assert "Lactose" in captured
+    assert "dieta.pdf" in captured

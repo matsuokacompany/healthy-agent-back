@@ -328,6 +328,14 @@ class Anamnese(Base):
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     info = Column(Text, nullable=True)
     info_encryption_envelope = Column(JSON, nullable=True)
+    # Free text, same envelope-encryption treatment as `info` -- kept as two
+    # separate fields (rather than folded into `info`) so a report/summary
+    # can surface them as their own labeled section instead of depending on
+    # the professional/patient having mentioned them inside free-form text.
+    medication_allergies = Column(Text, nullable=True)
+    medication_allergies_encryption_envelope = Column(JSON, nullable=True)
+    food_restrictions = Column(Text, nullable=True)
+    food_restrictions_encryption_envelope = Column(JSON, nullable=True)
     # Structured risk-factor checklist reviewed with a healthcare
     # professional -- see app/services/red_flag_symptoms.py's
     # ANAMNESE_RISK_FACTORS (single source of truth for this field list)
@@ -542,6 +550,36 @@ class ClinicalAttachment(Base):
     uploaded_by = relationship("User", foreign_keys=[uploaded_by_user_id])
     monitoring_plan = relationship("MonitoringPlan")
     daily_report = relationship("DailyReport", back_populates="clinical_attachments")
+
+
+class DietDocument(Base):
+    """At most one active diet-plan PDF per patient -- a re-upload replaces
+    it in place (see DietDocumentService), it isn't a gallery like
+    ClinicalAttachment. Stored in its own Supabase Storage bucket rather
+    than the clinical-images one, since that bucket's policy only accepts
+    image/jpeg|png|webp and ClinicalAttachmentService's Pillow pipeline
+    always re-encodes to JPEG -- neither fits a PDF."""
+
+    __tablename__ = "diet_documents"
+
+    id = Column(Integer, primary_key=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
+    uploaded_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    bucket = Column(String, nullable=False)
+    object_key = Column(String, nullable=False, unique=True)
+    original_filename = Column(String(255), nullable=False)
+    byte_size = Column(Integer, nullable=False)
+    sha256 = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    patient = relationship("User", foreign_keys=[patient_id])
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_user_id])
 
 
 class AiReportCache(Base):

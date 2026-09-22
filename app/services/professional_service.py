@@ -279,7 +279,14 @@ class ProfessionalService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Anamnese not found")
         return AnamneseClinicalService.hydrate(anamnese)
 
-    def create_anamnese(self, current_user: User, patient_id: int, info: str, risk_factors: dict | None = None) -> Anamnese:
+    def create_anamnese(
+        self,
+        current_user: User,
+        patient_id: int,
+        info: str,
+        risk_factors: dict | None = None,
+        allergies: dict | None = None,
+    ) -> Anamnese:
         self._require_patient_access(current_user, patient_id)
         if self.db.query(Anamnese).filter(Anamnese.user_id == patient_id).first():
             raise HTTPException(
@@ -296,6 +303,8 @@ class ProfessionalService:
             AnamneseClinicalService.write(anamnese, info)
             if risk_factors:
                 AnamneseClinicalService.write_risk_factors(anamnese, risk_factors)
+            if allergies:
+                AnamneseClinicalService.write_allergies(anamnese, allergies)
             self.db.commit()
         except IntegrityError:
             self.db.rollback()
@@ -306,7 +315,14 @@ class ProfessionalService:
         self.db.refresh(anamnese)
         return AnamneseClinicalService.hydrate(anamnese)
 
-    def update_anamnese(self, current_user: User, patient_id: int, info: str, risk_factors: dict | None = None) -> Anamnese:
+    def update_anamnese(
+        self,
+        current_user: User,
+        patient_id: int,
+        info: str,
+        risk_factors: dict | None = None,
+        allergies: dict | None = None,
+    ) -> Anamnese:
         self._require_patient_access(current_user, patient_id)
         anamnese = self.db.query(Anamnese).filter(Anamnese.user_id == patient_id).first()
         if not anamnese:
@@ -314,6 +330,8 @@ class ProfessionalService:
         AnamneseClinicalService.write(anamnese, info)
         if risk_factors:
             AnamneseClinicalService.write_risk_factors(anamnese, risk_factors)
+        if allergies:
+            AnamneseClinicalService.write_allergies(anamnese, allergies)
         self.db.commit()
         self.db.refresh(anamnese)
         return AnamneseClinicalService.hydrate(anamnese)
