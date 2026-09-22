@@ -1,0 +1,110 @@
+name: Symptom Terms Backfill
+
+# Self-service trigger for app/scripts/symptom_terms_backfill.py -- lets a
+# confirmed bad classification (e.g. a legacy generic term predating a
+# prompt fix) be corrected without SSH access, by running the script
+# inside the already-running production `api` container (same image, same
+# OPENAI_API_KEY/DATABASE_URL/KMS access it already has -- nothing new to
+# configure here). Dry run by default; `execute` must be explicitly
+# checked to persist changes.
+on:
+  workflow_dispatch:
+    inputs:
+      patient_id:
+        description: "Only this patient's local user id (leave empty for every patient)"
+        required: false
+      reclassify_all:
+        description: "Re-run check-ins that already have a linked term too, not just unclassified ones"
+        type: boolean
+        default: true
+      execute:
+        description: "Persist changes (unchecked = dry run, only reports the pending count)"
+        type: boolean
+        default: false
+      max_records:
+        description: "Cap how many check-ins this run processes (leave empty for no cap)"
+        required: false
+
+concurrency:
+  group: symptom-terms-backfill
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+
+    steps:
+      - name: Validate numeric inputs
+        env:
+          PATIENT_ID: ${{ inputs.patient_id }}
+          MAX_RECORDS: ${{ inputs.max_records }}
+        run: |
+          set -euo pipefail
+          if [ -n "$PATIENT_ID" ] && ! [[ "$PATIENT_ID" =~ ^[0-9]+$ ]]; then
+            echo "patient_id must be a positive integer, got: $PATIENT_ID" >&2
+            exit 1
+          fi
+          if [ -n "$MAX_RECORDS" ] && ! [[ "$MAX_RECORDS" =~ ^[0-9]+$ ]]; then
+            echo "max_records must be a positive integer, got: $MAX_RECORDS" >&2
+            exit 1
+          fi
+
+      # Same pattern as deploy.yml's "Configure SSH" step.
+      - name: Configure SSH
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_HOST_KEY: ${{ secrets.EC2_HOST_KEY }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$EC2_HOST"
+          test -n "$EC2_HOST_KEY"
+          test -n "$EC2_SSH_KEY"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/id_deploy
+
+          printf '%s\n' "$EC2_HOST_KEY" | tr -d '\r' | awk -v host="$EC2_HOST" '
+            NF >= 3 && $1 !~ /^#/ { print host, $(NF - 1), $NF }
+          ' > ~/.ssh/known_hosts
+          if [ ! -s ~/.ssh/known_hosts ]; then
+            echo "EC2_HOST_KEY must contain the complete output of: ssh-keyscan -H $EC2_HOST" >&2
+            exit 1
+          fi
+          chmod 600 ~/.ssh/id_deploy ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<'EOF'
+          Host *
+            IdentityFile ~/.ssh/id_deploy
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+          EOF
+          chmod 600 ~/.ssh/config
+          ssh-keygen -F "$EC2_HOST" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Run backfill inside the running api container
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          PATIENT_ID: ${{ inputs.patient_id }}
+          RECLASSIFY_ALL: ${{ inputs.reclassify_all }}
+          EXECUTE: ${{ inputs.execute }}
+          MAX_RECORDS: ${{ inputs.max_records }}
+        run: |
+          set -euo pipefail
+          test -n "$EC2_HOST"
+          test -n "$EC2_USER"
+
+          args="python -m app.scripts.symptom_terms_backfill"
+          [ "$RECLASSIFY_ALL" = "true" ] && args="$args --reclassify-all"
+          [ -n "$PATIENT_ID" ] && args="$args --patient-id $PATIENT_ID"
+          [ -n "$MAX_RECORDS" ] && args="$args --max-records $MAX_RECORDS"
+          [ "$EXECUTE" = "true" ] && args="$args --execute"
+
+          echo "Running: $args"
+          ssh "$EC2_USER@$EC2_HOST" "cd \$HOME/healthy-agent-back && docker compose exec -T api $args"
