@@ -135,6 +135,89 @@ def test_summary_monitoring_period_reflects_explicit_dates():
     assert summary.monitoring_summary.end_date == end
 
 
+def test_summary_flags_a_possible_allergy_match_in_a_check_in():
+    db = build_session()
+    patient = create_patient(db)
+    plan = MonitoringPlan(
+        patient_id=patient.id,
+        title="Automonitoramento",
+        active=True,
+        origin=MonitoringPlanOriginEnum.SELF_SERVICE.value,
+    )
+    db.add(plan)
+    db.flush()
+
+    anamnese = Anamnese(user_id=patient.id)
+    db.add(anamnese)
+    db.flush()
+    AnamneseClinicalService.write_allergies(anamnese, {"food_restrictions": "amendoim"})
+
+    report_date = date.today() - timedelta(days=5)
+    prompt_sent_at = datetime.combine(report_date, datetime.min.time(), tzinfo=timezone.utc)
+    db.add(
+        DailyReport(
+            user_id=patient.id,
+            monitoring_plan_id=plan.id,
+            report_date=report_date,
+            check_type=CheckTypeEnum.MORNING,
+            status=DailyReportStatusEnum.COMPLETED,
+            completed=True,
+            awaiting_response=False,
+            awaiting_cause=False,
+            lifestyle_notes="Comi um doce com amendoim e depois passei mal.",
+            prompt_sent_at=prompt_sent_at,
+            expires_at=prompt_sent_at + timedelta(hours=24),
+        )
+    )
+    db.commit()
+
+    start = date.today() - timedelta(days=30)
+    end = date.today()
+    summary = PatientHandoffService(db).get_summary(patient, patient.id, start_date=start, end_date=end)
+
+    assert len(summary.possible_allergy_matches) == 1
+    assert summary.possible_allergy_matches[0].report_date == report_date
+    assert summary.possible_allergy_matches[0].matched_terms == ["amendoim"]
+
+
+def test_summary_has_no_allergy_matches_when_nothing_is_registered():
+    db = build_session()
+    patient = create_patient(db)
+    plan = MonitoringPlan(
+        patient_id=patient.id,
+        title="Automonitoramento",
+        active=True,
+        origin=MonitoringPlanOriginEnum.SELF_SERVICE.value,
+    )
+    db.add(plan)
+    db.flush()
+
+    report_date = date.today() - timedelta(days=5)
+    prompt_sent_at = datetime.combine(report_date, datetime.min.time(), tzinfo=timezone.utc)
+    db.add(
+        DailyReport(
+            user_id=patient.id,
+            monitoring_plan_id=plan.id,
+            report_date=report_date,
+            check_type=CheckTypeEnum.MORNING,
+            status=DailyReportStatusEnum.COMPLETED,
+            completed=True,
+            awaiting_response=False,
+            awaiting_cause=False,
+            lifestyle_notes="Comi um doce com amendoim e depois passei mal.",
+            prompt_sent_at=prompt_sent_at,
+            expires_at=prompt_sent_at + timedelta(hours=24),
+        )
+    )
+    db.commit()
+
+    start = date.today() - timedelta(days=30)
+    end = date.today()
+    summary = PatientHandoffService(db).get_summary(patient, patient.id, start_date=start, end_date=end)
+
+    assert summary.possible_allergy_matches == []
+
+
 def test_summary_rejects_a_custom_period_shorter_than_the_thirty_day_minimum():
     db = build_session()
     patient = create_patient(db)

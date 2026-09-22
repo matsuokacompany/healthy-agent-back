@@ -1124,6 +1124,15 @@ class CustomClinicalSummary(BaseModel):
     risk_factors: List[str] = Field(default_factory=list)
 
 
+class PatientHandoffAllergyMatch(BaseModel):
+    """A literal text match between a registered allergy/restriction term and
+    what the patient wrote in a single check-in -- a factual echo, not a
+    clinical judgment that a reaction occurred."""
+
+    report_date: date
+    matched_terms: List[str] = Field(default_factory=list)
+
+
 class PatientHandoffSummary(BaseModel):
     """Deterministic, non-AI clinical summary meant to be printed/downloaded
     and handed to a health professional -- e.g. a self-monitoring patient
@@ -1141,6 +1150,7 @@ class PatientHandoffSummary(BaseModel):
     supplements: List[SupplementRead] = Field(default_factory=list)
     diet_document: Optional[DietDocumentRead] = None
     monitoring_summary: Optional[CustomClinicalSummary] = None
+    possible_allergy_matches: List[PatientHandoffAllergyMatch] = Field(default_factory=list)
 
 
 class CustomAiReportPreviewResponse(BaseModel):

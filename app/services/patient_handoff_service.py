@@ -1,13 +1,22 @@
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.access_policy import AccessPolicy
-from app.models.models import Anamnese, DietDocument, Supplement, User
-from app.models.schemas import CustomAiReportPeriod, DietDocumentRead, PatientHandoffSummary, SupplementRead
+from app.models.models import Anamnese, DailyReport, DietDocument, Supplement, User
+from app.models.schemas import (
+    CustomAiReportPeriod,
+    DietDocumentRead,
+    PatientHandoffAllergyMatch,
+    PatientHandoffSummary,
+    SupplementRead,
+)
+from app.services.allergy_correlation_service import AllergyCorrelationService
 from app.services.anamnese_clinical_service import AnamneseClinicalService
 from app.services.custom_report_service import CustomReportService
+from app.services.daily_report_service import DailyReportService
 from app.services.red_flag_symptoms import ANAMNESE_RISK_FACTOR_FIELDS, ANAMNESE_RISK_FACTOR_LABELS
 
 DEFAULT_PERIOD_DAYS = 90
@@ -58,7 +67,45 @@ class PatientHandoffService:
             supplements=[SupplementRead.model_validate(supplement) for supplement in supplements],
             diet_document=DietDocumentRead.model_validate(diet_document) if diet_document else None,
             monitoring_summary=monitoring_summary,
+            possible_allergy_matches=self._allergy_matches(anamnese, patient_id, resolved_start, resolved_end),
         )
+
+    def _allergy_matches(
+        self, anamnese: Anamnese | None, patient_id: int, start_date: date, end_date: date
+    ) -> list[PatientHandoffAllergyMatch]:
+        # Cheap to skip entirely when nothing is registered -- avoids querying
+        # and decrypting DailyReports for the common case (no allergies on file).
+        if not anamnese or not (anamnese.medication_allergies or anamnese.food_restrictions):
+            return []
+
+        reports = (
+            self.db.query(DailyReport)
+            .filter(
+                DailyReport.user_id == patient_id,
+                DailyReport.report_date >= start_date,
+                DailyReport.report_date <= end_date,
+                or_(
+                    DailyReport.symptom_description.isnot(None),
+                    DailyReport.symptom_description_encryption_envelope.isnot(None),
+                    DailyReport.lifestyle_notes.isnot(None),
+                    DailyReport.lifestyle_notes_encryption_envelope.isnot(None),
+                ),
+            )
+            .order_by(DailyReport.report_date.asc())
+            .all()
+        )
+
+        results: list[PatientHandoffAllergyMatch] = []
+        for report in reports:
+            DailyReportService.hydrate_clinical(report)
+            matched_terms = AllergyCorrelationService.find_matches(
+                anamnese,
+                symptom_description=report.symptom_description,
+                lifestyle_notes=report.lifestyle_notes,
+            )
+            if matched_terms:
+                results.append(PatientHandoffAllergyMatch(report_date=report.report_date, matched_terms=matched_terms))
+        return results
 
     @staticmethod
     def _risk_factor_labels(anamnese: Anamnese | None) -> list[str]:
