@@ -10,7 +10,14 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.security_context import set_database_service_context
-from app.models.models import Anamnese, MonitoringPlan, MonitoringPlanOriginEnum, SelfMonitoringInsight, User
+from app.models.models import (
+    Anamnese,
+    DietDocument,
+    MonitoringPlan,
+    MonitoringPlanOriginEnum,
+    SelfMonitoringInsight,
+    User,
+)
 from app.models.schemas import (
     CustomClinicalSummary,
     PatientDashboardPagination,
@@ -194,14 +201,19 @@ class SelfMonitoringService:
         )
 
         anamnese = self.db.query(Anamnese).filter(Anamnese.user_id == current_user.id).first()
-        anamnese_text = AnamneseClinicalService.hydrate(anamnese).info if anamnese else "Anamnese não registrada."
-        # The automonitoramento data goes FIRST and the anamnese is capped:
-        # InsightService.gerar_interpretacao_com_uso silently truncates
-        # clinical_text to MAX_REPORT_CHARS before calling the model, so
-        # whatever came last in this string could be cut off entirely —
-        # putting the actual check-in numbers last (as this used to) risked
-        # the model answering from the anamnese alone, with no real data to
-        # ground the summary in.
+        if anamnese:
+            AnamneseClinicalService.hydrate(anamnese)
+        anamnese_text = anamnese.info if anamnese and anamnese.info else "Anamnese não registrada."
+        allergies_text = self._allergies_text(anamnese)
+        diet_document = self.db.query(DietDocument).filter(DietDocument.patient_id == current_user.id).first()
+        # The automonitoramento data goes FIRST, then the short structured
+        # allergy/diet lines, and the free-text anamnese goes LAST and is
+        # capped: InsightService.gerar_interpretacao_com_uso silently
+        # truncates clinical_text to MAX_REPORT_CHARS before calling the
+        # model, so whatever came last in this string could be cut off
+        # entirely -- putting the actual check-in numbers and the short
+        # structured fields first means truncation only ever eats into the
+        # longer, less structured free text.
         # timeline is a per-week breakdown nobody reads here (the prompt
         # only asks for resumo/pontos/sugestao/especialidade/urgencia) —
         # excluding it keeps the payload lean instead of spending truncation
@@ -210,6 +222,10 @@ class SelfMonitoringService:
         clinical_text = "\n\n".join([
             "DADOS DE AUTOMONITORAMENTO:",
             json.dumps(summary_data, ensure_ascii=False, separators=(",", ":")),
+            "ALERGIAS E RESTRIÇÕES REGISTRADAS:",
+            allergies_text,
+            "PLANO ALIMENTAR:",
+            self._diet_document_text(diet_document),
             "ANAMNESE DO PACIENTE:",
             anamnese_text[:MAX_ANAMNESE_CHARS],
         ])
@@ -254,6 +270,19 @@ class SelfMonitoringService:
         self.db.refresh(record)
         SelfMonitoringInsightClinicalService.hydrate(record)
         return self._response(record, sufficient_data=True)
+
+    @staticmethod
+    def _allergies_text(anamnese: Anamnese | None) -> str:
+        medication = (anamnese.medication_allergies if anamnese else None) or "Nenhuma alergia a medicamento registrada."
+        food = (anamnese.food_restrictions if anamnese else None) or "Nenhuma restrição alimentar registrada."
+        return f"Medicamentos: {medication}\nAlimentos: {food}"
+
+    @staticmethod
+    def _diet_document_text(diet_document: DietDocument | None) -> str:
+        if not diet_document:
+            return "Nenhum plano alimentar em PDF anexado."
+        uploaded_at = diet_document.updated_at.strftime("%d/%m/%Y")
+        return f"Paciente anexou um plano alimentar em PDF ({diet_document.original_filename}), enviado em {uploaded_at}."
 
     @staticmethod
     def _as_utc(value: datetime) -> datetime:

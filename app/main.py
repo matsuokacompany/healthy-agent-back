@@ -23,11 +23,13 @@ from app.routes import (
     bot_webhook_routes,
     clinical_attachment_routes,
     daily_reports_routes,
+    diet_document_routes,
     insight_routes,
     legal_routes,
     monitoring_routes,
     notification_routes,
     patient_dashboard_routes,
+    patient_handoff_routes,
     patient_link_routes,
     payment_routes,
     professional_routes,
@@ -188,5 +190,7 @@ app.include_router(support_routes.router, prefix=f"{API_PREFIX}/support")
 app.include_router(user_routes.router, prefix=f"{API_PREFIX}/users")
 app.include_router(bot_webhook_routes.router)
 app.include_router(clinical_attachment_routes.router, prefix=f"{API_PREFIX}/clinical-attachments")
+app.include_router(diet_document_routes.router, prefix=f"{API_PREFIX}/diet-documents")
+app.include_router(patient_handoff_routes.router, prefix=f"{API_PREFIX}/patient-handoff")
 app.include_router(payment_routes.router, prefix=f"{API_PREFIX}/billing")
 app.include_router(payment_routes.webhook_router)

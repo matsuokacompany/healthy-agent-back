@@ -1,4 +1,5 @@
 from datetime import date
+from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -72,7 +73,10 @@ def build_session():
 
 
 def create_patient(db):
-    patient = User(name="Paciente", email=f"patient-{id(object())}@example.com")
+    # A uuid4, not id(object()) -- CPython can reuse a just-freed object's id
+    # for the next allocation, which collided on the users.email unique
+    # constraint once enough other tests ran in the same process.
+    patient = User(name="Paciente", email=f"patient-{uuid4()}@example.com")
     db.add(patient)
     db.commit()
     db.refresh(patient)
@@ -153,6 +157,37 @@ def test_self_service_patient_can_update_own_anamnese():
     updated = update_my_anamnese(payload=AnamneseUpdate(info="Versão 2"), db=db, current_user=patient)
 
     assert updated.info == "Versão 2"
+
+
+def test_allergy_and_food_restriction_fields_round_trip_through_create_and_update():
+    db = build_session()
+    patient = create_patient(db)
+
+    created = create_my_anamnese(
+        payload=AnamneseBase(
+            info="Versão 1",
+            medication_allergies="Penicilina",
+            food_restrictions="Lactose",
+        ),
+        db=db,
+        current_user=patient,
+    )
+    assert created.medication_allergies == "Penicilina"
+    assert created.food_restrictions == "Lactose"
+
+    # Omitting the fields on update must leave them untouched.
+    updated = update_my_anamnese(payload=AnamneseUpdate(info="Versão 2"), db=db, current_user=patient)
+    assert updated.medication_allergies == "Penicilina"
+    assert updated.food_restrictions == "Lactose"
+
+    # An explicit null clears just that one field -- Pydantic tracks
+    # "medication_allergies" as set here even though None is also its
+    # default, so exclude_unset still picks it up.
+    cleared = update_my_anamnese(
+        payload=AnamneseUpdate(medication_allergies=None), db=db, current_user=patient
+    )
+    assert cleared.medication_allergies is None
+    assert cleared.food_restrictions == "Lactose"
 
 
 def test_professionally_monitored_patient_cannot_update_own_anamnese(monkeypatch):

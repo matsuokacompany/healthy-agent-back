@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 FastAPI backend for a clinical monitoring SaaS MVP ("Julha"). Patients receive daily WhatsApp check-ins via WhatsApp Cloud API; an APScheduler job creates pending `DailyReport`s, the WhatsApp webhook collects the patient's response through a bot conversation flow, and professionals/admins review reports and OpenAI/LangChain-generated insights. Auth is Supabase Auth (JWT), with Postgres Row Level Security as defense-in-depth. Database is Supabase PostgreSQL in production; tests use in-memory SQLite.
 
-Most substantive docs live in `docs/`: `docs/security.md` (RLS, runtime DB role, clinical field encryption/rotation), `docs/auth_supabase.md`, `docs/clinical-images-mvp.md`, `docs/custom-ai-reports.md`. Read the relevant one before touching auth, encryption, or clinical images.
+Most substantive docs live in `docs/`: `docs/security.md` (RLS, runtime DB role, clinical field encryption/rotation), `docs/auth_supabase.md`, `docs/clinical-images-mvp.md`, `docs/diet-documents-mvp.md`, `docs/custom-ai-reports.md`. Read the relevant one before touching auth, encryption, or clinical images/documents.
 
 ## Commands
 

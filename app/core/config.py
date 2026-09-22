@@ -57,6 +57,15 @@ class Settings(BaseSettings):
     CLINICAL_IMAGE_MAX_PIXELS: int = 25_000_000
     CLINICAL_IMAGE_JPEG_QUALITY: int = 80
     CLINICAL_IMAGE_SIGNED_URL_TTL_SECONDS: int = 300
+    # Separate bucket from SUPABASE_STORAGE_BUCKET: that bucket's Supabase
+    # Storage policy only accepts image/jpeg|png|webp (see
+    # docs/clinical-images-mvp.md), and a diet-plan upload is a PDF that
+    # skips the Pillow re-encode pipeline entirely -- it needs its own
+    # bucket, provisioned the same way, restricted to application/pdf.
+    DIET_DOCUMENTS_BUCKET: str = "clinical-documents"
+    DIET_DOCUMENTS_ENABLED: bool = False
+    DIET_DOCUMENT_MAX_UPLOAD_BYTES: int = 10 * 1024 * 1024
+    DIET_DOCUMENT_SIGNED_URL_TTL_SECONDS: int = 300
     AUTH_COOKIE_SECURE: bool = True
     AUTH_COOKIE_SAMESITE: str = "lax"
     AUTH_ACCESS_COOKIE_NAME: str = "__Host-ha_access"

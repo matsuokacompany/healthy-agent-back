@@ -373,3 +373,61 @@ def test_get_insight_404_for_unknown_id():
         SelfMonitoringService(db).get_insight(patient, 999999)
 
     assert exc_info.value.status_code == 404
+
+
+class CapturingInsightService:
+    captured_clinical_text = None
+
+    def __init__(self, **kwargs):
+        pass
+
+    def gerar_interpretacao_com_uso(self, clinical_summary):
+        CapturingInsightService.captured_clinical_text = clinical_summary
+        return InsightGenerationResult(
+            data={"resumo": "Evolução estável", "pontos_positivos": [], "pontos_de_atencao": [], "sugestao": "Converse com um profissional."},
+            input_tokens=120,
+            output_tokens=60,
+        )
+
+
+def test_insight_prompt_includes_allergies_and_diet_document(monkeypatch):
+    from app.models.models import Anamnese, DietDocument
+    from app.services.anamnese_clinical_service import AnamneseClinicalService
+
+    db = build_session()
+    patient, plan = create_patient_with_active_subscription(db)
+    create_completed_checkins(db, patient=patient, plan=plan, start_date=date.today() - timedelta(days=29))
+
+    anamnese = Anamnese(user_id=patient.id)
+    db.add(anamnese)
+    db.flush()
+    AnamneseClinicalService.write(anamnese, "Sem queixas relevantes.")
+    AnamneseClinicalService.write_allergies(
+        anamnese, {"medication_allergies": "Dipirona", "food_restrictions": "Lactose"}
+    )
+    db.add(
+        DietDocument(
+            patient_id=patient.id,
+            uploaded_by_user_id=patient.id,
+            bucket="clinical-documents",
+            object_key="patients/1/diet-plan/x.pdf",
+            original_filename="dieta.pdf",
+            byte_size=10,
+            sha256="abc",
+        )
+    )
+    db.commit()
+
+    CapturingInsightService.captured_clinical_text = None
+    monkeypatch.setattr(
+        "app.services.self_monitoring_service.InsightService",
+        CapturingInsightService,
+    )
+
+    SelfMonitoringService(db).insight_report(patient, **cost_kwargs())
+
+    captured = CapturingInsightService.captured_clinical_text
+    assert captured is not None
+    assert "Dipirona" in captured
+    assert "Lactose" in captured
+    assert "dieta.pdf" in captured

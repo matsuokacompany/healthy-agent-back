@@ -48,7 +48,13 @@ def _require_clinical_write_access(current_user: User, target_user_id: int, db: 
     )
 
 
-def _create_anamnese(db: Session, user_id: int, info: str, risk_factors: dict | None = None) -> Anamnese:
+def _create_anamnese(
+    db: Session,
+    user_id: int,
+    info: str,
+    risk_factors: dict | None = None,
+    allergies: dict | None = None,
+) -> Anamnese:
     # 🔥 impedir duplicado (1 anamnese por usuário)
     existing = db.query(Anamnese).filter(Anamnese.user_id == user_id).first()
     if existing:
@@ -67,6 +73,8 @@ def _create_anamnese(db: Session, user_id: int, info: str, risk_factors: dict | 
         AnamneseClinicalService.write(db_item, info)
         if risk_factors:
             AnamneseClinicalService.write_risk_factors(db_item, risk_factors)
+        if allergies:
+            AnamneseClinicalService.write_allergies(db_item, allergies)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -93,7 +101,8 @@ def create_anamnese(
 ):
     _require_clinical_write_access(current_user, anamnese.user_id, db)
     risk_factors = anamnese.dict(exclude_unset=True, include=set(ANAMNESE_RISK_FACTOR_FIELDS))
-    return _create_anamnese(db, anamnese.user_id, anamnese.info, risk_factors)
+    allergies = anamnese.dict(exclude_unset=True, include=set(AnamneseClinicalService.ALLERGY_FIELDS))
+    return _create_anamnese(db, anamnese.user_id, anamnese.info, risk_factors, allergies)
 
 
 @router.post("/me", response_model=AnamneseRead, status_code=status.HTTP_201_CREATED)
@@ -107,7 +116,8 @@ def create_my_anamnese(
     own internal user id, unlike the generic POST /."""
     _require_clinical_write_access(current_user, current_user.id, db)
     risk_factors = payload.dict(exclude_unset=True, include=set(ANAMNESE_RISK_FACTOR_FIELDS))
-    return _create_anamnese(db, current_user.id, payload.info, risk_factors)
+    allergies = payload.dict(exclude_unset=True, include=set(AnamneseClinicalService.ALLERGY_FIELDS))
+    return _create_anamnese(db, current_user.id, payload.info, risk_factors, allergies)
 
 
 @router.get("/user/{user_id}", response_model=list[AnamneseRead])
@@ -157,6 +167,7 @@ def update_my_anamnese(
     if "info" in data:
         AnamneseClinicalService.write(item, data["info"])
     AnamneseClinicalService.write_risk_factors(item, data)
+    AnamneseClinicalService.write_allergies(item, data)
 
     db.commit()
     db.refresh(item)
