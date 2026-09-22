@@ -168,12 +168,25 @@ class ProfessionalService:
         plans = query.order_by(MonitoringPlan.created_at.desc(), MonitoringPlan.id.desc()).all()
 
         patient_items: dict[int, ProfessionalPatientRead] = {}
+        symptom_counts_by_patient: dict[int, int] = {}
         for plan in plans:
             if not plan.patient:
                 continue
             last_report = self._get_last_report(plan.patient_id, plan.id)
-            symptoms_count = self._count_symptom_reports(plan.patient_id, plan.id)
             existing = patient_items.get(plan.patient_id)
+            if plan.patient_id not in symptom_counts_by_patient:
+                # Scoped to the patient, not this one plan -- a patient can
+                # end up with more than one MonitoringPlan row (self-service
+                # -> professional conversion, a relink creating a new plan)
+                # and symptomatic check-ins from an older plan are just as
+                # real as ones from the plan that happens to have the most
+                # recent check-in. Matches the unbounded, patient-scoped
+                # queries the patient detail page's Check-ins/calendar/
+                # symptom-ranking views already use (PatientDashboardService
+                # ._reports_query / ._get_top_symptom_terms) -- this count
+                # used to be plan- and 30-day-scoped and would silently
+                # under-count relative to what the professional sees there.
+                symptom_counts_by_patient[plan.patient_id] = self._count_symptom_reports(plan.patient_id)
             item = ProfessionalPatientRead(
                 patient_id=plan.patient_id,
                 name=plan.patient.name,
@@ -186,7 +199,7 @@ class ProfessionalService:
                 end_date=plan.end_date,
                 last_checkin_at=last_report.updated_at if last_report else None,
                 last_status=last_report.status if last_report else None,
-                symptom_reports_count=symptoms_count,
+                symptom_reports_count=symptom_counts_by_patient[plan.patient_id],
                 has_own_subscription=patient_has_own_subscription(self.db, plan.patient_id),
             )
             if existing is None or (item.last_checkin_at or datetime.min.replace(tzinfo=timezone.utc)) > (
@@ -631,16 +644,20 @@ class ProfessionalService:
             .first()
         )
 
-    def _count_symptom_reports(self, patient_id: int, monitoring_plan_id: int) -> int:
-        since = datetime.now(timezone.utc) - timedelta(days=30)
+    def _count_symptom_reports(self, patient_id: int) -> int:
+        # All-time, across every one of the patient's monitoring plans --
+        # matches what the patient detail page's Check-ins tab, calendar,
+        # and symptom-ranking card show by default (PatientDashboardService
+        # ._reports_query / ._get_top_symptom_terms have no plan or date
+        # restriction of their own), so this list's "Sintomas" column
+        # doesn't silently disagree with what the professional counts by
+        # hand once they open the patient.
         return int(
             self.db.query(func.count(DailyReport.id))
             .filter(
                 DailyReport.user_id == patient_id,
-                DailyReport.monitoring_plan_id == monitoring_plan_id,
                 DailyReport.completed.is_(True),
                 DailyReport.had_symptoms.is_(True),
-                DailyReport.updated_at >= since,
             )
             .scalar()
             or 0
