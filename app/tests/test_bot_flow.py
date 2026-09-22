@@ -418,6 +418,62 @@ async def test_whatsapp_inbound_is_acknowledged_when_response_delivery_fails():
     )
 
 
+@pytest.mark.asyncio
+async def test_whatsapp_inbound_logging_never_includes_raw_phone_or_reply_text(caplog):
+    # Regression: "Mensagem processada" used to log the unmasked phone
+    # number and the bot's full reply text -- the reply can reference the
+    # symptom it just recorded, so that line was quietly leaking clinical
+    # content and PII into application logs (which don't get the same
+    # encryption/retention treatment as the DB column).
+    import logging
+
+    from app.bot.channels.whatsapp_channel import WhatsAppBotChannel
+
+    class StubBotService:
+        @staticmethod
+        def process_incoming(**_kwargs):
+            from app.services.bot_service import BotResponse
+
+            return BotResponse(text="Entendi, registrei sua cólica abdominal de hoje.")
+
+    channel = WhatsAppBotChannel(bot_service=StubBotService())
+
+    async def fake_send(_user_id, _text):
+        return None
+
+    channel.send_message = fake_send
+    phone = "5543999998888"
+
+    with caplog.at_level(logging.INFO, logger="app.bot.channels.whatsapp_channel"):
+        await channel.handle_incoming(
+            {
+                "entry": [
+                    {
+                        "changes": [
+                            {
+                                "value": {
+                                    "messages": [
+                                        {
+                                            "id": "wamid.log-hygiene",
+                                            "from": phone,
+                                            "type": "text",
+                                            "text": {"body": "Cólica abdominal forte"},
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
+
+    log_text = "\n".join(record.getMessage() for record in caplog.records)
+    assert phone not in log_text
+    assert "cólica" not in log_text.lower()
+    assert "***8888" in log_text
+
+
 def test_bot_service_matches_normalized_phone(monkeypatch):
     db = build_session()
     user, _ = create_pending_report(db, phone="5543935050108")

@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from fastapi import HTTPException
 
 from app.core.config import settings
+from app.core.phone_masking import mask_phone
 from app.db.session import SessionLocal
 from app.db.security_context import set_database_service_context
 from app.models.models import ClinicalAttachmentSourceEnum, DailyReportStatusEnum, User, WhatsAppMessage
@@ -383,14 +384,7 @@ class BotService:
             return None
         return "".join(ch for ch in phone if ch.isdigit())
 
-    @staticmethod
-    def _mask_phone(phone: str | None) -> str | None:
-        if not phone:
-            return None
-        digits = "".join(ch for ch in phone if ch.isdigit())
-        if len(digits) <= 4:
-            return "*" * len(digits)
-        return f"***{digits[-4:]}"
+    _mask_phone = staticmethod(mask_phone)
 
     # =========================================================
     # TRADUÇÃO DE STATUS → UX

@@ -112,6 +112,34 @@ def test_normalize_reuses_existing_vocabulary_term(monkeypatch):
     assert "Diarreia" in FakeInsightService.last_prompt_input
 
 
+def test_normalize_never_logs_the_raw_clinical_description(monkeypatch, caplog):
+    # Regression: the diagnostic log used to include the raw
+    # symptom_description text -- app logs don't get the same
+    # encryption/retention treatment as the DB column
+    # (docs/security.md: "Nunca registre os valores clínicos"), so that
+    # line was quietly defeating clinical field encryption for every
+    # check-in it processed.
+    import logging
+
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.services.symptom_normalization_service.InsightService",
+        FakeInsightService,
+    )
+    FakeInsightService.next_result = {"termos": ["Cefaleia"]}
+
+    db = build_session()
+    description = "Dor de cabeça latejante muito forte atrás do olho esquerdo"
+    report = create_patient_with_report(db, symptom_description=description)
+
+    with caplog.at_level(logging.INFO, logger="app.services.symptom_normalization_service"):
+        SymptomNormalizationService.normalize(db, report, report.symptom_description)
+
+    log_text = "\n".join(record.getMessage() for record in caplog.records)
+    assert description not in log_text
+    assert "olho esquerdo" not in log_text
+
+
 def test_normalize_creates_new_term_when_nothing_fits(monkeypatch):
     monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(
