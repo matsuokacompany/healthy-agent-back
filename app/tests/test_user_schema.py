@@ -56,6 +56,42 @@ def test_user_read_defaults_terms_acceptance_to_none():
     assert user.terms_version is None
 
 
+def test_user_read_exposes_address_and_health_plan_when_present():
+    user = UserRead(
+        id=5,
+        name="Test User",
+        email="user4@example.com",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+        roles=[],
+        street="Rua das Flores, 123",
+        neighborhood="Centro",
+        zip_code="01310-100",
+        health_plan="Unimed",
+    )
+
+    assert user.street == "Rua das Flores, 123"
+    assert user.neighborhood == "Centro"
+    assert user.zip_code == "01310-100"
+    assert user.health_plan == "Unimed"
+
+
+def test_user_read_defaults_address_and_health_plan_to_none():
+    user = UserRead(
+        id=6,
+        name="Test User",
+        email="user5@example.com",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+        roles=[],
+    )
+
+    assert user.street is None
+    assert user.neighborhood is None
+    assert user.zip_code is None
+    assert user.health_plan is None
+
+
 def test_user_create_rejects_email_like_name():
     with pytest.raises(ValidationError):
         UserCreate(name="user@example.com", email="user@example.com")

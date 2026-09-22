@@ -190,6 +190,10 @@ class UserBase(StrictRequestModel):
     gender: Optional[ShortPlainText] = None
     birth_date: Optional[date] = None
     cpf: Optional[str] = Field(default=None, max_length=32)
+    street: Optional[ShortPlainText] = None
+    neighborhood: Optional[ShortPlainText] = None
+    zip_code: Optional[str] = Field(default=None, max_length=16)
+    health_plan: Optional[ShortPlainText] = None
 
 
 class UserCreate(UserBase):
@@ -219,6 +223,10 @@ class UserUpdate(StrictRequestModel):
     gender: Optional[ShortPlainText] = None
     birth_date: Optional[date] = None
     cpf: Optional[str] = Field(default=None, max_length=32)
+    street: Optional[ShortPlainText] = None
+    neighborhood: Optional[ShortPlainText] = None
+    zip_code: Optional[str] = Field(default=None, max_length=16)
+    health_plan: Optional[ShortPlainText] = None
 
 
 class UserRead(UserBase, ORMModel):

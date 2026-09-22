@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base_class import Base
 from app.models.models import Role, RoleNameEnum, User, UserRole
-from app.models.schemas import RoleNameEnum as SchemaRoleNameEnum, UserCreate
+from app.models.schemas import RoleNameEnum as SchemaRoleNameEnum, UserCreate, UserUpdate
 from app.services import user_service as user_service_module
 from app.services.user_service import UserService
 
@@ -79,3 +79,26 @@ def test_create_user_succeeds_even_if_invite_fails(monkeypatch):
     )
 
     assert created.supabase_user_id is None
+
+
+def test_update_user_persists_address_and_health_plan_fields():
+    db = build_session()
+    patient = User(name="Paciente", email="paciente2@example.com")
+    db.add(patient)
+    db.commit()
+    db.refresh(patient)
+
+    updated = UserService(db).update_user(
+        patient.id,
+        UserUpdate(
+            street="Rua das Flores, 123",
+            neighborhood="Centro",
+            zip_code="01310-100",
+            health_plan="Unimed",
+        ),
+    )
+
+    assert updated.street == "Rua das Flores, 123"
+    assert updated.neighborhood == "Centro"
+    assert updated.zip_code == "01310-100"
+    assert updated.health_plan == "Unimed"
