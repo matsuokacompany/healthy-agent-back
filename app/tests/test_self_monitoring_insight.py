@@ -12,6 +12,8 @@ from app.models.models import (
     DailyReportStatusEnum,
     MonitoringPlan,
     MonitoringPlanOriginEnum,
+    MonitoringProfessional,
+    ProfessionalProfile,
     SelfMonitoringInsight,
     Subscription,
     SubscriptionStatusEnum,
@@ -110,6 +112,31 @@ def test_insight_blocked_without_subscription():
         SelfMonitoringService(db).insight_report(patient, **cost_kwargs())
 
     assert exc_info.value.status_code == 402
+
+
+def test_insight_not_blocked_for_a_patient_supervised_by_an_actively_paying_professional():
+    db = build_session()
+    patient = User(name="Paciente monitorado", email="monitorado@example.com")
+    professional = User(name="Dra. Ana", email="ana@example.com")
+    db.add_all([patient, professional])
+    db.commit()
+    profile = ProfessionalProfile(user_id=professional.id, active=True)
+    db.add(profile)
+    db.add(Subscription(user_id=professional.id, status=SubscriptionStatusEnum.ACTIVE.value))
+    db.flush()
+    plan = MonitoringPlan(patient_id=patient.id, title="Acompanhamento", active=True, origin=MonitoringPlanOriginEnum.PROFESSIONAL.value)
+    db.add(plan)
+    db.flush()
+    db.add(MonitoringProfessional(monitoring_plan_id=plan.id, professional_profile_id=profile.id, active=True))
+    db.commit()
+
+    # No Subscription row of the patient's own -- would 402 before this
+    # session's payment_service change; now the professional's own active
+    # subscription covers the patient, so it falls through to the
+    # insufficient-data path instead (no check-ins created above).
+    result = SelfMonitoringService(db).insight_report(patient, **cost_kwargs())
+
+    assert result.sufficient_data is False
 
 
 def test_insight_reports_insufficient_data_without_calling_ai(monkeypatch):

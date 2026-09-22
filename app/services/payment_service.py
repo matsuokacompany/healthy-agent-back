@@ -32,6 +32,8 @@ from app.core.config import settings
 from app.core.permissions import has_role
 from app.db.security_context import set_database_service_context
 from app.models.models import (
+    MonitoringPlan,
+    MonitoringProfessional,
     Notification,
     NotificationKindEnum,
     ProfessionalProfile,
@@ -144,8 +146,39 @@ class PaymentService:
         return subscription
 
     def has_access(self, user: User) -> bool:
+        """Whether this patient can currently use the paid self-monitoring
+        features (automonitoramento + histórico de resumos por IA): either
+        their own subscription is active/trialing, or an actively-paying
+        professional already has them under supervision. In the latter case
+        that professional's own subscription is what covers the patient's
+        spot on the platform, so requiring a second, personal subscription
+        on top of it would double-charge the family."""
         subscription = self.db.query(Subscription).filter(Subscription.user_id == user.id).first()
-        return subscription_grants_access(subscription)
+        return subscription_grants_access(subscription) or self.is_covered_by_a_paying_professional(user.id)
+
+    def is_covered_by_a_paying_professional(self, patient_id: int) -> bool:
+        links = (
+            self.db.query(MonitoringProfessional, ProfessionalProfile)
+            .join(MonitoringPlan, MonitoringPlan.id == MonitoringProfessional.monitoring_plan_id)
+            .join(ProfessionalProfile, ProfessionalProfile.id == MonitoringProfessional.professional_profile_id)
+            .filter(
+                MonitoringPlan.patient_id == patient_id,
+                MonitoringPlan.active.is_(True),
+                MonitoringProfessional.active.is_(True),
+            )
+            .all()
+        )
+        if not links:
+            return False
+        professional_user_ids = [profile.user_id for _, profile in links]
+        subscriptions_by_user_id = {
+            subscription.user_id: subscription
+            for subscription in self.db.query(Subscription).filter(Subscription.user_id.in_(professional_user_ids)).all()
+        }
+        return any(
+            professional_has_access(profile, subscriptions_by_user_id.get(profile.user_id))
+            for _, profile in links
+        )
 
     def list_invoices(self, user: User, *, limit: int = 24) -> list[dict[str, Any]]:
         """Past payments for the caller's own subscription, straight from

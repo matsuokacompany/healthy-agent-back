@@ -150,6 +150,12 @@ class SelfMonitoringSubscriptionRead(ORMModel):
     # e.g. grandfathered) and how many active patients they currently have.
     max_patients: Optional[int] = None
     active_patient_count: Optional[int] = None
+    # Patient-only (always False for a professional's own subscription):
+    # true when an actively-paying professional already has this patient
+    # under supervision, so the platform doesn't also need this personal
+    # subscription active for self-monitoring access -- see
+    # PaymentService.has_access.
+    covered_by_professional: bool = False
 
 
 class NotificationRead(ORMModel):
