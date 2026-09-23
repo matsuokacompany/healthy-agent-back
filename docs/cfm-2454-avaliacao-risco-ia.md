@@ -23,9 +23,10 @@
 - **Dado de entrada:** resumo consolidado dos check-ins de sintomas do período selecionado, anamnese e,
   quando cadastrados, fatores de risco estruturados do paciente (ver anamnese) — texto truncado em 6.000
   caracteres para limitar custo e exposição de dados
-- **Saída gerada:** hipótese diagnóstica principal, lista de possíveis condições associadas, nível de
-  suspeição (baixo/moderado/alto), justificativa, especialidade recomendada, exames prioritários e nível
-  de urgência sugerido (baixa/média/alta)
+- **Saída gerada:** até 5 hipóteses diagnósticas (menos quando o modelo tem mais certeza), cada uma com
+  o raciocínio que levou a ela, o nível de suspeição (baixo/moderado/alto) e a especialidade recomendada
+  para investigar aquela hipótese especificamente; além disso, exames prioritários e nível de urgência
+  sugerido (baixa/média/alta) para o caso como um todo
 
 ## 2. Finalidade clínica declarada
 

@@ -84,30 +84,35 @@ def test_bucketize_falls_back_to_default_for_unparseable_value():
     assert _bucketize(None, _SCALE_BAIXA_ALTA, "media") == "media"
 
 
-def test_normalize_qualitative_fields_fixes_preventivo_scenarios():
+def test_normalize_qualitative_fields_fixes_preventivo_riscos():
     service = build_service("preventivo")
     resultado = {
-        "cenarios": {
-            "otimista": {"probabilidade": "20%"},
-            "intermediario": {"probabilidade": "media"},
-            "grave": {"probabilidade": "muito alta, quase certeza"},
-        }
+        "riscos_longo_prazo": [
+            {"condicao": "Diabetes tipo 2", "nivel_de_atencao": "20%"},
+            {"condicao": "Alzheimer", "nivel_de_atencao": "Moderado"},
+        ]
     }
     service._normalize_qualitative_fields(resultado)
-    assert resultado["cenarios"]["otimista"]["probabilidade"] == "baixa"
-    assert resultado["cenarios"]["intermediario"]["probabilidade"] == "media"
-    assert resultado["cenarios"]["grave"]["probabilidade"] == "alta"
+    assert resultado["riscos_longo_prazo"][0]["nivel_de_atencao"] == "baixo"
+    assert resultado["riscos_longo_prazo"][1]["nivel_de_atencao"] == "moderado"
 
 
 def test_normalize_qualitative_fields_fixes_avaliacao_clinica():
     service = build_service("avaliacao_clinica")
     resultado = {
         "urgencia": "85%",
-        "avaliacao_clinica": {"nivel_de_suspeicao": "Moderado"},
+        "hipoteses": [{"doenca": "Refluxo", "nivel_de_suspeicao": "Moderado"}],
     }
     service._normalize_qualitative_fields(resultado)
     assert resultado["urgencia"] == "alta"
-    assert resultado["avaliacao_clinica"]["nivel_de_suspeicao"] == "moderado"
+    assert resultado["hipoteses"][0]["nivel_de_suspeicao"] == "moderado"
+
+
+def test_normalize_qualitative_fields_trims_avaliacao_clinica_to_five_hipoteses():
+    service = build_service("avaliacao_clinica")
+    resultado = {"hipoteses": [{"doenca": f"Hipótese {i}", "nivel_de_suspeicao": "baixo"} for i in range(7)]}
+    service._normalize_qualitative_fields(resultado)
+    assert len(resultado["hipoteses"]) == 5
 
 
 def test_normalize_qualitative_fields_is_noop_for_resumo_paciente_without_urgencia():

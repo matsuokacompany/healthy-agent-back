@@ -694,23 +694,18 @@ class DailyReportRead(DailyReportBase, ORMModel):
     updated_at: datetime
 
 
-class InsightScenario(BaseModel):
-    descricao: str
-    condicoes_para_ocorrer: str
-    probabilidade: Literal["baixa", "media", "alta"]
+class PreventiveLongTermRisk(BaseModel):
+    condicao: str
+    raciocinio: str
+    especialista_recomendado: str
+    nivel_de_atencao: NivelSuspeicaoEnum
 
 
-class InsightScenarios(BaseModel):
-    otimista: InsightScenario
-    intermediario: InsightScenario
-    grave: InsightScenario
-
-
-class AvaliacaoClinica(BaseModel):
-    hipotese_principal: str
-    possiveis_doencas: List[str] = Field(default_factory=list)
+class ClinicalHypothesis(BaseModel):
+    doenca: str
+    raciocinio: str
+    especialista_recomendado: str
     nivel_de_suspeicao: NivelSuspeicaoEnum
-    justificativa: List[str]
 
 
 class InsightRequest(BaseModel):
@@ -718,16 +713,14 @@ class InsightRequest(BaseModel):
 
 
 class InsightPreventiveResponse(BaseModel):
-    cenarios: InsightScenarios
-    cenario_mais_provavel: Literal["otimista", "intermediario", "grave"]
-    especialista_recomendado: str
-    exames_sugeridos: List[str]
+    riscos_longo_prazo: List[PreventiveLongTermRisk] = Field(default_factory=list)
     alerta_importante: str
 
 
 class InsightClinicalResponse(BaseModel):
-    avaliacao_clinica: AvaliacaoClinica
-    especialista_recomendado: str
+    # At most 5 -- InsightService._normalize_qualitative_fields trims the raw
+    # model output defensively before this ever validates it.
+    hipoteses: List[ClinicalHypothesis] = Field(default_factory=list, max_length=5)
     exames_prioritarios: List[str]
     urgencia: UrgenciaEnum
     alerta_legal: str
