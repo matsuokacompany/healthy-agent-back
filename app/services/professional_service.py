@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.models import (
     AiReportCache,
     AiReportStatusEnum,
+    Allergy,
     Anamnese,
     DailyReport,
     MonitoringPlan,
@@ -23,12 +24,16 @@ from app.models.models import (
 )
 from app.models.schemas import (
     AiReportFeedbackResponse,
+    AllergyCreate,
+    AllergyUpdate,
     AnamneseRead,
     PatientDashboardCalendarResponse,
     PatientDashboardCheckinsResponse,
     PatientDashboardResponseV2,
     PatientTopSymptomTermsResponse,
     ProfessionalAiReportResponse,
+    ProfessionalDashboardOverview,
+    ProfessionalDashboardRedFlag,
     ProfessionalPatientRead,
     ProfessionalPatientCreate,
     ProfessionalPatientCreateResponse,
@@ -55,6 +60,8 @@ from app.services.payment_service import PaymentService
 from app.services.professional_capacity_service import patient_has_own_subscription, require_patient_cap
 from app.services.report_service import ReportService
 from app.services.anamnese_clinical_service import AnamneseClinicalService
+from app.services.allergy_service import AllergyService
+from app.services.red_flag_symptoms import RED_FLAG_CATEGORY_BY_KEY
 from app.services.supplement_service import SupplementService
 
 
@@ -141,6 +148,14 @@ class ProfessionalService:
                     duration_days=supplement.duration_days,
                 )
             )
+        for allergy in payload.allergies:
+            self.db.add(
+                Allergy(
+                    patient_id=patient.id,
+                    allergen=allergy.allergen,
+                    severity=allergy.severity.value,
+                )
+            )
         self.db.commit()
         self.db.refresh(patient)
         self.db.refresh(plan)
@@ -208,6 +223,67 @@ class ProfessionalService:
                 patient_items[plan.patient_id] = item
         return list(patient_items.values())
 
+    # How far back to look for red-flag events on the overview dashboard --
+    # a rolling window, not "since the plan started", so the list stays
+    # short and recent rather than accumulating forever.
+    DASHBOARD_RED_FLAG_LOOKBACK_DAYS = 14
+    DASHBOARD_RED_FLAG_LIMIT = 15
+    DASHBOARD_TOP_SYMPTOMS_LIMIT = 8
+
+    def get_dashboard_overview(self, current_user: User) -> ProfessionalDashboardOverview:
+        profile = self._get_access_profile(current_user)
+        patient_ids = self._active_patient_ids(profile)
+        if not patient_ids:
+            return ProfessionalDashboardOverview(active_patients=0)
+
+        since = datetime.now(timezone.utc).date() - timedelta(days=self.DASHBOARD_RED_FLAG_LOOKBACK_DAYS)
+        rows = (
+            self.db.query(DailyReport, User.name)
+            .join(User, User.id == DailyReport.user_id)
+            .filter(
+                DailyReport.user_id.in_(patient_ids),
+                DailyReport.red_flag_category.isnot(None),
+                DailyReport.report_date >= since,
+            )
+            .order_by(DailyReport.report_date.desc())
+            .limit(self.DASHBOARD_RED_FLAG_LIMIT)
+            .all()
+        )
+        red_flags: list[ProfessionalDashboardRedFlag] = []
+        for report, patient_name in rows:
+            category = RED_FLAG_CATEGORY_BY_KEY.get(report.red_flag_category)
+            if not category:
+                continue
+            red_flags.append(
+                ProfessionalDashboardRedFlag(
+                    patient_id=report.user_id,
+                    patient_name=patient_name,
+                    report_date=report.report_date,
+                    category_key=category.key,
+                    category_label=category.label,
+                    tier=category.tier,
+                )
+            )
+
+        top_symptoms = self.dashboard_service.get_top_symptom_terms_for_patients(
+            patient_ids, limit=self.DASHBOARD_TOP_SYMPTOMS_LIMIT
+        ).items
+
+        return ProfessionalDashboardOverview(
+            active_patients=len(patient_ids),
+            red_flags=red_flags,
+            top_symptoms=top_symptoms,
+        )
+
+    def _active_patient_ids(self, profile: ProfessionalProfile | None) -> list[int]:
+        query = self.db.query(MonitoringPlan.patient_id).filter(MonitoringPlan.active.is_(True))
+        if profile:
+            query = query.join(MonitoringProfessional).filter(
+                MonitoringProfessional.professional_profile_id == profile.id,
+                MonitoringProfessional.active.is_(True),
+            )
+        return [row[0] for row in query.distinct().all()]
+
     def get_dashboard(self, current_user: User, patient_id: int) -> PatientDashboardResponseV2:
         patient = self._require_patient_access(current_user, patient_id)
         return self._build_patient_dashboard(patient)
@@ -242,7 +318,7 @@ class ProfessionalService:
 
     def get_top_symptom_terms(self, current_user: User, patient_id: int, *, limit: int = 6) -> PatientTopSymptomTermsResponse:
         self._require_patient_access(current_user, patient_id)
-        return PatientTopSymptomTermsResponse(items=self.dashboard_service._get_top_symptom_terms(patient_id, limit=limit))
+        return self.dashboard_service.get_top_symptom_terms_for_patients([patient_id], limit=limit)
 
     def get_calendar(
         self,
@@ -370,6 +446,35 @@ class ProfessionalService:
     def delete_supplement(self, current_user: User, patient_id: int, supplement_id: int) -> bool:
         self._require_patient_access(current_user, patient_id)
         return SupplementService(self.db).delete_for_patient(patient_id, supplement_id)
+
+    def list_allergies(self, current_user: User, patient_id: int) -> list[Allergy]:
+        self._require_patient_access(current_user, patient_id)
+        return AllergyService(self.db).list_for_patient(patient_id)
+
+    def create_allergy(
+        self,
+        current_user: User,
+        patient_id: int,
+        payload: AllergyCreate,
+    ) -> Allergy:
+        self._require_patient_access(current_user, patient_id)
+        return AllergyService(self.db).create_for_patient(patient_id, payload.allergen, severity=payload.severity)
+
+    def update_allergy(
+        self,
+        current_user: User,
+        patient_id: int,
+        allergy_id: int,
+        payload: AllergyUpdate,
+    ) -> Allergy | None:
+        self._require_patient_access(current_user, patient_id)
+        return AllergyService(self.db).update_for_patient(
+            patient_id, allergy_id, **payload.model_dump(exclude_unset=True)
+        )
+
+    def delete_allergy(self, current_user: User, patient_id: int, allergy_id: int) -> bool:
+        self._require_patient_access(current_user, patient_id)
+        return AllergyService(self.db).delete_for_patient(patient_id, allergy_id)
 
     def generate_ai_report(
         self,

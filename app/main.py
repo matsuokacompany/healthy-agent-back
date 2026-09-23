@@ -18,6 +18,7 @@ from app.core.rate_limit import limiter
 
 from app.routes import (
     admin_routes,
+    allergy_routes,
     anamnese_routes,
     auth_routes,
     bot_webhook_routes,
@@ -186,6 +187,7 @@ app.include_router(professional_routes.router, prefix=f"{API_PREFIX}/professiona
 app.include_router(report_routes.router, prefix=f"{API_PREFIX}/reports")
 app.include_router(self_monitoring_routes.router, prefix=f"{API_PREFIX}/self-monitoring")
 app.include_router(supplement_routes.router, prefix=f"{API_PREFIX}/supplements")
+app.include_router(allergy_routes.router, prefix=f"{API_PREFIX}/allergies")
 app.include_router(support_routes.router, prefix=f"{API_PREFIX}/support")
 app.include_router(user_routes.router, prefix=f"{API_PREFIX}/users")
 app.include_router(bot_webhook_routes.router)

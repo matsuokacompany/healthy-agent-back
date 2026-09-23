@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base_class import Base
 from app.models.models import (
+    Allergy,
     Anamnese,
     MonitoringPlan,
     MonitoringProfessional,
@@ -19,7 +20,7 @@ from app.models.models import (
     User,
     UserRole,
 )
-from app.models.schemas import ProfessionalPatientCreate, SupplementCreate, SupplementUpdate, UserCreate
+from app.models.schemas import AllergyCreate, AllergyUpdate, ProfessionalPatientCreate, SupplementCreate, SupplementUpdate, UserCreate
 from app.services import professional_service as professional_service_module
 from app.services.professional_service import ProfessionalService
 from app.services.user_service import UserService
@@ -152,6 +153,27 @@ def test_professional_creates_patient_with_supplements(monkeypatch):
     assert supplements[1].dosage_times == 3
     assert supplements[1].dosage_period == "WEEK"
     assert supplements[1].duration_days == 10
+
+
+def test_professional_creates_patient_with_allergies(monkeypatch):
+    monkeypatch.setattr(professional_service_module, "invite_supabase_user", lambda email, name=None: None)
+    db = build_session()
+    professional, _ = create_professional(db)
+
+    result = ProfessionalService(db).create_patient(
+        professional,
+        patient_payload(
+            allergies=[
+                {"allergen": "Frutos do mar", "severity": "RISCO_DE_MORTE"},
+                {"allergen": "Pólen"},
+            ]
+        ),
+    )
+
+    allergies = db.query(Allergy).filter(Allergy.patient_id == result.patient.id).order_by(Allergy.id).all()
+    assert [a.allergen for a in allergies] == ["Frutos do mar", "Pólen"]
+    assert allergies[0].severity == "RISCO_DE_MORTE"
+    assert allergies[1].severity == "MODERADA"
 
 
 def test_professional_creates_patient_when_supabase_invite_fails(monkeypatch):
@@ -342,6 +364,65 @@ def test_delete_supplement_returns_false_for_unknown_id():
     patient = create_monitored_patient(db, profile)
 
     assert ProfessionalService(db).delete_supplement(professional, patient.id, 999) is False
+
+
+def test_professional_manages_allergies_for_monitored_patient():
+    db = build_session()
+    professional, profile = create_professional(db)
+    patient = create_monitored_patient(db, profile)
+    service = ProfessionalService(db)
+
+    created = service.create_allergy(professional, patient.id, AllergyCreate(allergen="Frutos do mar", severity="RISCO_DE_MORTE"))
+
+    assert created.patient_id == patient.id
+    assert [a.allergen for a in service.list_allergies(professional, patient.id)] == ["Frutos do mar"]
+
+    assert service.delete_allergy(professional, patient.id, created.id) is True
+    assert service.list_allergies(professional, patient.id) == []
+
+
+def test_professional_updates_allergy_for_monitored_patient():
+    db = build_session()
+    professional, profile = create_professional(db)
+    patient = create_monitored_patient(db, profile)
+    service = ProfessionalService(db)
+    created = service.create_allergy(professional, patient.id, AllergyCreate(allergen="Frutos do mar"))
+
+    updated = service.update_allergy(professional, patient.id, created.id, AllergyUpdate(severity="RISCO_DE_MORTE"))
+
+    assert updated.allergen == "Frutos do mar"
+    assert updated.severity == "RISCO_DE_MORTE"
+
+
+def test_update_allergy_returns_none_for_unknown_id():
+    db = build_session()
+    professional, profile = create_professional(db)
+    patient = create_monitored_patient(db, profile)
+
+    result = ProfessionalService(db).update_allergy(professional, patient.id, 999, AllergyUpdate(allergen="Não existe"))
+
+    assert result is None
+
+
+def test_professional_cannot_manage_allergies_for_unmonitored_patient():
+    db = build_session()
+    professional, _ = create_professional(db)
+    patient = User(name="Sem vínculo", email="sem-vinculo-allergy@example.com")
+    db.add(patient)
+    db.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        ProfessionalService(db).create_allergy(professional, patient.id, AllergyCreate(allergen="Amendoim"))
+
+    assert exc_info.value.status_code == 403
+
+
+def test_delete_allergy_returns_false_for_unknown_id():
+    db = build_session()
+    professional, profile = create_professional(db)
+    patient = create_monitored_patient(db, profile)
+
+    assert ProfessionalService(db).delete_allergy(professional, patient.id, 999) is False
 
 
 def test_admin_cannot_create_a_professional_user():
