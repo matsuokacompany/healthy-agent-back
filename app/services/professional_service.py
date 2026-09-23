@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.models import (
     AiReportCache,
     AiReportStatusEnum,
+    Allergy,
     Anamnese,
     DailyReport,
     MonitoringPlan,
@@ -139,6 +140,14 @@ class ProfessionalService:
                     dosage_times=supplement.dosage_times,
                     dosage_period=supplement.dosage_period.value,
                     duration_days=supplement.duration_days,
+                )
+            )
+        for allergy in payload.allergies:
+            self.db.add(
+                Allergy(
+                    patient_id=patient.id,
+                    allergen=allergy.allergen,
+                    severity=allergy.severity.value,
                 )
             )
         self.db.commit()

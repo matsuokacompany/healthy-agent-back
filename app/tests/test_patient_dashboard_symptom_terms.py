@@ -48,7 +48,7 @@ def create_patient(db, email: str = "paciente@example.com") -> User:
     return user
 
 
-def create_report(db, *, user: User, report_date: date) -> DailyReport:
+def create_report(db, *, user: User, report_date: date, symptom_description: str | None = None) -> DailyReport:
     plan = db.query(MonitoringPlan).filter(MonitoringPlan.patient_id == user.id).first()
     if plan is None:
         plan = MonitoringPlan(patient_id=user.id, title="Plano", active=True)
@@ -65,6 +65,7 @@ def create_report(db, *, user: User, report_date: date) -> DailyReport:
         status=DailyReportStatusEnum.COMPLETED,
         completed=True,
         had_symptoms=True,
+        symptom_description=symptom_description,
         prompt_sent_at=now,
         expires_at=now,
         updated_at=now,
@@ -75,8 +76,15 @@ def create_report(db, *, user: User, report_date: date) -> DailyReport:
     return report
 
 
-def link_term(db, *, report: DailyReport, patient_id: int, term: SymptomTerm) -> None:
-    db.add(DailyReportSymptomTerm(daily_report_id=report.id, symptom_term_id=term.id, patient_id=patient_id))
+def link_term(db, *, report: DailyReport, patient_id: int, term: SymptomTerm, origin_report: DailyReport | None = None) -> None:
+    db.add(
+        DailyReportSymptomTerm(
+            daily_report_id=report.id,
+            symptom_term_id=term.id,
+            patient_id=patient_id,
+            origin_report_id=origin_report.id if origin_report else None,
+        )
+    )
     db.commit()
 
 
@@ -162,3 +170,64 @@ def test_top_symptom_terms_merges_labels_that_render_identically():
 
     assert [item.label for item in result.items] == ["dor"]
     assert [item.count for item in result.items] == [2]
+
+
+def test_top_symptom_terms_carries_underlying_descriptions_most_recent_first():
+    db = build_session()
+    patient = create_patient(db)
+    dor = SymptomTerm(label="Dor")
+    db.add(dor)
+    db.commit()
+
+    report_a = create_report(db, user=patient, report_date=date(2026, 1, 1), symptom_description="Dor de cabeça leve")
+    report_b = create_report(db, user=patient, report_date=date(2026, 1, 2), symptom_description="Dor no joelho direito")
+    link_term(db, report=report_a, patient_id=patient.id, term=dor)
+    link_term(db, report=report_b, patient_id=patient.id, term=dor)
+
+    result = PatientDashboardService(db).get_top_symptom_terms(patient)
+
+    assert len(result.items) == 1
+    samples = result.items[0].samples
+    assert [sample.description for sample in samples] == ["Dor no joelho direito", "Dor de cabeça leve"]
+    assert [sample.report_id for sample in samples] == [report_b.id, report_a.id]
+
+
+def test_top_symptom_terms_samples_capped_at_three():
+    db = build_session()
+    patient = create_patient(db)
+    dor = SymptomTerm(label="Dor")
+    db.add(dor)
+    db.commit()
+
+    for index in range(5):
+        report = create_report(db, user=patient, report_date=date(2026, 1, index + 1), symptom_description=f"Dor {index}")
+        link_term(db, report=report, patient_id=patient.id, term=dor)
+
+    result = PatientDashboardService(db).get_top_symptom_terms(patient)
+
+    assert len(result.items[0].samples) == 3
+    # Most recent first, so the last three reports (indexes 4, 3, 2) win.
+    assert [sample.description for sample in result.items[0].samples] == ["Dor 4", "Dor 3", "Dor 2"]
+
+
+def test_top_symptom_terms_sample_follows_origin_report_for_referential_followups():
+    # A "mesma dor, mesmo lugar" follow-up chains its term row to the
+    # earlier report that actually described the symptom in detail -- the
+    # sample shown should be that detailed original text, not the
+    # follow-up's own (uninformative) text.
+    db = build_session()
+    patient = create_patient(db)
+    dor = SymptomTerm(label="Dor")
+    db.add(dor)
+    db.commit()
+
+    original = create_report(db, user=patient, report_date=date(2026, 1, 1), symptom_description="Dor lombar forte")
+    followup = create_report(db, user=patient, report_date=date(2026, 1, 2), symptom_description="mesma dor, mesmo lugar")
+    link_term(db, report=original, patient_id=patient.id, term=dor)
+    link_term(db, report=followup, patient_id=patient.id, term=dor, origin_report=original)
+
+    result = PatientDashboardService(db).get_top_symptom_terms(patient)
+
+    samples = result.items[0].samples
+    assert [sample.description for sample in samples] == ["Dor lombar forte"]
+    assert [sample.report_id for sample in samples] == [original.id]

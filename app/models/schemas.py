@@ -613,6 +613,10 @@ class ProfessionalPatientCreate(UserBase):
     # page (SupplementCreate), so the dosage schedule feeds the WhatsApp
     # medication question the same way for both origins.
     supplements: List[SupplementCreate] = Field(default_factory=list, max_length=50)
+    # Same reasoning as supplements above, for the structured allergy list
+    # (AllergyCreate) — captured at intake so it's not left for the patient
+    # to fill in later.
+    allergies: List[AllergyCreate] = Field(default_factory=list, max_length=50)
 
     @field_validator("name")
     @classmethod
@@ -795,9 +799,19 @@ class PatientDashboardStatistics(BaseModel):
         )
 
 
+class PatientSymptomTermSample(BaseModel):
+    report_id: int
+    report_date: date
+    description: str
+
+
 class PatientTopSymptomTerm(BaseModel):
     label: str
     count: int
+    # A few of the underlying check-ins' own descriptions, most recent
+    # first -- lets a professional looking at a generic term (e.g. a bare
+    # "Dor") see what the patient actually wrote instead of just a count.
+    samples: List[PatientSymptomTermSample] = Field(default_factory=list)
 
 
 class PatientTopSymptomTermsResponse(BaseModel):

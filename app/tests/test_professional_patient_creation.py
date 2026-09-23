@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base_class import Base
 from app.models.models import (
+    Allergy,
     Anamnese,
     MonitoringPlan,
     MonitoringProfessional,
@@ -152,6 +153,27 @@ def test_professional_creates_patient_with_supplements(monkeypatch):
     assert supplements[1].dosage_times == 3
     assert supplements[1].dosage_period == "WEEK"
     assert supplements[1].duration_days == 10
+
+
+def test_professional_creates_patient_with_allergies(monkeypatch):
+    monkeypatch.setattr(professional_service_module, "invite_supabase_user", lambda email, name=None: None)
+    db = build_session()
+    professional, _ = create_professional(db)
+
+    result = ProfessionalService(db).create_patient(
+        professional,
+        patient_payload(
+            allergies=[
+                {"allergen": "Frutos do mar", "severity": "RISCO_DE_MORTE"},
+                {"allergen": "Pólen"},
+            ]
+        ),
+    )
+
+    allergies = db.query(Allergy).filter(Allergy.patient_id == result.patient.id).order_by(Allergy.id).all()
+    assert [a.allergen for a in allergies] == ["Frutos do mar", "Pólen"]
+    assert allergies[0].severity == "RISCO_DE_MORTE"
+    assert allergies[1].severity == "MODERADA"
 
 
 def test_professional_creates_patient_when_supabase_invite_fails(monkeypatch):

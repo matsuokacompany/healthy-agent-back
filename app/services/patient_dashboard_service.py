@@ -42,6 +42,7 @@ from app.models.schemas import (
     PatientMonitoringSummary,
     PatientNextCheckin,
     PatientResponsibleProfessional,
+    PatientSymptomTermSample,
     PatientTopSymptomTerm,
     PatientTopSymptomTermsResponse,
 )
@@ -202,6 +203,11 @@ class PatientDashboardService:
         self._ensure_patient_access(current_user)
         return PatientTopSymptomTermsResponse(items=self._get_top_symptom_terms(current_user.id, limit=limit))
 
+    # Small on purpose -- this is a quick "what did they actually say"
+    # glance next to a term's count, not a full check-in history (the
+    # Check-ins table already covers that).
+    SYMPTOM_TERM_SAMPLE_LIMIT = 3
+
     def _get_top_symptom_terms(self, patient_id: int, *, limit: int = 6) -> list[PatientTopSymptomTerm]:
         # Reuses the normalized SymptomTerm vocabulary (see
         # SymptomNormalizationService) so "diarréia" and "Um pouco de
@@ -209,10 +215,10 @@ class PatientDashboardService:
         # unrelated one-off strings. A report the classifier hasn't reached
         # yet (or failed on) simply contributes no rows here.
         rows = (
-            self.db.query(SymptomTerm.label, func.count(DailyReportSymptomTerm.daily_report_id).label("term_count"))
+            self.db.query(SymptomTerm.id, SymptomTerm.label, func.count(DailyReportSymptomTerm.daily_report_id).label("term_count"))
             .join(DailyReportSymptomTerm, DailyReportSymptomTerm.symptom_term_id == SymptomTerm.id)
             .filter(DailyReportSymptomTerm.patient_id == patient_id)
-            .group_by(SymptomTerm.label)
+            .group_by(SymptomTerm.id, SymptomTerm.label)
             .all()
         )
         # Grouped by the raw label above, but two SymptomTerm rows can still
@@ -221,14 +227,74 @@ class PatientDashboardService:
         # clean_symptom_label) -- merge those here on the normalized key so
         # the ranking never double-counts what looks like one symptom.
         merged: dict[str, dict] = {}
-        for label, term_count in rows:
+        for term_id, label, term_count in rows:
             key = normalize_symptom_label(label)
-            entry = merged.setdefault(key, {"label": label, "count": 0})
+            entry = merged.setdefault(key, {"label": label, "count": 0, "term_ids": []})
             entry["count"] += int(term_count)
+            entry["term_ids"].append(term_id)
             if len(label) < len(entry["label"]):
                 entry["label"] = label
         ordered = sorted(merged.values(), key=lambda entry: entry["count"], reverse=True)[:limit]
-        return [PatientTopSymptomTerm(label=entry["label"], count=entry["count"]) for entry in ordered]
+        samples_by_term_id = self._get_symptom_term_samples(
+            patient_id, term_ids=[term_id for entry in ordered for term_id in entry["term_ids"]]
+        )
+        result = []
+        for entry in ordered:
+            samples: list[PatientSymptomTermSample] = []
+            seen_report_ids: set[int] = set()
+            for term_id in entry["term_ids"]:
+                for sample in samples_by_term_id.get(term_id, []):
+                    if sample.report_id not in seen_report_ids:
+                        seen_report_ids.add(sample.report_id)
+                        samples.append(sample)
+            samples.sort(key=lambda sample: sample.report_date, reverse=True)
+            result.append(
+                PatientTopSymptomTerm(
+                    label=entry["label"],
+                    count=entry["count"],
+                    samples=samples[: self.SYMPTOM_TERM_SAMPLE_LIMIT],
+                )
+            )
+        return result
+
+    def _get_symptom_term_samples(
+        self, patient_id: int, *, term_ids: list[int]
+    ) -> dict[int, list[PatientSymptomTermSample]]:
+        if not term_ids:
+            return {}
+        # A row whose description is a purely referential follow-up ("mesma
+        # dor, mesmo lugar") chains to origin_report_id -- the earlier
+        # report whose own symptom_description actually carries the detail
+        # (location, laterality, etc.). Reading that one instead of the
+        # follow-up's report keeps a sample useful rather than literally
+        # "mesma dor, mesmo lugar" with no context.
+        source_report_id = func.coalesce(DailyReportSymptomTerm.origin_report_id, DailyReportSymptomTerm.daily_report_id)
+        rows = (
+            self.db.query(DailyReportSymptomTerm.symptom_term_id, DailyReport)
+            .join(DailyReport, DailyReport.id == source_report_id)
+            .filter(DailyReportSymptomTerm.patient_id == patient_id, DailyReportSymptomTerm.symptom_term_id.in_(term_ids))
+            .order_by(DailyReport.report_date.desc())
+            .all()
+        )
+        samples_by_term_id: dict[int, list[PatientSymptomTermSample]] = {}
+        seen_report_ids: dict[int, set[int]] = {}
+        for term_id, report in rows:
+            bucket = samples_by_term_id.setdefault(term_id, [])
+            seen = seen_report_ids.setdefault(term_id, set())
+            if len(bucket) >= self.SYMPTOM_TERM_SAMPLE_LIMIT or report.id in seen:
+                continue
+            DailyReportService.hydrate_clinical(report)
+            if not report.symptom_description:
+                continue
+            seen.add(report.id)
+            bucket.append(
+                PatientSymptomTermSample(
+                    report_id=report.id,
+                    report_date=report.report_date,
+                    description=report.symptom_description,
+                )
+            )
+        return samples_by_term_id
 
     @staticmethod
     def _ensure_patient_access(current_user: User) -> None:
