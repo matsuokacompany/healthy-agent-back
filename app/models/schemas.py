@@ -498,6 +498,30 @@ class SupplementRead(ORMModel):
     created_at: datetime
 
 
+class AllergySeverityEnum(str, Enum):
+    LEVE = "LEVE"
+    MODERADA = "MODERADA"
+    GRAVE = "GRAVE"
+    RISCO_DE_MORTE = "RISCO_DE_MORTE"
+
+
+class AllergyCreate(StrictRequestModel):
+    allergen: ShortPlainText
+    severity: AllergySeverityEnum = AllergySeverityEnum.MODERADA
+
+
+class AllergyUpdate(StrictRequestModel):
+    allergen: Optional[ShortPlainText] = None
+    severity: Optional[AllergySeverityEnum] = None
+
+
+class AllergyRead(ORMModel):
+    id: int
+    allergen: str
+    severity: AllergySeverityEnum
+    created_at: datetime
+
+
 class ProfessionalProfileBase(StrictRequestModel):
     license_number: Optional[str] = Field(default=None, max_length=64)
     license_state: Optional[str] = Field(default=None, max_length=32)

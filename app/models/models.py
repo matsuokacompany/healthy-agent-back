@@ -410,6 +410,37 @@ class Supplement(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
+class AllergySeverityEnum(str, enum.Enum):
+    """How severe a reaction to this allergen is -- e.g. RISCO_DE_MORTE
+    marks an allergy severe enough to be life-threatening (anaphylaxis),
+    which the clinical handoff summary surfaces prominently rather than
+    burying alongside milder ones."""
+    LEVE = "LEVE"
+    MODERADA = "MODERADA"
+    GRAVE = "GRAVE"
+    RISCO_DE_MORTE = "RISCO_DE_MORTE"
+
+
+class Allergy(Base):
+    """A patient-managed list of allergies, each with its own severity
+    level -- shown on the anamnese page next to supplements, same
+    add-a-row UX. Distinct from Anamnese.medication_allergies/
+    food_restrictions, which stay professional-authored free text; this is
+    self-managed by the patient directly, same RLS pattern as Supplement
+    (see migration 0046)."""
+
+    __tablename__ = "allergies"
+    __table_args__ = (
+        Index("ix_allergies_patient_id", "patient_id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    patient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    allergen = Column(String, nullable=False)
+    severity = Column(String, nullable=False, default=AllergySeverityEnum.MODERADA.value)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
 class DailyReport(Base):
     __tablename__ = "daily_reports"
     __table_args__ = (
