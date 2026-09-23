@@ -201,14 +201,20 @@ class PatientDashboardService:
 
     def get_top_symptom_terms(self, current_user: User, *, limit: int = 6) -> PatientTopSymptomTermsResponse:
         self._ensure_patient_access(current_user)
-        return PatientTopSymptomTermsResponse(items=self._get_top_symptom_terms(current_user.id, limit=limit))
+        return PatientTopSymptomTermsResponse(items=self._get_top_symptom_terms([current_user.id], limit=limit))
+
+    def get_top_symptom_terms_for_patients(self, patient_ids: list[int], *, limit: int = 6) -> PatientTopSymptomTermsResponse:
+        # No access check here -- the caller (e.g. ProfessionalService's
+        # dashboard overview) is responsible for scoping patient_ids to
+        # patients it has already verified access to.
+        return PatientTopSymptomTermsResponse(items=self._get_top_symptom_terms(patient_ids, limit=limit))
 
     # Small on purpose -- this is a quick "what did they actually say"
     # glance next to a term's count, not a full check-in history (the
     # Check-ins table already covers that).
     SYMPTOM_TERM_SAMPLE_LIMIT = 3
 
-    def _get_top_symptom_terms(self, patient_id: int, *, limit: int = 6) -> list[PatientTopSymptomTerm]:
+    def _get_top_symptom_terms(self, patient_ids: list[int], *, limit: int = 6) -> list[PatientTopSymptomTerm]:
         # Reuses the normalized SymptomTerm vocabulary (see
         # SymptomNormalizationService) so "diarréia" and "Um pouco de
         # diarréia" count as the same technical term instead of two
@@ -217,7 +223,7 @@ class PatientDashboardService:
         rows = (
             self.db.query(SymptomTerm.id, SymptomTerm.label, func.count(DailyReportSymptomTerm.daily_report_id).label("term_count"))
             .join(DailyReportSymptomTerm, DailyReportSymptomTerm.symptom_term_id == SymptomTerm.id)
-            .filter(DailyReportSymptomTerm.patient_id == patient_id)
+            .filter(DailyReportSymptomTerm.patient_id.in_(patient_ids))
             .group_by(SymptomTerm.id, SymptomTerm.label)
             .all()
         )
@@ -236,7 +242,7 @@ class PatientDashboardService:
                 entry["label"] = label
         ordered = sorted(merged.values(), key=lambda entry: entry["count"], reverse=True)[:limit]
         samples_by_term_id = self._get_symptom_term_samples(
-            patient_id, term_ids=[term_id for entry in ordered for term_id in entry["term_ids"]]
+            patient_ids, term_ids=[term_id for entry in ordered for term_id in entry["term_ids"]]
         )
         result = []
         for entry in ordered:
@@ -258,7 +264,7 @@ class PatientDashboardService:
         return result
 
     def _get_symptom_term_samples(
-        self, patient_id: int, *, term_ids: list[int]
+        self, patient_ids: list[int], *, term_ids: list[int]
     ) -> dict[int, list[PatientSymptomTermSample]]:
         if not term_ids:
             return {}
@@ -272,7 +278,7 @@ class PatientDashboardService:
         rows = (
             self.db.query(DailyReportSymptomTerm.symptom_term_id, DailyReport)
             .join(DailyReport, DailyReport.id == source_report_id)
-            .filter(DailyReportSymptomTerm.patient_id == patient_id, DailyReportSymptomTerm.symptom_term_id.in_(term_ids))
+            .filter(DailyReportSymptomTerm.patient_id.in_(patient_ids), DailyReportSymptomTerm.symptom_term_id.in_(term_ids))
             .order_by(DailyReport.report_date.desc())
             .all()
         )

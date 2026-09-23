@@ -35,6 +35,7 @@ from app.models.schemas import (
     PatientLinkRequestSentRead,
     ProfessionalAiReportRequest,
     ProfessionalAiReportResponse,
+    ProfessionalDashboardOverview,
     ProfessionalPatientRead,
     ProfessionalPatientCreate,
     ProfessionalPatientCreateResponse,
@@ -68,6 +69,14 @@ def list_professional_patients(
     current_user: User = Depends(get_current_user),
 ):
     return ProfessionalService(db).list_patients(current_user)
+
+
+@router.get("/dashboard", response_model=ProfessionalDashboardOverview)
+def get_professional_dashboard_overview(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return ProfessionalService(db).get_dashboard_overview(current_user)
 
 
 @router.post(

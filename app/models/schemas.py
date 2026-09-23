@@ -957,6 +957,21 @@ class ProfessionalPatientRead(BaseModel):
     has_own_subscription: bool = False
 
 
+class ProfessionalDashboardRedFlag(BaseModel):
+    patient_id: int
+    patient_name: str
+    report_date: date
+    category_key: str
+    category_label: str
+    tier: str
+
+
+class ProfessionalDashboardOverview(BaseModel):
+    active_patients: int = 0
+    red_flags: List[ProfessionalDashboardRedFlag] = Field(default_factory=list)
+    top_symptoms: List[PatientTopSymptomTerm] = Field(default_factory=list)
+
+
 class ProfessionalAiReportRequest(BaseModel):
     periodo: Literal["diario", "semanal", "mensal"] = "semanal"
     modo: Literal["preventivo", "avaliacao_clinica"] = "avaliacao_clinica"
