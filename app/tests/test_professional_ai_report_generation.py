@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -21,6 +21,8 @@ from app.services.professional_service import ProfessionalService
 
 
 class FakeInsightService:
+    PREVENTIVE_REPORT_COOLDOWN_DAYS = 180
+
     def __init__(self, api_key=None, modo=None):
         self.modo = modo
 
@@ -152,3 +154,68 @@ def test_set_ai_report_feedback_404s_for_a_report_that_belongs_to_another_patien
     with pytest.raises(HTTPException) as exc_info:
         service.set_ai_report_feedback(professional, other_patient.id, generated.report_id, feedback="up")
     assert exc_info.value.status_code == 404
+
+
+def test_generate_ai_report_does_not_reuse_a_different_modes_cached_report(monkeypatch):
+    # Regression test: the cache lookup used to filter only by patient_id and
+    # created_at, not modo -- a preventivo request made the same week as an
+    # avaliacao_clinica one would incorrectly return the wrong mode's cached
+    # report (mislabeled in the response).
+    monkeypatch.setattr(professional_service_module, "InsightService", FakeInsightService)
+    db = build_session()
+    professional, patient = create_professional_with_patient(db)
+    service = ProfessionalService(db)
+
+    clinical = service.generate_ai_report(
+        professional, patient.id, periodo="semanal", modo="avaliacao_clinica", api_key=None
+    )
+    preventive = service.generate_ai_report(
+        professional, patient.id, periodo="semanal", modo="preventivo", api_key=None
+    )
+
+    assert clinical.modo == "avaliacao_clinica"
+    assert preventive.modo == "preventivo"
+    assert preventive.report_id != clinical.report_id
+    assert db.query(AiReportCache).count() == 2
+
+
+def test_generate_ai_report_reuses_a_preventivo_report_within_six_months(monkeypatch):
+    monkeypatch.setattr(professional_service_module, "InsightService", FakeInsightService)
+    db = build_session()
+    professional, patient = create_professional_with_patient(db)
+    service = ProfessionalService(db)
+
+    first = service.generate_ai_report(
+        professional, patient.id, periodo="mensal", modo="preventivo", api_key=None
+    )
+    stored = db.get(AiReportCache, first.report_id)
+    stored.created_at = datetime.now(timezone.utc) - timedelta(days=170)
+    db.commit()
+
+    second = service.generate_ai_report(
+        professional, patient.id, periodo="mensal", modo="preventivo", api_key=None
+    )
+
+    assert second.report_id == first.report_id
+    assert db.query(AiReportCache).count() == 1
+
+
+def test_generate_ai_report_regenerates_a_preventivo_report_after_six_months(monkeypatch):
+    monkeypatch.setattr(professional_service_module, "InsightService", FakeInsightService)
+    db = build_session()
+    professional, patient = create_professional_with_patient(db)
+    service = ProfessionalService(db)
+
+    first = service.generate_ai_report(
+        professional, patient.id, periodo="mensal", modo="preventivo", api_key=None
+    )
+    stored = db.get(AiReportCache, first.report_id)
+    stored.created_at = datetime.now(timezone.utc) - timedelta(days=200)
+    db.commit()
+
+    second = service.generate_ai_report(
+        professional, patient.id, periodo="mensal", modo="preventivo", api_key=None
+    )
+
+    assert second.report_id != first.report_id
+    assert db.query(AiReportCache).count() == 2

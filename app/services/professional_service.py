@@ -384,11 +384,17 @@ class ProfessionalService:
         patient = self._require_patient_access(current_user, patient_id)
         self._require_billing_access(self._get_access_profile(current_user))
         clinical_summary = self._build_clinical_summary(patient_id, periodo)
-        week_start = self._current_week_start()
+        if modo == "preventivo":
+            cooldown_days = InsightService.PREVENTIVE_REPORT_COOLDOWN_DAYS
+            window_start = datetime.now(timezone.utc) - timedelta(days=cooldown_days)
+        else:
+            cooldown_days = 30
+            window_start = self._current_week_start()
         cached_report = (
             self.db.query(AiReportCache)
             .filter(AiReportCache.patient_id == patient_id)
-            .filter(AiReportCache.created_at >= week_start)
+            .filter(AiReportCache.modo == modo)
+            .filter(AiReportCache.created_at >= window_start)
             .order_by(AiReportCache.created_at.desc(), AiReportCache.id.desc())
             .first()
         )
@@ -416,7 +422,7 @@ class ProfessionalService:
                 ai_response=ai,
                 status=AiReportStatusEnum.COMPLETED.value,
                 generated_at=generated_at,
-                next_generation_at=generated_at + timedelta(days=30),
+                next_generation_at=generated_at + timedelta(days=cooldown_days),
             )
         self.db.add(report)
         self.db.flush()

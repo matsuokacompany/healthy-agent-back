@@ -129,7 +129,8 @@ class CustomReportGenerationService:
             report.output_tokens = result.output_tokens
             report.actual_cost = self._calculate_cost(result.input_tokens, result.output_tokens)
             report.generated_at = generated_at
-            report.next_generation_at = generated_at + timedelta(days=30)
+            cooldown_days = InsightService.PREVENTIVE_REPORT_COOLDOWN_DAYS if payload.modo == "preventivo" else 30
+            report.next_generation_at = generated_at + timedelta(days=cooldown_days)
             report.status = AiReportStatusEnum.COMPLETED.value
             if bonus_link:
                 bonus_link.bonus_report_credits -= 1

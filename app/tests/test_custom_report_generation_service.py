@@ -28,7 +28,7 @@ class SuccessfulInsightService:
 
     def gerar_interpretacao_com_uso(self, clinical_summary):
         return InsightGenerationResult(
-            data={"avaliacao_clinica": {"hipotese_principal": "Hipótese"}},
+            data={"hipoteses": [{"doenca": "Hipótese", "nivel_de_suspeicao": "moderado"}]},
             input_tokens=100,
             output_tokens=50,
         )

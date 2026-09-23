@@ -397,10 +397,13 @@ de entrada para evitar consumo inesperado de tokens:
 - `temperature=0.1` reduz variação e respostas verbosas.
 - Relatórios enviados à IA são truncados em 6.000 caracteres.
 - Os templates pedem JSON compacto para reduzir tokens de entrada e saída.
-- Na avaliação clínica, a IA pode listar `possiveis_doencas` apenas como hipóteses,
-  sem confirmar diagnóstico.
-- A geração profissional reutiliza o primeiro relatório de IA já emitido na semana
-  para o paciente, evitando múltiplas chamadas pagas para o mesmo usuário.
+- Na avaliação clínica, a IA lista até 5 `hipoteses` (menos quando tem mais certeza),
+  cada uma só como hipótese a investigar, nunca como diagnóstico confirmado.
+- A geração profissional reutiliza o relatório de IA já emitido no período de reuso
+  do modo pedido, evitando múltiplas chamadas pagas para o mesmo usuário: uma semana
+  para `avaliacao_clinica`, 6 meses (`InsightService.PREVENTIVE_REPORT_COOLDOWN_DAYS`)
+  para `preventivo`, já que esse modo busca padrões de risco de longo prazo que não
+  mudam de uma semana para outra.
 - O resumo clínico usa a data clínica do check-in (`report_date`) e inclui adesão,
   dias/check-ins com sintomas, dias/check-ins sem sintomas e tendência do período.
 
