@@ -15,6 +15,9 @@ from app.services.red_flag_symptoms import ANAMNESE_RISK_FACTOR_FIELDS
 from app.models.schemas import (
     AiReportFeedbackRequest,
     AiReportFeedbackResponse,
+    AllergyCreate,
+    AllergyRead,
+    AllergyUpdate,
     AnamneseBase,
     AnamneseRead,
     CustomAiReportPreviewRequest,
@@ -231,6 +234,56 @@ def delete_professional_patient_supplement(
     deleted = ProfessionalService(db).delete_supplement(current_user, patient_id, supplement_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Supplement not found")
+    return None
+
+
+@router.get("/patients/{patient_id}/allergies", response_model=list[AllergyRead])
+def list_professional_patient_allergies(
+    patient_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return ProfessionalService(db).list_allergies(current_user, patient_id)
+
+
+@router.post(
+    "/patients/{patient_id}/allergies",
+    response_model=AllergyRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_professional_patient_allergy(
+    patient_id: int,
+    payload: AllergyCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return ProfessionalService(db).create_allergy(current_user, patient_id, payload)
+
+
+@router.patch("/patients/{patient_id}/allergies/{allergy_id}", response_model=AllergyRead)
+def update_professional_patient_allergy(
+    patient_id: int,
+    allergy_id: int,
+    payload: AllergyUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    updated = ProfessionalService(db).update_allergy(current_user, patient_id, allergy_id, payload)
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Allergy not found")
+    return updated
+
+
+@router.delete("/patients/{patient_id}/allergies/{allergy_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_professional_patient_allergy(
+    patient_id: int,
+    allergy_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    deleted = ProfessionalService(db).delete_allergy(current_user, patient_id, allergy_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Allergy not found")
     return None
 
 

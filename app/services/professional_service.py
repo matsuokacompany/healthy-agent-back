@@ -24,6 +24,8 @@ from app.models.models import (
 )
 from app.models.schemas import (
     AiReportFeedbackResponse,
+    AllergyCreate,
+    AllergyUpdate,
     AnamneseRead,
     PatientDashboardCalendarResponse,
     PatientDashboardCheckinsResponse,
@@ -56,6 +58,7 @@ from app.services.payment_service import PaymentService
 from app.services.professional_capacity_service import patient_has_own_subscription, require_patient_cap
 from app.services.report_service import ReportService
 from app.services.anamnese_clinical_service import AnamneseClinicalService
+from app.services.allergy_service import AllergyService
 from app.services.supplement_service import SupplementService
 
 
@@ -379,6 +382,35 @@ class ProfessionalService:
     def delete_supplement(self, current_user: User, patient_id: int, supplement_id: int) -> bool:
         self._require_patient_access(current_user, patient_id)
         return SupplementService(self.db).delete_for_patient(patient_id, supplement_id)
+
+    def list_allergies(self, current_user: User, patient_id: int) -> list[Allergy]:
+        self._require_patient_access(current_user, patient_id)
+        return AllergyService(self.db).list_for_patient(patient_id)
+
+    def create_allergy(
+        self,
+        current_user: User,
+        patient_id: int,
+        payload: AllergyCreate,
+    ) -> Allergy:
+        self._require_patient_access(current_user, patient_id)
+        return AllergyService(self.db).create_for_patient(patient_id, payload.allergen, severity=payload.severity)
+
+    def update_allergy(
+        self,
+        current_user: User,
+        patient_id: int,
+        allergy_id: int,
+        payload: AllergyUpdate,
+    ) -> Allergy | None:
+        self._require_patient_access(current_user, patient_id)
+        return AllergyService(self.db).update_for_patient(
+            patient_id, allergy_id, **payload.model_dump(exclude_unset=True)
+        )
+
+    def delete_allergy(self, current_user: User, patient_id: int, allergy_id: int) -> bool:
+        self._require_patient_access(current_user, patient_id)
+        return AllergyService(self.db).delete_for_patient(patient_id, allergy_id)
 
     def generate_ai_report(
         self,
