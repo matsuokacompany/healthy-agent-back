@@ -18,6 +18,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
+    env:
+      # SSH to the instance tunnels through AWS Systems Manager instead of a
+      # direct TCP connection, so port 22 never needs to be open to the
+      # internet -- these credentials only need ssm:StartSession on the one
+      # instance below, nothing broader. The instance ID is stable for the
+      # life of the box (unlike its public IP), so it's safe to commit here.
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      EC2_INSTANCE_ID: i-07feed649da182801
 
     steps:
       # Keep the deploy independent from Marketplace action downloads. This is
@@ -58,40 +69,44 @@ jobs:
           docker push "$IMAGE:latest"
           docker push "$IMAGE:${{ github.sha }}"
 
-      - name: Configure SSH
+      # The AWS CLI ships preinstalled on ubuntu-latest; the Session Manager
+      # plugin doesn't, and it's an AWS-provided binary (not a Marketplace
+      # action), fetched directly from AWS's own distribution bucket.
+      - name: Install SSM Session Manager plugin
+        run: |
+          set -euo pipefail
+          curl -sS "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" \
+            -o /tmp/session-manager-plugin.deb
+          sudo dpkg -i /tmp/session-manager-plugin.deb
+          session-manager-plugin --version
+          aws --version
+
+      - name: Configure SSH over SSM
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_HOST_KEY: ${{ secrets.EC2_HOST_KEY }}
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
           set -euo pipefail
-          test -n "$EC2_HOST"
-          test -n "$EC2_HOST_KEY"
           test -n "$EC2_SSH_KEY"
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "$EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
 
-          # Preserve the trusted key but bind it to the exact hostname used by
-          # scp. This also handles a key collected using the instance IP while
-          # EC2_HOST contains its DNS name (or the inverse).
-          printf '%s\n' "$EC2_HOST_KEY" | tr -d '\r' | awk -v host="$EC2_HOST" '
-            NF >= 3 && $1 !~ /^#/ { print host, $(NF - 1), $NF }
-          ' > ~/.ssh/known_hosts
-          if [ ! -s ~/.ssh/known_hosts ]; then
-            echo "EC2_HOST_KEY must contain the complete output of: ssh-keyscan -H $EC2_HOST" >&2
-            exit 1
-          fi
-          chmod 600 ~/.ssh/id_deploy ~/.ssh/known_hosts
-          cat > ~/.ssh/config <<'EOF'
-          Host *
+          # No known_hosts pinning here: the connection never touches the
+          # open network, it's tunneled through the SSM agent's own
+          # authenticated channel to this exact instance ID, so there's no
+          # position from which the host key could be spoofed the way a
+          # direct TCP connection could be.
+          cat > ~/.ssh/config <<EOF
+          Host ec2-deploy-target
             IdentityFile ~/.ssh/id_deploy
             IdentitiesOnly yes
             BatchMode yes
-            StrictHostKeyChecking yes
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+            ProxyCommand aws ssm start-session --target $EC2_INSTANCE_ID --document-name AWS-StartSSHSession --parameters portNumber=%p --region $AWS_REGION
           EOF
           chmod 600 ~/.ssh/config
-          ssh-keygen -F "$EC2_HOST" -f ~/.ssh/known_hosts >/dev/null
 
       - name: Build deployment bundle
         env:
@@ -109,26 +124,23 @@ jobs:
 
       - name: Upload release to EC2
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
         run: |
           set -euo pipefail
-          test -n "$EC2_HOST"
           test -n "$EC2_USER"
-          if ! ssh -o ConnectTimeout=15 "$EC2_USER@$EC2_HOST" true; then
-            echo "SSH connection failed. Confirm that EC2_HOST_KEY belongs to EC2_HOST and that port 22 is allowed." >&2
+          if ! ssh -o ConnectTimeout=15 "$EC2_USER@ec2-deploy-target" true; then
+            echo "SSM tunnel failed. Confirm: the instance's Ping status is Online in Systems Manager > Fleet Manager; the IAM user behind AWS_ACCESS_KEY_ID has ssm:StartSession on $EC2_INSTANCE_ID; and EC2_INSTANCE_ID/AWS_REGION above still match the instance." >&2
             exit 1
           fi
           scp /tmp/docker-compose.yml /tmp/healthy-agent.env /tmp/ghcr-pull-token \
-            "$EC2_USER@$EC2_HOST:/tmp/"
+            "$EC2_USER@ec2-deploy-target:/tmp/"
 
       - name: Deploy on EC2
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
         run: |
           set -euo pipefail
-          ssh "$EC2_USER@$EC2_HOST" 'bash -se' <<'EOF'
+          ssh "$EC2_USER@ec2-deploy-target" 'bash -se' <<'EOF'
             set -euo pipefail
 
             command -v docker >/dev/null || {
