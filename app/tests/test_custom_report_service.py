@@ -134,6 +134,7 @@ def test_custom_summary_calculates_metrics_symptoms_gaps_and_weekly_timeline():
     # end_date (day 29) — 27 days, not 26.
     assert summary.longest_gap_days == 27
     assert summary.symptom_trend == "insufficient_data"
+    assert summary.symptom_trend_change_percentage_points is None
     assert len(summary.symptoms) == 1
     assert summary.symptoms[0].description == "Dor de cabeça"
     assert summary.symptoms[0].occurrences == 2
@@ -176,6 +177,7 @@ def test_custom_summary_marks_sufficient_data_and_detects_increasing_symptom_rat
     assert summary.sufficient_data is True
     assert summary.metrics.completed_checkins == 10
     assert summary.symptom_trend == "increasing"
+    assert summary.symptom_trend_change_percentage_points == 100.0
 
 
 def test_longest_gap_days_ignores_pending_checkins_that_were_never_answered():

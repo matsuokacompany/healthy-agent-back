@@ -33,6 +33,7 @@ from app.models.schemas import (
     PatientTopSymptomTermsResponse,
     ProfessionalAiReportResponse,
     ProfessionalDashboardAdherenceEntry,
+    ProfessionalDashboardAdherencePoint,
     ProfessionalDashboardMonthlySymptomCount,
     ProfessionalDashboardOverview,
     ProfessionalDashboardRedFlag,
@@ -232,6 +233,7 @@ class ProfessionalService:
     DASHBOARD_RED_FLAG_LIMIT = 15
     DASHBOARD_TOP_SYMPTOMS_LIMIT = 8
     DASHBOARD_ADHERENCE_WINDOW_DAYS = 30
+    DASHBOARD_ADHERENCE_BUCKET_DAYS = 7
     DASHBOARD_SYMPTOMS_BY_MONTH_MONTHS = 6
 
     def get_dashboard_overview(self, current_user: User) -> ProfessionalDashboardOverview:
@@ -273,27 +275,48 @@ class ProfessionalService:
             patient_ids, limit=self.DASHBOARD_TOP_SYMPTOMS_LIMIT
         ).items
 
-        adherence_since = datetime.now(timezone.utc).date() - timedelta(days=self.DASHBOARD_ADHERENCE_WINDOW_DAYS)
+        today = datetime.now(timezone.utc).date()
+        adherence_since = today - timedelta(days=self.DASHBOARD_ADHERENCE_WINDOW_DAYS)
         adherence_rows = (
-            self.db.query(DailyReport.user_id, DailyReport.completed)
+            self.db.query(DailyReport.user_id, DailyReport.report_date, DailyReport.completed)
             .filter(DailyReport.user_id.in_(patient_ids), DailyReport.report_date >= adherence_since)
             .all()
         )
         total_by_patient: dict[int, int] = {}
         completed_by_patient: dict[int, int] = {}
-        for patient_id, completed in adherence_rows:
+        bucket_totals: dict[tuple[int, date], int] = {}
+        bucket_completed: dict[tuple[int, date], int] = {}
+        for patient_id, report_date, completed in adherence_rows:
             total_by_patient[patient_id] = total_by_patient.get(patient_id, 0) + 1
             if completed:
                 completed_by_patient[patient_id] = completed_by_patient.get(patient_id, 0) + 1
+            bucket_index = (today - report_date).days // self.DASHBOARD_ADHERENCE_BUCKET_DAYS
+            bucket_start = today - timedelta(days=(bucket_index + 1) * self.DASHBOARD_ADHERENCE_BUCKET_DAYS - 1)
+            key = (patient_id, bucket_start)
+            bucket_totals[key] = bucket_totals.get(key, 0) + 1
+            if completed:
+                bucket_completed[key] = bucket_completed.get(key, 0) + 1
         patient_names = dict(self.db.query(User.id, User.name).filter(User.id.in_(patient_ids)).all())
-        adherence = [
-            ProfessionalDashboardAdherenceEntry(
-                patient_id=patient_id,
-                patient_name=patient_names.get(patient_id, ""),
-                adherence_percentage=self._percentage(completed_by_patient.get(patient_id, 0), total),
+        adherence = []
+        for patient_id, total in total_by_patient.items():
+            patient_bucket_starts = sorted({bucket_key[1] for bucket_key in bucket_totals if bucket_key[0] == patient_id})
+            weekly = [
+                ProfessionalDashboardAdherencePoint(
+                    week_start=bucket_start,
+                    adherence_percentage=self._percentage(
+                        bucket_completed.get((patient_id, bucket_start), 0), bucket_totals[(patient_id, bucket_start)]
+                    ),
+                )
+                for bucket_start in patient_bucket_starts
+            ]
+            adherence.append(
+                ProfessionalDashboardAdherenceEntry(
+                    patient_id=patient_id,
+                    patient_name=patient_names.get(patient_id, ""),
+                    adherence_percentage=self._percentage(completed_by_patient.get(patient_id, 0), total),
+                    weekly=weekly,
+                )
             )
-            for patient_id, total in total_by_patient.items()
-        ]
         adherence.sort(key=lambda entry: entry.adherence_percentage)
 
         months_since = datetime.now(timezone.utc).date() - timedelta(

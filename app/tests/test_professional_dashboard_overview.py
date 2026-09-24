@@ -164,6 +164,27 @@ def test_dashboard_overview_computes_per_patient_adherence():
     assert by_patient[patient_a.id].patient_name == "Maria"
     assert by_patient[patient_a.id].adherence_percentage == 50.0
     assert by_patient[patient_b.id].adherence_percentage == 100.0
+    # Both reports fall in the same 7-day bucket (today and yesterday), so
+    # patient_a's single weekly point should already reflect the 50% split.
+    assert len(by_patient[patient_a.id].weekly) == 1
+    assert by_patient[patient_a.id].weekly[0].adherence_percentage == 50.0
+
+
+def test_dashboard_overview_buckets_adherence_into_weekly_points():
+    db = build_session()
+    professional, profile = create_professional(db)
+    patient = create_monitored_patient(db, profile)
+    today = date.today()
+    create_report(db, patient=patient, report_date=today, completed=True)
+    create_report(db, patient=patient, report_date=today - timedelta(days=10), completed=False)
+
+    overview = ProfessionalService(db).get_dashboard_overview(professional)
+
+    entry = next(item for item in overview.adherence if item.patient_id == patient.id)
+    assert len(entry.weekly) == 2
+    assert entry.weekly[0].week_start < entry.weekly[1].week_start
+    assert entry.weekly[0].adherence_percentage == 0.0
+    assert entry.weekly[1].adherence_percentage == 100.0
 
 
 def test_dashboard_overview_excludes_adherence_reports_outside_the_window():
