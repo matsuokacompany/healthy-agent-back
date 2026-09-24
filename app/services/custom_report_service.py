@@ -45,6 +45,7 @@ class CustomReportService:
         )
         period_days = (end_date - start_date).days + 1
         completed_checkins = sum(report.completed for report in reports)
+        trend_label, trend_change = self._build_symptom_trend(reports, start_date, end_date)
 
         return CustomClinicalSummary(
             patient_id=patient_id,
@@ -55,7 +56,8 @@ class CustomReportService:
             minimum_completed_checkins=self.MINIMUM_COMPLETED_CHECKINS,
             sufficient_data=completed_checkins >= self.MINIMUM_COMPLETED_CHECKINS,
             metrics=self._build_metrics(reports, period_days),
-            symptom_trend=self._build_symptom_trend(reports, start_date, end_date),
+            symptom_trend=trend_label,
+            symptom_trend_change_percentage_points=trend_change,
             longest_gap_days=self._longest_gap_days(reports, start_date, end_date),
             symptoms=self._build_symptoms(reports),
             timeline=self._build_timeline(reports, start_date, end_date),
@@ -256,23 +258,23 @@ class CustomReportService:
             group_start = group_end + timedelta(days=1)
         return groups
 
-    def _build_symptom_trend(self, reports: list[DailyReport], start_date: date, end_date: date) -> str:
+    def _build_symptom_trend(self, reports: list[DailyReport], start_date: date, end_date: date) -> tuple[str, float | None]:
         if sum(report.completed for report in reports) < self.MINIMUM_COMPLETED_CHECKINS:
-            return "insufficient_data"
+            return "insufficient_data", None
         midpoint = start_date + timedelta(days=((end_date - start_date).days + 1) // 2)
         first_half = [report for report in reports if report.report_date < midpoint]
         second_half = [report for report in reports if report.report_date >= midpoint]
         first_rate = self._completed_symptom_rate(first_half)
         second_rate = self._completed_symptom_rate(second_half)
         if first_rate is None or second_rate is None:
-            return "insufficient_data"
+            return "insufficient_data", None
 
-        difference = second_rate - first_rate
+        difference = round(second_rate - first_rate, 1)
         if difference >= self.TREND_THRESHOLD_PERCENTAGE_POINTS:
-            return "increasing"
+            return "increasing", difference
         if difference <= -self.TREND_THRESHOLD_PERCENTAGE_POINTS:
-            return "decreasing"
-        return "stable"
+            return "decreasing", difference
+        return "stable", difference
 
     @staticmethod
     def _completed_symptom_rate(reports: list[DailyReport]) -> float | None:

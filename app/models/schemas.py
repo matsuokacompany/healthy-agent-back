@@ -966,10 +966,19 @@ class ProfessionalDashboardRedFlag(BaseModel):
     tier: str
 
 
+class ProfessionalDashboardAdherencePoint(BaseModel):
+    week_start: date
+    adherence_percentage: float
+
+
 class ProfessionalDashboardAdherenceEntry(BaseModel):
     patient_id: int
     patient_name: str
     adherence_percentage: float
+    # Weekly breakdown across the same window, oldest first -- lets the
+    # dashboard plot each patient's adherence as a line over time instead of
+    # a single snapshot number.
+    weekly: List[ProfessionalDashboardAdherencePoint] = Field(default_factory=list)
 
 
 class ProfessionalDashboardMonthlySymptomCount(BaseModel):
@@ -1213,6 +1222,11 @@ class CustomClinicalSummary(BaseModel):
     sufficient_data: bool
     metrics: CustomClinicalPeriodMetrics
     symptom_trend: Literal["increasing", "decreasing", "stable", "insufficient_data"]
+    # Percentage-point change in the symptom-report rate between the first
+    # and second half of the period -- the number behind `symptom_trend`'s
+    # label, e.g. +12.5 means symptoms were reported 12.5pp more often in
+    # the second half. None when symptom_trend is "insufficient_data".
+    symptom_trend_change_percentage_points: Optional[float] = None
     longest_gap_days: int = Field(ge=0)
     symptoms: List[CustomClinicalSymptomOccurrence] = Field(default_factory=list)
     timeline: List[CustomClinicalTimelineGroup] = Field(default_factory=list)
