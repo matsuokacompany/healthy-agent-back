@@ -32,6 +32,8 @@ from app.models.schemas import (
     PatientDashboardResponseV2,
     PatientTopSymptomTermsResponse,
     ProfessionalAiReportResponse,
+    ProfessionalDashboardAdherenceEntry,
+    ProfessionalDashboardMonthlySymptomCount,
     ProfessionalDashboardOverview,
     ProfessionalDashboardRedFlag,
     ProfessionalPatientRead,
@@ -229,6 +231,8 @@ class ProfessionalService:
     DASHBOARD_RED_FLAG_LOOKBACK_DAYS = 14
     DASHBOARD_RED_FLAG_LIMIT = 15
     DASHBOARD_TOP_SYMPTOMS_LIMIT = 8
+    DASHBOARD_ADHERENCE_WINDOW_DAYS = 30
+    DASHBOARD_SYMPTOMS_BY_MONTH_MONTHS = 6
 
     def get_dashboard_overview(self, current_user: User) -> ProfessionalDashboardOverview:
         profile = self._get_access_profile(current_user)
@@ -269,11 +273,61 @@ class ProfessionalService:
             patient_ids, limit=self.DASHBOARD_TOP_SYMPTOMS_LIMIT
         ).items
 
+        adherence_since = datetime.now(timezone.utc).date() - timedelta(days=self.DASHBOARD_ADHERENCE_WINDOW_DAYS)
+        adherence_rows = (
+            self.db.query(DailyReport.user_id, DailyReport.completed)
+            .filter(DailyReport.user_id.in_(patient_ids), DailyReport.report_date >= adherence_since)
+            .all()
+        )
+        total_by_patient: dict[int, int] = {}
+        completed_by_patient: dict[int, int] = {}
+        for patient_id, completed in adherence_rows:
+            total_by_patient[patient_id] = total_by_patient.get(patient_id, 0) + 1
+            if completed:
+                completed_by_patient[patient_id] = completed_by_patient.get(patient_id, 0) + 1
+        patient_names = dict(self.db.query(User.id, User.name).filter(User.id.in_(patient_ids)).all())
+        adherence = [
+            ProfessionalDashboardAdherenceEntry(
+                patient_id=patient_id,
+                patient_name=patient_names.get(patient_id, ""),
+                adherence_percentage=self._percentage(completed_by_patient.get(patient_id, 0), total),
+            )
+            for patient_id, total in total_by_patient.items()
+        ]
+        adherence.sort(key=lambda entry: entry.adherence_percentage)
+
+        months_since = datetime.now(timezone.utc).date() - timedelta(
+            days=30 * self.DASHBOARD_SYMPTOMS_BY_MONTH_MONTHS
+        )
+        symptom_dates = (
+            self.db.query(DailyReport.report_date)
+            .filter(
+                DailyReport.user_id.in_(patient_ids),
+                DailyReport.had_symptoms.is_(True),
+                DailyReport.report_date >= months_since,
+            )
+            .all()
+        )
+        counts_by_month: dict[str, int] = {}
+        for (report_date,) in symptom_dates:
+            month_key = report_date.strftime("%Y-%m")
+            counts_by_month[month_key] = counts_by_month.get(month_key, 0) + 1
+        symptoms_by_month = [
+            ProfessionalDashboardMonthlySymptomCount(month=month, count=count)
+            for month, count in sorted(counts_by_month.items())
+        ]
+
         return ProfessionalDashboardOverview(
             active_patients=len(patient_ids),
             red_flags=red_flags,
             top_symptoms=top_symptoms,
+            adherence=adherence,
+            symptoms_by_month=symptoms_by_month,
         )
+
+    @staticmethod
+    def _percentage(numerator: int, denominator: int) -> float:
+        return round((numerator / denominator * 100), 1) if denominator else 0.0
 
     def _active_patient_ids(self, profile: ProfessionalProfile | None) -> list[int]:
         query = self.db.query(MonitoringPlan.patient_id).filter(MonitoringPlan.active.is_(True))
