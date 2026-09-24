@@ -966,10 +966,23 @@ class ProfessionalDashboardRedFlag(BaseModel):
     tier: str
 
 
+class ProfessionalDashboardAdherenceEntry(BaseModel):
+    patient_id: int
+    patient_name: str
+    adherence_percentage: float
+
+
+class ProfessionalDashboardMonthlySymptomCount(BaseModel):
+    month: str
+    count: int
+
+
 class ProfessionalDashboardOverview(BaseModel):
     active_patients: int = 0
     red_flags: List[ProfessionalDashboardRedFlag] = Field(default_factory=list)
     top_symptoms: List[PatientTopSymptomTerm] = Field(default_factory=list)
+    adherence: List[ProfessionalDashboardAdherenceEntry] = Field(default_factory=list)
+    symptoms_by_month: List[ProfessionalDashboardMonthlySymptomCount] = Field(default_factory=list)
 
 
 class ProfessionalAiReportRequest(BaseModel):

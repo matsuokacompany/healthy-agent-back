@@ -70,7 +70,7 @@ def create_monitored_patient(db, profile, *, name="Maria", email="maria@example.
     return patient
 
 
-def create_report(db, *, patient, report_date, red_flag_category=None):
+def create_report(db, *, patient, report_date, red_flag_category=None, completed=True, had_symptoms=True):
     plan = db.query(MonitoringPlan).filter(MonitoringPlan.patient_id == patient.id).first()
     now = datetime.combine(report_date, datetime.min.time(), tzinfo=timezone.utc)
     report = DailyReport(
@@ -78,9 +78,9 @@ def create_report(db, *, patient, report_date, red_flag_category=None):
         monitoring_plan_id=plan.id,
         report_date=report_date,
         check_type=CheckTypeEnum.MORNING,
-        status=DailyReportStatusEnum.COMPLETED,
-        completed=True,
-        had_symptoms=True,
+        status=DailyReportStatusEnum.COMPLETED if completed else DailyReportStatusEnum.PENDING,
+        completed=completed,
+        had_symptoms=had_symptoms,
         red_flag_category=red_flag_category,
         prompt_sent_at=now,
         expires_at=now,
@@ -144,3 +144,51 @@ def test_dashboard_overview_empty_when_no_patients():
     assert overview.active_patients == 0
     assert overview.red_flags == []
     assert overview.top_symptoms == []
+    assert overview.adherence == []
+    assert overview.symptoms_by_month == []
+
+
+def test_dashboard_overview_computes_per_patient_adherence():
+    db = build_session()
+    professional, profile = create_professional(db)
+    patient_a = create_monitored_patient(db, profile, name="Maria", email="maria@example.com")
+    patient_b = create_monitored_patient(db, profile, name="João", email="joao@example.com")
+    today = date.today()
+    create_report(db, patient=patient_a, report_date=today, completed=True)
+    create_report(db, patient=patient_a, report_date=today - timedelta(days=1), completed=False)
+    create_report(db, patient=patient_b, report_date=today, completed=True)
+
+    overview = ProfessionalService(db).get_dashboard_overview(professional)
+
+    by_patient = {entry.patient_id: entry for entry in overview.adherence}
+    assert by_patient[patient_a.id].patient_name == "Maria"
+    assert by_patient[patient_a.id].adherence_percentage == 50.0
+    assert by_patient[patient_b.id].adherence_percentage == 100.0
+
+
+def test_dashboard_overview_excludes_adherence_reports_outside_the_window():
+    db = build_session()
+    professional, profile = create_professional(db)
+    patient = create_monitored_patient(db, profile)
+    old_date = date.today() - timedelta(days=ProfessionalService.DASHBOARD_ADHERENCE_WINDOW_DAYS + 5)
+    create_report(db, patient=patient, report_date=old_date, completed=False)
+
+    overview = ProfessionalService(db).get_dashboard_overview(professional)
+
+    assert overview.adherence == [] or all(entry.patient_id != patient.id for entry in overview.adherence)
+
+
+def test_dashboard_overview_buckets_symptom_counts_by_month():
+    db = build_session()
+    professional, profile = create_professional(db)
+    patient = create_monitored_patient(db, profile)
+    today = date.today()
+    create_report(db, patient=patient, report_date=today, had_symptoms=True)
+    create_report(db, patient=patient, report_date=today - timedelta(days=1), had_symptoms=False)
+
+    overview = ProfessionalService(db).get_dashboard_overview(professional)
+
+    current_month = today.strftime("%Y-%m")
+    matching = [entry for entry in overview.symptoms_by_month if entry.month == current_month]
+    assert len(matching) == 1
+    assert matching[0].count == 1
